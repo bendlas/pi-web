@@ -6,6 +6,7 @@ export { javascript as javascriptLanguage } from "@codemirror/lang-javascript";
 export { json as jsonLanguage } from "@codemirror/lang-json";
 export { markdown as markdownLanguage } from "@codemirror/lang-markdown";
 export { python as pythonLanguage } from "@codemirror/lang-python";
+export { nix as nixLanguage } from "@replit/codemirror-lang-nix";
 export { rust as rustLanguage } from "@codemirror/lang-rust";
 export { defaultHighlightStyle, StreamLanguage, syntaxHighlighting } from "@codemirror/language";
 export { diff as diffLanguage } from "@codemirror/legacy-modes/mode/diff";
