@@ -109,6 +109,7 @@ function languageExtensions(dependencies: FilesViewerDependencies, language: str
     case "python": return [dependencies.pythonLanguage()];
     case "rust": return [dependencies.rustLanguage()];
     case "go": return [dependencies.goLanguage()];
+    case "nix": return [dependencies.nixLanguage()];
     case "diff": return [dependencies.StreamLanguage.define(dependencies.diffLanguage)];
     default: return [];
   }
