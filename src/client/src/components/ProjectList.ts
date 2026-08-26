@@ -36,6 +36,8 @@ export class ProjectList extends LitElement implements KeyboardNavigableSection 
   @property({ type: Boolean }) selectionLoading = false;
   /** Status tree of the machine these projects belong to; absent means no indicators. */
   @property({ attribute: false }) statusSnapshot: MachineStatusSnapshot | undefined;
+  /** Project node ids that carry a keep-unread pin, so their unread badge uses the keep-unread color. */
+  @property({ attribute: false }) keepUnreadNodeIds: ReadonlySet<string> = new Set();
   @property({ type: Boolean, reflect: true }) collapsible = false;
   @property({ type: Boolean, reflect: true }) collapsed = false;
   @property({ attribute: false }) onSelect?: (project: Project) => void;
@@ -132,7 +134,7 @@ export class ProjectList extends LitElement implements KeyboardNavigableSection 
                 >
                   <div class="action-main ui-nav-row-main">
                     <span class="workspace-primary"><span class="workspace-primary-label ui-nav-row-label"><bdi>${project.name}</bdi></span></span><small class="ui-nav-row-meta"><bdi dir="ltr">${project.path}</bdi></small>
-                    ${this.renderActivity(kind, unread, statusWorkKind(flags))}
+                    ${this.renderActivity(project, kind, unread, statusWorkKind(flags))}
                   </div>
                   <div class="action-menu ui-nav-row-actions">
                     <button class="ui-button ui-button--icon action-menu-toggle ui-nav-row-action ui-popup-trigger" aria-expanded=${String(this.openMenuProjectId === project.id)} aria-controls=${`project-menu-${encodeURIComponent(project.id)}`} title=${messages.t("projectActions")} aria-label=${messages.t("actionsFor", { name: project.name })} @click=${(event: MouseEvent) => { event.stopPropagation(); this.toggleMenu(project); }}>⋯</button>
@@ -184,9 +186,10 @@ export class ProjectList extends LitElement implements KeyboardNavigableSection 
     return html`<button class="ui-button ui-toolbar-title section-toggle ui-nav-section-toggle" aria-expanded=${String(!this.collapsed)} @click=${() => { this.onToggleCollapsed?.(); }}><span class="section-title"><span class="section-name">${this.collapsed ? "▸" : "▾"} ${messages.t("projects")}</span>${this.collapsed ? html`<small class="section-selected" title=${selectedTitle}>${selectedSummary}</small>` : null}</span><small class="section-count" role=${this.selectionLoading ? "status" : nothing}>${this.selectionLoading ? messages.t("openingProject") : localization.number(this.projects.length)}</small></button>`;
   }
 
-  private renderActivity(kind: ReturnType<typeof statusActivityKind>, unread: boolean, workKind: ReturnType<typeof statusWorkKind>) {
+  private renderActivity(project: Project, kind: ReturnType<typeof statusActivityKind>, unread: boolean, workKind: ReturnType<typeof statusWorkKind>) {
     const unreadLabel = unread ? messages.t("projectUnread") : undefined;
-    return renderActionActivityIndicator(kind, workKind === "terminal" ? messages.t("projectTerminal") : messages.t("projectActive"), unreadLabel, workKind);
+    const keepUnread = unreadLabel !== undefined && this.keepUnreadNodeIds.has(project.id);
+    return renderActionActivityIndicator(kind, workKind === "terminal" ? messages.t("projectTerminal") : messages.t("projectActive"), unreadLabel, workKind, keepUnread);
   }
 
   private toggleMenu(project: Project) {

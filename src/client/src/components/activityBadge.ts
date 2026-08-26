@@ -25,12 +25,13 @@ export type ActivityIndicatorKind = "session" | "terminal" | "sending" | "interv
  * `workKind` to retain concurrent work inside it. The unread label is the flag
  * — pass undefined when the row has nothing unread.
  */
-export function renderActivityIndicator(kind: ActivityIndicatorKind | undefined, label = "Active", unreadLabel?: string, workKind?: "session" | "terminal"): TemplateResult | undefined {
+export function renderActivityIndicator(kind: ActivityIndicatorKind | undefined, label = "Active", unreadLabel?: string, workKind?: "session" | "terminal", keepUnread = false): TemplateResult | undefined {
   const interventionWork = kind === "intervention-required" ? workKind : undefined;
   if (kind === "intervention-required") label = interventionWork === undefined ? interventionRequiredLabel() : `${interventionRequiredLabel()} · ${label}`;
   if (kind === undefined) {
     if (unreadLabel === undefined) return undefined;
-    return html`<span class="activity-indicator unread" role="img" aria-label=${unreadLabel} title=${unreadLabel}></span>`;
+    const className = keepUnread ? "activity-indicator unread keep-unread" : "activity-indicator unread";
+    return html`<span class=${className} role="img" aria-label=${unreadLabel} title=${unreadLabel}></span>`;
   }
   const markClass = `activity-indicator ${kind}${interventionWork === undefined ? "" : " with-work"}`;
   const innerMark = interventionWork === undefined ? undefined : html`<span class=${`activity-indicator ${interventionWork}`} aria-hidden="true"></span>`;
@@ -38,7 +39,8 @@ export function renderActivityIndicator(kind: ActivityIndicatorKind | undefined,
     return html`<span class=${markClass} role="img" aria-label=${label} title=${label}>${innerMark}</span>`;
   }
   const combinedLabel = `${unreadLabel} · ${label}`;
-  return html`<span class=${`unread-ring${interventionWork === undefined ? "" : " with-intervention-work"}`} role="img" aria-label=${combinedLabel} title=${combinedLabel}><span class=${markClass} aria-hidden="true">${innerMark}</span></span>`;
+  const ringClassName = `unread-ring${keepUnread ? " keep-unread" : ""}${interventionWork === undefined ? "" : " with-intervention-work"}`;
+  return html`<span class=${ringClassName} role="img" aria-label=${combinedLabel} title=${combinedLabel}><span class=${markClass} aria-hidden="true">${innerMark}</span></span>`;
 }
 
 /**
@@ -69,8 +71,8 @@ export function hasStatusUnread(flags: StatusFlags | undefined): boolean {
   return flags?.[CORE_STATUS_FLAGS.unread] === true;
 }
 
-export function renderActionActivityIndicator(kind: ActivityIndicatorKind | undefined, label = "Active", unreadLabel?: string, workKind?: "session" | "terminal"): TemplateResult | undefined {
-  const indicator = renderActivityIndicator(kind, label, unreadLabel, workKind);
+export function renderActionActivityIndicator(kind: ActivityIndicatorKind | undefined, label = "Active", unreadLabel?: string, workKind?: "session" | "terminal", keepUnread = false): TemplateResult | undefined {
+  const indicator = renderActivityIndicator(kind, label, unreadLabel, workKind, keepUnread);
   if (indicator === undefined) return undefined;
   return html`<span class="action-activity ui-nav-row-leading">${indicator}</span>`;
 }
