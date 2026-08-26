@@ -302,6 +302,11 @@ export const listStyles = css`
   .unread-ring { flex: 0 0 auto; box-sizing: border-box; display: inline-grid; place-items: center; width: 9px; height: 9px; margin-right: 6px; border: 1.5px solid var(--pi-accent); border-radius: 50%; vertical-align: 1px; }
   .unread-ring .activity-indicator { width: 5px; height: 5px; margin: 0; vertical-align: 0; }
   .action-activity .unread-ring { margin: 0; vertical-align: 0; }
+  /* Kept-unread pins use a distinct dark-blue so a pinned marker is
+     distinguishable from a fresh daemon completion (which stays accent). */
+  .activity-indicator.unread.keep-unread { background: var(--pi-keep-unread); box-shadow: 0 0 0 2px color-mix(in srgb, var(--pi-keep-unread) 22%, transparent); }
+  .unread-ring.keep-unread { border-color: var(--pi-keep-unread); }
+  .action-row.keep-unread .action-name { color: var(--pi-keep-unread); }
   .action-menu { position: relative; align-self: stretch; }
   .action-menu-toggle { display: grid; place-items: center; height: 100%; min-width: 32px; padding: 0; color: var(--pi-muted); border-left: 0; border-top-left-radius: 0; border-bottom-left-radius: 0; }
   .action-menu-toggle:hover { color: var(--pi-text); background: var(--pi-surface-hover); }
