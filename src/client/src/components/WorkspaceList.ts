@@ -41,6 +41,8 @@ export class WorkspaceList extends LitElement implements KeyboardNavigableSectio
   @property({ attribute: false }) workspaceLabelItems: (workspace: Workspace) => WorkspaceLabelItem[] = () => [];
   /** Status tree of the machine these workspaces belong to; absent means no indicators. */
   @property({ attribute: false }) statusSnapshot: MachineStatusSnapshot | undefined;
+  /** Workspace node ids that carry a keep-unread pin, so their unread badge uses the keep-unread color. */
+  @property({ attribute: false }) keepUnreadNodeIds: ReadonlySet<string> = new Set();
   @property({ attribute: false }) deletingWorkspaceIds: string[] = [];
   @property({ attribute: false }) onSelect?: (workspace: Workspace) => void;
   @property({ attribute: false }) onDelete?: (workspace: Workspace) => void;
@@ -167,9 +169,10 @@ export class WorkspaceList extends LitElement implements KeyboardNavigableSectio
     return html`<button class="ui-button ui-toolbar-title section-toggle ui-nav-section-toggle" aria-expanded=${String(!this.collapsed)} @click=${() => { this.onToggleCollapsed?.(); }}><span class="section-title"><span class="section-name">${this.collapsed ? "▸" : "▾"} ${messages.t("workspaces")}</span>${this.collapsed ? html`<small class="section-selected" title=${selectedTitle}>${selectedSummary}</small>` : null}</span><small class="section-count">${localization.number(this.workspaces.length)}</small></button>`;
   }
 
-  private renderActivity(kind: ReturnType<typeof statusActivityKind>, unread: boolean, workKind: ReturnType<typeof statusWorkKind>): TemplateResult | undefined {
+  private renderActivity(workspace: Workspace, kind: ReturnType<typeof statusActivityKind>, unread: boolean, workKind: ReturnType<typeof statusWorkKind>): TemplateResult | undefined {
     const unreadLabel = unread ? messages.t("workspaceUnread") : undefined;
-    return renderActionActivityIndicator(kind, workKind === "terminal" ? messages.t("workspaceTerminal") : messages.t("workspaceActive"), unreadLabel, workKind);
+    const keepUnread = unreadLabel !== undefined && this.keepUnreadNodeIds.has(workspace.id);
+    return renderActionActivityIndicator(kind, workKind === "terminal" ? messages.t("workspaceTerminal") : messages.t("workspaceActive"), unreadLabel, workKind, keepUnread);
   }
 
   private renderWorkspaceMain(label: string, items: WorkspaceLabelItem[], workspace: Workspace, kind: ReturnType<typeof statusActivityKind>, unread: boolean, workKind: ReturnType<typeof statusWorkKind>): TemplateResult {
@@ -183,7 +186,7 @@ export class WorkspaceList extends LitElement implements KeyboardNavigableSectio
           <span class="workspace-label">${renderWorkspaceLabelInlineItems(items)}</span>
         </small>
       `}
-      ${this.renderActivity(kind, unread, workKind)}
+      ${this.renderActivity(workspace, kind, unread, workKind)}
     `;
   }
 
