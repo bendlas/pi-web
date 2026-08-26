@@ -61,7 +61,7 @@ import { unreadSessionCount } from "./SessionList";
 import "./SessionCleanupDialog";
 import "./SessionTreeNavigator";
 import "./ChatView";
-import type { ChatView } from "./ChatView";
+import type { ChatView, ChatChromeVisibilityDetail } from "./ChatView";
 import "./PromptEditor";
 import type { PromptEditor } from "./PromptEditor";
 import "./StatusBar";
@@ -128,6 +128,12 @@ interface NavigationUrlContext {
   readonly navigation?: NavigationFreshness | undefined;
 }
 
+// Some Android Chrome builds only measure env(safe-area-inset-*) a moment after first paint
+// (or after the first viewport resize). Poll briefly so the bottom inset is reserved without
+// waiting for the user to background and resume the app.
+const SAFE_AREA_MEASURE_INTERVAL_MS = 150;
+const SAFE_AREA_MEASURE_RETRIES = 10;
+
 interface SessionCleanupDialogState {
   preview?: SessionCleanupPreviewResponse | undefined;
   previewRequest?: SessionCleanupRequest | undefined;
@@ -146,6 +152,8 @@ export class PiWebApp extends LitElement {
   @query("app-navigation-panel") private navigationPanel?: AppNavigationPanel;
   @query("#navigation-panel") private navigationPanelFrame?: HTMLElement;
   @query("#workspace-panel") private workspacePanelFrame?: HTMLElement;
+  /** Whether the chat scroll direction has slid the header and input area out of the way. */
+  @state() private chatChromeHidden = false;
 
   private readonly sessionUnread = new SessionUnreadController({
     onChange: (machineId) => {
@@ -449,6 +457,7 @@ export class PiWebApp extends LitElement {
     window.addEventListener("blur", this.resetKeyboardSequence);
     this.systemLightThemeMedia?.addEventListener("change", this.onSystemLightThemeChange);
     this.applyPreferredTheme(false);
+    this.observeViewport();
     this.connectRealtime();
     this.syncSessionUnreadMachines();
     this.piWebStatusTimer = window.setInterval(() => { this.schedulePiWebStatusRefresh(); }, PI_WEB_STATUS_REFRESH_MS);
@@ -470,6 +479,7 @@ export class PiWebApp extends LitElement {
     window.removeEventListener("focusin", this.resetKeyboardSequence);
     window.removeEventListener("blur", this.resetKeyboardSequence);
     this.systemLightThemeMedia?.removeEventListener("change", this.onSystemLightThemeChange);
+    this.disconnectViewportObservers();
     this.keyboard.reset();
     // A custom element can be removed before its constructor-scheduled built-in
     // batch reaches the registration queue. The shutdown owns that rejection.
@@ -490,6 +500,75 @@ export class PiWebApp extends LitElement {
     this.cancelWorkspaceDeletionRefresh();
     this.clearPendingRemoteRouteRestore();
     super.disconnectedCallback();
+  }
+
+  private safeAreaRetryId: number | undefined = undefined;
+
+  /** Size the root from the live viewport and keep the lower chrome clear of the OS bar.
+   *  The root height is driven from window.innerHeight (--pi-app-height) because 100dvh can
+   *  resolve to a stale value on first paint and only correct itself after a real viewport
+   *  resize (backgrounding/resuming the app) - the exact moment the cut-off self-corrects.
+   *  The bottom inset is env(safe-area-inset-bottom); some Android Chrome builds report 0 until
+   *  that same first resize, so we re-apply it as soon as it is measured and on every viewport
+   *  change, with a short retry loop to catch the browser measuring it shortly after first paint. */
+  private observeViewport(): void {
+    this.updateViewportMetrics();
+    if (typeof window === "undefined") return;
+    window.addEventListener("load", this.onViewportChange);
+    window.addEventListener("pageshow", this.onViewportChange);
+    window.addEventListener("resize", this.onViewportChange);
+    window.addEventListener("orientationchange", this.onViewportChange);
+    window.visualViewport?.addEventListener("resize", this.onViewportChange);
+    if (typeof requestAnimationFrame === "function") requestAnimationFrame(() => { this.updateViewportMetrics(); });
+    // env(safe-area-inset-*) is sometimes only measured by the browser a moment after first
+    // paint; poll briefly so the inset is reserved without waiting for an app-switch.
+    if (typeof window.setTimeout === "function") {
+      let tries = 0;
+      const tick = (): void => {
+        this.updateViewportMetrics();
+        tries += 1;
+        if (tries < SAFE_AREA_MEASURE_RETRIES) this.safeAreaRetryId = window.setTimeout(tick, SAFE_AREA_MEASURE_INTERVAL_MS);
+      };
+      this.safeAreaRetryId = window.setTimeout(tick, SAFE_AREA_MEASURE_INTERVAL_MS);
+    }
+  }
+
+  private disconnectViewportObservers(): void {
+    if (typeof window === "undefined") return;
+    window.removeEventListener("load", this.onViewportChange);
+    window.removeEventListener("pageshow", this.onViewportChange);
+    window.removeEventListener("resize", this.onViewportChange);
+    window.removeEventListener("orientationchange", this.onViewportChange);
+    window.visualViewport?.removeEventListener("resize", this.onViewportChange);
+    if (this.safeAreaRetryId !== undefined) {
+      window.clearTimeout(this.safeAreaRetryId);
+      this.safeAreaRetryId = undefined;
+    }
+  }
+
+  private readonly onViewportChange = (): void => {
+    this.updateViewportMetrics();
+  };
+
+  private updateViewportMetrics(): void {
+    const height = this.measureViewportHeight();
+    if (height > 0) this.style.setProperty("--pi-app-height", `${String(height)}px`);
+    this.style.setProperty("--pi-app-safe-area-bottom", `${String(this.measureEnvInset())}px`);
+  }
+
+  private measureViewportHeight(): number {
+    if (typeof window === "undefined") return 0;
+    return window.innerHeight > 0 ? window.innerHeight : 0;
+  }
+
+  private measureEnvInset(): number {
+    if (typeof document === "undefined") return 0;
+    const probe = document.createElement("div");
+    probe.style.cssText = "position:fixed;left:0;bottom:0;width:1px;height:env(safe-area-inset-bottom);visibility:hidden;pointer-events:none;";
+    document.body.appendChild(probe);
+    const height = probe.offsetHeight;
+    probe.remove();
+    return height > 0 ? height : 0;
   }
 
   private setState(patch: Partial<AppState>) {
@@ -3360,9 +3439,23 @@ export class PiWebApp extends LitElement {
       this.notificationView = selectedNotificationView(state.selectedNotificationInbox);
     }
     return html`
-      <chat-view .contentRendering=${this.plugins.chatContentRendering} .machineId=${selectedMachineId(state)} @workspace-file-open=${this.handleWorkspaceFileOpen} .workspaceContext=${markdownWorkspaceContext(selectedMachineId(state), state.selectedWorkspace, session)} .sessionId=${session.id} .sessionCwd=${session.cwd} .onMessageAction=${this.handleMessageAction} .messageActionsDisabled=${session.archived === true || state.sendingPrompts[session.id] === true || isSessionActive(state.status, state.activity)} .messages=${state.messages} .messageStart=${state.messagePageStart} .messageEnd=${state.messagePageEnd} .messageTotal=${state.messagePageTotal} .hasMore=${state.messagePageStart > 0} .loadingMore=${state.isLoadingEarlierMessages} .isSendingPrompt=${state.sendingPrompts[session.id] === true} .isCompacting=${state.status?.isCompacting === true} .pendingMessageCount=${state.status?.pendingMessageCount ?? 0} .clientQueuedMessages=${state.clientQueuedSessionMessages[session.id] ?? this.emptyClientQueue} .status=${state.status} .activity=${state.activity} .pendingAsk=${state.pendingAsk} .pendingDialogs=${state.pendingDialogs} .closedDialogs=${state.closedDialogs} .onAnswerDialog=${this.handleAnswerDialog} .onCancelDialog=${this.handleCancelDialog} .onDismissClosedDialog=${this.handleDismissClosedDialog} .askDraftSessionId=${machineSessionKey(selectedMachineId(state), session.id)} .onSubmitAsk=${this.handleSubmitAsk} .notificationInbox=${this.notificationView} .onClearServerQueue=${this.handleClearServerQueue} .onDismissWarning=${this.handleDismissWarning} .onDismissNotification=${this.handleDismissNotification} .onDismissAllNotifications=${this.handleDismissAllNotifications} .warningsVisible=${!this.sessionWarningVisibility.collapsed} .onToggleWarnings=${this.handleToggleWarnings} .onLoadMore=${this.handleLoadEarlierMessages}></chat-view>
+      <chat-view @chat-chrome-visibility=${this.handleChatChromeVisibility} .contentRendering=${this.plugins.chatContentRendering} .machineId=${selectedMachineId(state)} @workspace-file-open=${this.handleWorkspaceFileOpen} .workspaceContext=${markdownWorkspaceContext(selectedMachineId(state), state.selectedWorkspace, session)} .sessionId=${session.id} .sessionCwd=${session.cwd} .onMessageAction=${this.handleMessageAction} .messageActionsDisabled=${session.archived === true || state.sendingPrompts[session.id] === true || isSessionActive(state.status, state.activity)} .messages=${state.messages} .messageStart=${state.messagePageStart} .messageEnd=${state.messagePageEnd} .messageTotal=${state.messagePageTotal} .hasMore=${state.messagePageStart > 0} .loadingMore=${state.isLoadingEarlierMessages} .isSendingPrompt=${state.sendingPrompts[session.id] === true} .isCompacting=${state.status?.isCompacting === true} .pendingMessageCount=${state.status?.pendingMessageCount ?? 0} .clientQueuedMessages=${state.clientQueuedSessionMessages[session.id] ?? this.emptyClientQueue} .status=${state.status} .activity=${state.activity} .pendingAsk=${state.pendingAsk} .pendingDialogs=${state.pendingDialogs} .closedDialogs=${state.closedDialogs} .onAnswerDialog=${this.handleAnswerDialog} .onCancelDialog=${this.handleCancelDialog} .onDismissClosedDialog=${this.handleDismissClosedDialog} .askDraftSessionId=${machineSessionKey(selectedMachineId(state), session.id)} .onSubmitAsk=${this.handleSubmitAsk} .notificationInbox=${this.notificationView} .onClearServerQueue=${this.handleClearServerQueue} .onDismissWarning=${this.handleDismissWarning} .onDismissNotification=${this.handleDismissNotification} .onDismissAllNotifications=${this.handleDismissAllNotifications} .warningsVisible=${!this.sessionWarningVisibility.collapsed} .onToggleWarnings=${this.handleToggleWarnings} .onLoadMore=${this.handleLoadEarlierMessages}></chat-view>
     `;
   }
+
+  private readonly handleChatChromeVisibility = (event: CustomEvent<ChatChromeVisibilityDetail>): void => {
+    const hidden = event.detail?.hidden === true;
+    // Keep the input area reachable while the user is composing a message.
+    if (hidden && this.promptEditor?.contains(document.activeElement)) return;
+    this.chatChromeHidden = hidden;
+  };
+
+  private readonly handleChromeFocusIn = (event: FocusEvent): void => {
+    const target = event.target as Node | null;
+    const editor = this.promptEditor;
+    if (target === null || editor === undefined || editor === null) return;
+    if (target === editor || editor.contains(target)) this.chatChromeHidden = false;
+  };
 
   private renderStatusBar(state: AppState) {
     const warningCount = this.sessionWarningVisibility.warningCount;
@@ -3521,7 +3614,7 @@ export class PiWebApp extends LitElement {
       <div class=${this.panelCollapse.shellClass(mainView)} style=${this.panelResize.shellStyle({ navigation: this.resizablePanelConstraints("navigation"), workspace: this.resizablePanelConstraints("workspace") })}>
         <aside id="navigation-panel">${this.appShell.isMobileNavigationLayout ? null : this.renderNavigationPanel()}</aside>
         ${this.renderNavigationPanelEdgeControl()}
-        <main class=${mainViewClass(mainView)}>
+        <main class=${`${mainViewClass(mainView)}${this.chatChromeHidden ? " chrome-hidden" : ""}`} @focusin=${this.handleChromeFocusIn}>
           ${this.renderContextBar()}
           ${guard([...this.workspaceSurfaceInputs(), state.sessions, this.unreadSessionIds], () => this.renderMobileMainTabs())}
           ${this.unknownRouteView() === undefined ? null : html`<div class="error warning" role="alert"><span class="error-text">Unknown view: ${this.unknownRouteView()}</span></div>`}

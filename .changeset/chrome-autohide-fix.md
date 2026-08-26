@@ -1,0 +1,7 @@
+---
+"@jmfederico/pi-web": patch
+---
+
+Fix chat chrome auto-hide so scrolling up now collapses the upper chrome (the context bar and mobile tab strip) as well as the lower prompt input. The collapse previously only reached the prompt editor because the `chrome-hidden` rule targeted the `.context-bar` / `.mobile-tabs-frame` classes, which live inside the shadow roots of `app-context-bar` / `app-mobile-main-tabs`; the rule now targets the host elements so the whole header slides away.
+
+Also keep the lower chrome (send button line) clear of the Android system bar / iOS home indicator on first load. The root was sized with `100dvh` and the bottom inset with `env(safe-area-inset-bottom)`; both can resolve to a stale value on first paint and only correct themselves after a real viewport resize (backgrounding and resuming the app), which is exactly when the cut-off self-corrected. `pi-web-app` now drives its height from the live `window.innerHeight` (`--pi-app-height`), re-applies the measured `env(safe-area-inset-bottom)` on every `load` / `pageshow` / `resize` / `orientationchange` / `visualViewport` resize, and briefly polls for the inset after first paint so it is reserved without waiting for an app-switch. The previous `window.screen`-based fallback for the inset was removed because it is ineffective on Android (the navigation bar is an overlay that `screen.availHeight` does not exclude) and over-padded the bottom on desktop.
