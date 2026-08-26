@@ -1037,6 +1037,14 @@ export interface PiSessionServiceDependencies {
   createAgentRuntime?: CreateAgentRuntime;
   modelRuntime: ModelRuntime;
   heartbeatIntervalMs?: number;
+  /**
+   * How often to sweep the unread catalog for cwds that no longer host any
+   * live session (e.g. a deleted git worktree) and drop their stale records.
+   * The per-cwd reconcile in `list` only fires when a client lists that exact
+   * cwd, so a cwd that disappears between listings would otherwise linger.
+   * Defaults to five minutes.
+   */
+  unreadReconcileIntervalMs?: number;
   workspaceActivity?: Pick<WorkspaceActivityService, "applySessionStatus" | "applySessionActivity" | "removeSession" | "reconcileSessionActivity">;
   /**
    * When provided, `spawn_session` is available to sessions whose creation
@@ -1107,6 +1115,9 @@ export class PiSessionService implements SessionRouteService {
   private readonly startupSessions = new Map<string, PiAgentSession>();
   private readonly activities = new Map<string, { phase: "active" | "idle" | "error"; label: string; detail?: string; at: string }>();
   private readonly heartbeat: NodeJS.Timeout;
+  private readonly unreadReconcileIntervalMs: number;
+  private unreadReconcileLastAt = 0;
+  private unreadReconcileRunning = false;
   private readonly commandService: SessionCommandService<PiAgentSession>;
   /** Runtime-identity gate held while Pi may await abandoned-branch summarization. */
   private readonly treeNavigations = new WeakSet<PiAgentSession>();
@@ -1212,6 +1223,7 @@ export class PiSessionService implements SessionRouteService {
     this.createAgentRuntime = deps.createAgentRuntime ?? defaultCreateAgentRuntime;
     this.workspaceActivity = deps.workspaceActivity;
     this.heartbeat = setInterval(() => { this.publishHeartbeats(); }, deps.heartbeatIntervalMs ?? 2000);
+    this.unreadReconcileIntervalMs = deps.unreadReconcileIntervalMs ?? 300_000;
     this.commandService = new SessionCommandService(
       (sessionId) => this.getActive(this.activeSessionRef(sessionId)),
       (sessionId, text) => this.prompt(this.activeSessionRef(sessionId), text, undefined, undefined, { echoUserMessage: false }),
@@ -3044,6 +3056,15 @@ export class PiSessionService implements SessionRouteService {
     return [...sessionIds];
   }
 
+  /** True when `cwd` still exists as a directory on disk; a missing cwd hosts no session. */
+  private cwdDirectoryExists(cwd: string): boolean {
+    try {
+      return fs.statSync(cwd).isDirectory();
+    } catch {
+      return false;
+    }
+  }
+
   private async archiveInputForSession(session: PiAgentSession): Promise<ArchiveSessionInput> {
     const cwd = session.sessionManager.getCwd();
     const sessionFile = session.sessionFile;
@@ -3822,6 +3843,7 @@ export class PiSessionService implements SessionRouteService {
   }
 
   private publishHeartbeats(): void {
+    this.maybeReconcileUnreadCatalog();
     for (const active of this.active.values()) {
       const { session } = active.runtime;
       // Re-evaluate subsession completion here too: agent_end can arrive while
@@ -3837,6 +3859,63 @@ export class PiSessionService implements SessionRouteService {
       if (activity?.phase === "active") this.publishActivity(session, activity.label, "active", activity.detail);
       else this.publishActivity(session, this.activityLabelFromStatus(session), "active");
     }
+  }
+
+  /**
+   * Drop unread records for cwds the web UI will never list again.
+   *
+   * `list` only reconciles the cwd a client explicitly asks for, so a cwd that
+   * disappears between listings (a deleted git worktree is the common case)
+   * keeps its completed sessions flagged unread forever, with no "Mark as read"
+   * affordance. Here we drive the same per-cwd reconciliation for every cwd the
+   * unread catalog still tracks, skipping cwds with a currently active session
+   * (those reconcile live when listed) and using a targeted session-dir listing
+   * to learn which sessions actually remain. Orphans with no live session are
+   * removed.
+   */
+  private async reconcileUnreadCatalog(): Promise<void> {
+    const snapshot = await this.unreadStore.durableCatalogSnapshot();
+    const activeCwds = new Set<string>();
+    for (const active of new Set(this.active.values())) {
+      activeCwds.add(canonicalizeStoredCwd(active.runtime.session.sessionManager.getCwd()));
+    }
+
+    const mutations: SessionUnreadMutation[] = [];
+    const cwds = [...new Set(snapshot.sessions.map((summary) => summary.cwd))];
+    for (const cwd of cwds) {
+      // A working directory that no longer exists on disk cannot host any session,
+      // so any unread attributed to it is an orphan (e.g. a deleted git worktree)
+      // that would otherwise light a workspace/project badge forever with no
+      // session row to justify it. Drop it before the active-cwd skip so a stale
+      // session still considered active cannot keep the orphan alive.
+      if (!this.cwdDirectoryExists(cwd)) {
+        mutations.push(...this.unreadStore.reconcileCwd(canonicalizeStoredCwd(cwd), []));
+        continue;
+      }
+      if (activeCwds.has(cwd)) continue;
+      const [sessions, archivedRecords] = await Promise.all([
+        this.sessionManager.list(cwd),
+        this.archiveStore.list(),
+      ]);
+      const archivedById = new Map(
+        archivedRecords.filter((record) => record.cwd === cwd).map((record) => [record.sessionId, record]),
+      );
+      const retained = this.reconcilableSessionIds(cwd, sessions.map((session) => session.id), archivedById);
+      mutations.push(...this.unreadStore.reconcileCwd(canonicalizeStoredCwd(cwd), retained));
+    }
+
+    if (mutations.length > 0) await this.publishUnreadMutations(mutations);
+  }
+
+  private maybeReconcileUnreadCatalog(): void {
+    if (this.unreadReconcileRunning) return;
+    const now = Date.now();
+    if (now - this.unreadReconcileLastAt < this.unreadReconcileIntervalMs) return;
+    this.unreadReconcileLastAt = now;
+    this.unreadReconcileRunning = true;
+    void this.reconcileUnreadCatalog()
+      .catch(() => undefined)
+      .finally(() => { this.unreadReconcileRunning = false; });
   }
 
   private activityLabelFromStatus(session: PiAgentSession): string {
