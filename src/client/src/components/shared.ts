@@ -93,19 +93,21 @@ export interface CompletionItem {
 }
 
 export const appStyles = css`
-  /* Mobile browsers already subtract browser controls from 100dvh; reserve bottom safe area only in standalone PWA modes. */
-  :host { --pi-app-safe-area-bottom: 0px; position: fixed; top: 0; right: 0; left: 0; display: block; height: 100dvh; box-sizing: border-box; overflow: hidden; padding: env(safe-area-inset-top) env(safe-area-inset-right) var(--pi-app-safe-area-bottom) env(safe-area-inset-left); color: var(--pi-text); background: var(--pi-bg); font: 14px system-ui, sans-serif; }
-  :host([pwa-display-mode]) { --pi-app-safe-area-bottom: env(safe-area-inset-bottom); }
-  @media (display-mode: standalone), (display-mode: fullscreen), (display-mode: minimal-ui) {
-    :host { --pi-app-safe-area-bottom: env(safe-area-inset-bottom); }
-  }
+  /* Size the root from the live viewport height and reserve the OS safe-area insets so the
+     lower chrome clears the Android system bar / iOS home indicator. The height is driven by
+     JS from window.innerHeight (--pi-app-height) because 100dvh can resolve to a stale value on
+     first paint and only correct itself after a real viewport resize (backgrounding/resuming the
+     app). The bottom inset is env(safe-area-inset-bottom) (--pi-app-safe-area-bottom); some
+     Android Chrome builds report 0 until the first resize, so PiWebApp re-applies it as soon as
+     it is measured and on every viewport change. */
+  :host { --pi-app-safe-area-bottom: env(safe-area-inset-bottom); --pi-app-height: 100dvh; position: fixed; top: 0; right: 0; left: 0; display: block; height: var(--pi-app-height); box-sizing: border-box; overflow: hidden; padding: env(safe-area-inset-top) env(safe-area-inset-right) var(--pi-app-safe-area-bottom) env(safe-area-inset-left); color: var(--pi-text); background: var(--pi-bg); font: 14px system-ui, sans-serif; }
   .shell { --navigation-panel-size: 340px; --workspace-panel-size: minmax(360px, 42vw); --navigation-panel-width: var(--navigation-panel-size); --workspace-panel-width: var(--workspace-panel-size); display: grid; grid-template-columns: var(--navigation-panel-width) 1px minmax(320px, 1fr) 1px var(--workspace-panel-width); height: 100%; min-height: 0; }
   aside { grid-column: 1; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
   aside app-navigation-panel { flex: 1 1 auto; min-height: 0; }
   header { flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 12px; border-bottom: 1px solid var(--pi-border); }
   .header-actions { display: flex; align-items: center; gap: 8px; }
-  main { grid-column: 3; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
-  .context-bar { position: relative; flex: 0 0 auto; min-width: 0; display: none; align-items: center; gap: 0; padding: 6px 0; border-bottom: 1px solid var(--pi-border-muted); background: var(--pi-bg); }
+  main { grid-column: 3; display: flex; flex-direction: column; min-width: 0; min-height: 0; position: relative; }
+  .context-bar { position: relative; flex: 0 0 auto; min-width: 0; display: none; align-items: center; gap: 0; padding: 6px 0; border-bottom: 1px solid var(--pi-border-muted); background: var(--pi-bg); max-height: 200px; transition: max-height .2s ease, opacity .2s ease, padding .2s ease, border-width .2s ease; }
   .context-bar::before, .context-bar::after { content: ""; position: absolute; top: 0; bottom: 0; z-index: 2; width: 20px; opacity: 0; pointer-events: none; transition: opacity .15s ease; }
   .context-bar::before { left: 0; background: linear-gradient(90deg, color-mix(in srgb, var(--pi-shadow-strong) 55%, transparent) 0%, transparent 100%); }
   .context-bar::after { right: 0; background: linear-gradient(270deg, color-mix(in srgb, var(--pi-shadow-strong) 55%, transparent) 0%, transparent 100%); }
@@ -123,7 +125,7 @@ export const appStyles = css`
   .context-kind { display: none; }
   .context-value { min-width: 0; overflow: visible; text-overflow: clip; white-space: nowrap; }
   app-mobile-main-tabs { display: none; }
-  .mobile-tabs-frame { position: relative; display: none; flex: 0 0 auto; min-width: 0; border-bottom: 1px solid var(--pi-border); background: var(--pi-bg); }
+  .mobile-tabs-frame { position: relative; display: none; flex: 0 0 auto; min-width: 0; border-bottom: 1px solid var(--pi-border); background: var(--pi-bg); max-height: 200px; transition: max-height .2s ease, opacity .2s ease, padding .2s ease, border-width .2s ease; }
   .mobile-tabs-frame::before, .mobile-tabs-frame::after { content: ""; position: absolute; top: 0; bottom: 0; z-index: 2; width: 20px; opacity: 0; pointer-events: none; transition: opacity .15s ease; }
   .mobile-tabs-frame::before { left: 0; background: linear-gradient(90deg, color-mix(in srgb, var(--pi-shadow-strong) 55%, transparent) 0%, transparent 100%); }
   .mobile-tabs-frame::after { right: 0; background: linear-gradient(270deg, color-mix(in srgb, var(--pi-shadow-strong) 55%, transparent) 0%, transparent 100%); }
@@ -179,6 +181,20 @@ export const appStyles = css`
   status-bar { flex: 0 0 auto; }
   chat-view { flex: 1 1 auto; min-height: 0; overflow: hidden; }
   prompt-editor { flex: 0 0 auto; }
+  /* When the chat scroll direction slides the chrome out of the way, collapse
+     the header and input area so the transcript reclaims the space. */
+  /* The context bar and mobile tab strip render their .context-bar / .mobile-tabs-frame
+     classes inside their own shadow roots, so the collapse has to target the host
+     elements rather than those inner classes. */
+  main app-context-bar,
+  main app-mobile-main-tabs {
+    transition: max-height .2s ease, opacity .2s ease, transform .2s ease;
+  }
+  main.chrome-hidden app-context-bar,
+  main.chrome-hidden app-mobile-main-tabs,
+  main.chrome-hidden prompt-editor {
+    max-height: 0; min-height: 0; padding-top: 0; padding-bottom: 0; border-top-width: 0; border-bottom-width: 0; opacity: 0; overflow: hidden; pointer-events: none;
+  }
   button { border: 1px solid var(--pi-border); border-radius: 8px; background: var(--pi-surface); color: var(--pi-text); padding: 7px 9px; cursor: pointer; }
   .empty { margin: auto; color: var(--pi-muted); }
   .error { display: flex; gap: 8px; align-items: flex-start; padding: 10px 16px; border-bottom: 1px solid var(--pi-border); color: var(--pi-danger); }
@@ -521,7 +537,7 @@ export const autocompleteStyles = css`
 `;
 
 export const promptEditorStyles = css`
-  :host { position: relative; z-index: 5; display: block; color: var(--pi-text); font: 14px system-ui, sans-serif; }
+  :host { position: relative; z-index: 5; display: block; max-height: 480px; color: var(--pi-text); font: 14px system-ui, sans-serif; transition: max-height .2s ease, opacity .2s ease, transform .2s ease, padding .2s ease, border-width .2s ease; }
   footer { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; padding: 12px; border-top: 1px solid var(--pi-border); }
   footer.shell-mode { border-top-color: var(--pi-success); background: var(--pi-success-bg); }
   .editor-wrap { position: relative; min-width: 0; }
