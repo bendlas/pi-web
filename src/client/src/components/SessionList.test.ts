@@ -8,8 +8,10 @@ import { isArchivableSessionInfo, isTransientNewSessionInfo } from "../sessionPe
 // Legacy bulk-toolbar tests retain their narrow template inspection seam;
 // row actions use the DOM so keyed directives are exercised.
 import {
+  findOptionalTemplateClickHandlerForText,
   isTemplateEventHandler,
   isTemplateResult,
+  templateClickHandlerForText,
   templateStrings,
   templateValues,
   type TemplateEventHandler,
@@ -156,6 +158,49 @@ describe("mark-as-read actions", () => {
     expect(enabledButton.disabled).toBe(false);
     enabledButton.click(new Event("click"));
     expect(onMarkReadMany).toHaveBeenCalledWith([unreadA, unreadC]);
+  });
+});
+
+describe("keep-unread actions", () => {
+  it("offers Keep unread in the menu of a current session and forwards it", () => {
+    const read = session("read");
+    const list = sessionList([read], new Set());
+    const onToggleKeepUnread = vi.fn<(session: SessionInfo) => void>();
+    list.onToggleKeepUnread = onToggleKeepUnread;
+
+    openSessionMenu(list, read.id);
+    templateClickHandlerForText(renderList(list), "Keep unread")(new Event("click"));
+
+    expect(onToggleKeepUnread).toHaveBeenCalledWith(read);
+    expect(componentState(list, "openMenuSessionId")).toBeUndefined();
+  });
+
+  it("offers Stop keeping unread for a pinned session and forwards it", () => {
+    const pinned = session("pinned");
+    const list = sessionList([pinned], new Set([pinned.id]));
+    list.keepUnreadSessionIds = new Set([pinned.id]);
+    const onToggleKeepUnread = vi.fn<(session: SessionInfo) => void>();
+    list.onToggleKeepUnread = onToggleKeepUnread;
+
+    openSessionMenu(list, pinned.id);
+    const template = renderList(list);
+    expect(findOptionalTemplateClickHandlerForText(template, "Keep unread")).toBeUndefined();
+    templateClickHandlerForText(template, "Stop keeping unread")(new Event("click"));
+
+    expect(onToggleKeepUnread).toHaveBeenCalledWith(pinned);
+  });
+
+  it("hides the keep-unread toggle for transient and archived sessions", () => {
+    const cached = markCachedNewSessionInfo(session("cached"));
+    const archived = { ...session("archived"), archived: true, archivedAt: "2026-06-09T00:00:00.000Z" };
+    const list = sessionList([cached, archived], new Set());
+
+    openSessionMenu(list, cached.id);
+    expect(findOptionalTemplateClickHandlerForText(renderList(list), "Keep unread")).toBeUndefined();
+
+    setComponentState(list, "archivedExpanded", true);
+    openSessionMenu(list, archived.id);
+    expect(findOptionalTemplateClickHandlerForText(renderList(list), "Keep unread")).toBeUndefined();
   });
 });
 
