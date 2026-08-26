@@ -38,6 +38,18 @@ import "./ToolExecutionView";
 const messageTimestampFormatter = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "medium" });
 const notificationTimestampFormatter = new Intl.DateTimeFormat(undefined, { timeStyle: "short" });
 
+/** Minimum scroll distance (px) before the chat reverses the app-chrome visibility. */
+const CHAT_CHROME_HIDE_SCROLL_DELTA = 6;
+
+/** Name of the event ChatView dispatches when the app chrome should hide/reveal. */
+export const CHAT_CHROME_VISIBILITY_EVENT = "chat-chrome-visibility";
+
+/** Detail payload for the {@link CHAT_CHROME_VISIBILITY_EVENT} event. */
+export interface ChatChromeVisibilityDetail {
+  /** Whether the input area and header should slide out of the way. */
+  hidden: boolean;
+}
+
 function renderNotificationDisclosureIcon(collapsed: boolean) {
   return html`
     <svg class=${`notification-icon notification-disclosure-icon${collapsed ? "" : " expanded"}`} viewBox="0 0 24 24" aria-hidden="true" focusable="false">
@@ -240,6 +252,8 @@ export class ChatView extends LitElement {
   private readonly messageCopyTextCache = new WeakMap<ChatLine, string>();
   private lastScrollTop = 0;
   private lastClientHeight = 0;
+  private lastChromeScrollTop = 0;
+  private chromeHidden = false;
   private touchStartY: number | undefined;
   private pendingScrollRestoreSessionId: string | undefined;
   private pendingScrollRestorePosition: ChatAnchorScrollPosition | undefined;
@@ -281,6 +295,7 @@ export class ChatView extends LitElement {
 
   protected override firstUpdated(): void {
     this.lastClientHeight = this.chat?.clientHeight ?? 0;
+    this.lastChromeScrollTop = this.chat?.scrollTop ?? 0;
   }
 
   override disconnectedCallback(): void {
@@ -318,6 +333,8 @@ export class ChatView extends LitElement {
     this.scrollController.clearScheduledSave();
     this.suppressScrollSave = false;
     this.suppressLoadMoreRequests = false;
+    this.lastChromeScrollTop = 0;
+    this.chromeHidden = false;
     this.pendingScrollRestoreSessionId = undefined;
     this.pendingScrollRestorePosition = undefined;
     this.prependRestoreToken += 1;
@@ -1006,6 +1023,7 @@ export class ChatView extends LitElement {
   private onScroll() {
     this.requestLoadMoreIfNeeded();
     this.updatePinnedToBottomFromScroll();
+    this.updateChromeVisibilityFromScroll();
     this.scheduleConversationRailUpdate();
     if (!this.suppressScrollSave) this.scheduleScrollPositionSave();
   }
@@ -1021,6 +1039,35 @@ export class ChatView extends LitElement {
   private onTouchMove(event: TouchEvent) {
     const y = event.touches[0]?.clientY;
     if (this.touchStartY !== undefined && y !== undefined && y > this.touchStartY && this.canScrollUp()) this.pinnedToBottom = false;
+  }
+
+  private updateChromeVisibilityFromScroll(): void {
+    const chat = this.chat;
+    if (!chat) return;
+    // Always reveal the app chrome when the conversation is pinned to the latest
+    // messages, so the composer and header stay reachable at the live tail.
+    if (this.isAtBottom()) {
+      this.setChromeHidden(false);
+      this.lastChromeScrollTop = chat.scrollTop;
+      return;
+    }
+    const delta = chat.scrollTop - this.lastChromeScrollTop;
+    // Scrolling down hides the chrome to free up reading space, unless the
+    // conversation is already pinned to the bottom (handled above). Scrolling
+    // up reveals it again so the header and composer stay reachable.
+    if (delta >= CHAT_CHROME_HIDE_SCROLL_DELTA) this.setChromeHidden(true);
+    else if (delta <= -CHAT_CHROME_HIDE_SCROLL_DELTA) this.setChromeHidden(false);
+    this.lastChromeScrollTop = chat.scrollTop;
+  }
+
+  private setChromeHidden(hidden: boolean): void {
+    if (this.chromeHidden === hidden) return;
+    this.chromeHidden = hidden;
+    this.dispatchEvent(new CustomEvent<ChatChromeVisibilityDetail>(CHAT_CHROME_VISIBILITY_EVENT, {
+      detail: { hidden },
+      bubbles: true,
+      composed: true,
+    }));
   }
 
   private updatePinnedToBottomFromScroll() {
@@ -1230,6 +1277,7 @@ export class ChatView extends LitElement {
     if (chat === undefined) return;
     this.lastScrollTop = chat.scrollTop;
     this.lastClientHeight = chat.clientHeight;
+    this.lastChromeScrollTop = chat.scrollTop;
   }
 
   private cancelPrependRestore(): void {
