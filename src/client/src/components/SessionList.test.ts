@@ -245,6 +245,53 @@ describe("mark-as-read actions", () => {
   });
 });
 
+describe("keep-unread actions", () => {
+  it("offers Keep unread in the menu of a current session and forwards it", async () => {
+    const read = session("read");
+    const list = sessionList([read], new Set());
+    const onToggleKeepUnread = vi.fn<(session: SessionInfo) => void>();
+    list.onToggleKeepUnread = onToggleKeepUnread;
+
+    await openSessionMenu(list, read.id);
+    const keepButton = menuButton(list, "Keep unread");
+    if (keepButton === undefined) throw new Error("Expected Keep unread action");
+    keepButton.click();
+
+    expect(onToggleKeepUnread).toHaveBeenCalledWith(read);
+    expect(componentState(list, "openMenuSessionId")).toBeUndefined();
+  });
+
+  it("offers Stop keeping unread for a pinned session and forwards it", async () => {
+    const pinned = session("pinned");
+    const list = sessionList([pinned], new Set([pinned.id]));
+    list.keepUnreadSessionIds = new Set([pinned.id]);
+    const onToggleKeepUnread = vi.fn<(session: SessionInfo) => void>();
+    list.onToggleKeepUnread = onToggleKeepUnread;
+
+    await openSessionMenu(list, pinned.id);
+    expect(menuButton(list, "Keep unread")).toBeUndefined();
+    const stopButton = menuButton(list, "Stop keeping unread");
+    if (stopButton === undefined) throw new Error("Expected Stop keeping unread action");
+    stopButton.click();
+
+    expect(onToggleKeepUnread).toHaveBeenCalledWith(pinned);
+  });
+
+  it("hides the keep-unread toggle for transient and archived sessions", async () => {
+    const cached = markCachedNewSessionInfo(session("cached"));
+    const archived = { ...session("archived"), archived: true, archivedAt: "2026-06-09T00:00:00.000Z" };
+    const list = sessionList([cached, archived], new Set());
+
+    await openSessionMenu(list, cached.id);
+    expect(menuButton(list, "Keep unread")).toBeUndefined();
+
+    list.shadowRoot?.querySelector<HTMLButtonElement>(".subheading .section-toggle")?.click();
+    await list.updateComplete;
+    await openSessionMenu(list, archived.id);
+    expect(menuButton(list, "Keep unread")).toBeUndefined();
+  });
+});
+
 describe("sessionRowsForCurrentTree", () => {
   it("keeps archived ancestors visible while they have unarchived descendants", () => {
     const parent = { ...session("parent"), archived: true, archivedAt: "2026-06-09T00:00:00.000Z" };
@@ -336,6 +383,11 @@ async function openSessionMenu(list: SessionList, sessionId: string): Promise<vo
 
 function componentState(list: SessionList, property: string): unknown {
   return Reflect.get(list, property);
+}
+
+function menuButton(list: SessionList, text: string): HTMLButtonElement | undefined {
+  return [...(list.shadowRoot?.querySelectorAll<HTMLButtonElement>(".action-menu-panel button") ?? [])]
+    .find((button) => button.textContent === text);
 }
 
 

@@ -51,6 +51,9 @@ export class AppNavigationPanel extends LitElement {
   @property({ attribute: false }) sessionStatuses: Record<string, SessionStatus> = {};
   @property({ attribute: false }) sendingPrompts: Record<string, true> = {};
   @property({ attribute: false }) unreadSessionIds: ReadonlySet<string> = new Set();
+  @property({ attribute: false }) keepUnreadSessionIds: ReadonlySet<string> = new Set();
+  /** Workspace/project node ids that carry a keep-unread pin, so their unread badge uses the keep-unread color. */
+  @property({ attribute: false }) keepUnreadNodeIds: ReadonlySet<string> = new Set();
   @property({ attribute: false }) deletingWorkspaceIds: string[] = [];
   // Unlike event callbacks, this provider affects rendered content; replacements
   // must remain reactive inputs to WorkspaceList.
@@ -93,6 +96,7 @@ export class AppNavigationPanel extends LitElement {
   @property({ attribute: false }) onMarkSessionRead?: (session: SessionInfo) => void | Promise<void>;
   @property({ attribute: false }) onMarkSessionUnread?: (session: SessionInfo) => void | Promise<void>;
   @property({ attribute: false }) onMarkSessionsRead?: (sessions: SessionInfo[]) => void | Promise<void>;
+  @property({ attribute: false }) onToggleKeepUnread?: (session: SessionInfo) => void | Promise<void>;
   @property({ attribute: false }) onReloadSession?: (session: SessionInfo) => void | Promise<void>;
   @property({ attribute: false }) onCleanupSessions?: () => void | Promise<void>;
   @property({ attribute: false }) onArchivedCollapsed?: () => void | Promise<void>;
@@ -191,6 +195,7 @@ export class AppNavigationPanel extends LitElement {
     markSessionRead: (session: SessionInfo) => this.onMarkSessionRead?.(session),
     markSessionUnread: (session: SessionInfo) => this.onMarkSessionUnread?.(session),
     markSessionsRead: (sessions: SessionInfo[]) => this.onMarkSessionsRead?.(sessions),
+    toggleKeepUnread: (session: SessionInfo) => this.onToggleKeepUnread?.(session),
     reloadSession: (session: SessionInfo) => this.onReloadSession?.(session),
     cleanupSessions: () => this.onCleanupSessions?.(),
     previousFromProjects: () => { this.focusPreviousFrom("projects"); },
@@ -252,6 +257,7 @@ export class AppNavigationPanel extends LitElement {
         .projects=${this.projects}
         .selected=${this.selectedProject}
         .statusSnapshot=${this.selectedMachineStatusSnapshot()}
+        .keepUnreadNodeIds=${this.keepUnreadNodeIds}
         .collapsible=${this.collapsible}
         .collapsed=${this.projectsCollapsed}
         .onToggleCollapsed=${this.childCallbacks.toggleProjects}
@@ -271,6 +277,7 @@ export class AppNavigationPanel extends LitElement {
         .selected=${this.selectedWorkspace}
         .machineId=${this.selectedMachine?.id ?? "local"}
         .statusSnapshot=${this.selectedMachineStatusSnapshot()}
+        .keepUnreadNodeIds=${this.keepUnreadNodeIds}
         .deletingWorkspaceIds=${this.deletingWorkspaceIds}
         .collapsible=${this.collapsible}
         .collapsed=${this.workspacesCollapsed}
@@ -295,6 +302,7 @@ export class AppNavigationPanel extends LitElement {
         .sessionFlags=${this.selectedMachineStatusSnapshot()?.sessions}
         .sending=${this.sendingPrompts}
         .unreadSessionIds=${this.unreadSessionIds}
+        .keepUnreadSessionIds=${this.keepUnreadSessionIds}
         .selected=${this.selectedSession}
         .sessionLabelItems=${this.sessionLabelItems}
         .startingCount=${this.startingSessionCount}
@@ -316,6 +324,7 @@ export class AppNavigationPanel extends LitElement {
         .onMarkRead=${this.childCallbacks.markSessionRead}
         .onMarkUnread=${this.childCallbacks.markSessionUnread}
         .onMarkReadMany=${this.childCallbacks.markSessionsRead}
+        .onToggleKeepUnread=${this.childCallbacks.toggleKeepUnread}
         .onReload=${this.childCallbacks.reloadSession}
         .onCleanup=${this.childCallbacks.cleanupSessions}
         .onFocusPreviousSection=${this.childCallbacks.previousFromSessions}
@@ -356,6 +365,12 @@ export class AppNavigationPanel extends LitElement {
    * default, which is the key snapshots arrive under before a machine has been
    * selected. Diverging here would blank every row's indicator while a snapshot
    * is in fact loaded.
+   */
+  /**
+   * The selected machine's status snapshot. PiWebApp already rolls the client's
+   * unread set (daemon completions unioned with keep-unread pins) up into the
+   * status tree, so the unread flag here tracks the session rows without a
+   * second unread model living in this panel.
    */
   private selectedMachineStatusSnapshot(): MachineStatusSnapshot | undefined {
     return this.machineStatusSnapshots[selectedMachineId({ selectedMachine: this.selectedMachine })];
