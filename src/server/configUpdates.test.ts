@@ -57,7 +57,7 @@ describe("configuration override removal", () => {
     expect(() => parseConfigPointer(pointer)).toThrow("PI WEB config update");
   });
 
-  it.each(["/uploads/defaultFolder", "/attachments/defaultFolder", "/defaultLocalization/language", "/defaultLocalization/timeZone", "/defaultLocalization/hourCycle", "/defaultLocalization/formatLocale", "/sessionArchive/directory", "/pathAccess/allowedPaths"])("accepts declared independent setting %s", (pointer) => {
+  it.each(["/uploads/defaultFolder", "/attachments/defaultFolder", "/defaultLocalization/language", "/defaultLocalization/timeZone", "/defaultLocalization/hourCycle", "/defaultLocalization/formatLocale", "/sessionArchive/directory", "/sessionArchive/parentDir", "/pathAccess/allowedPaths"])("accepts declared independent setting %s", (pointer) => {
     expect(parseConfigPointer(pointer)).toEqual(pointer.slice(1).split("/"));
   });
 
