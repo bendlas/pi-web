@@ -17,6 +17,8 @@ const tokens = {
   "--pi-dim": "#000000",
   "--pi-accent": "#000000",
   "--pi-accent-border": "#000000",
+  "--pi-keep-unread": "#000000",
+  "--pi-keep-unread-border": "#000000",
   "--pi-selection-bg": "#000000",
   "--pi-success": "#000000",
   "--pi-success-border": "#000000",
