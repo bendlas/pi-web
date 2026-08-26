@@ -43,6 +43,18 @@ import type { ImageOpenDetail } from "./ImagePresentation";
 const messageTimestampFormatter = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "medium" });
 const notificationTimestampFormatter = new Intl.DateTimeFormat(undefined, { timeStyle: "short" });
 
+/** Minimum scroll distance (px) before the chat reverses the app-chrome visibility. */
+const CHAT_CHROME_HIDE_SCROLL_DELTA = 6;
+
+/** Name of the event ChatView dispatches when the app chrome should hide/reveal. */
+export const CHAT_CHROME_VISIBILITY_EVENT = "chat-chrome-visibility";
+
+/** Detail payload for the {@link CHAT_CHROME_VISIBILITY_EVENT} event. */
+export interface ChatChromeVisibilityDetail {
+  /** Whether the input area and header should slide out of the way. */
+  hidden: boolean;
+}
+
 function renderNotificationDisclosureIcon(collapsed: boolean) {
   return html`
     <svg class=${`notification-icon notification-disclosure-icon${collapsed ? "" : " expanded"}`} viewBox="0 0 24 24" aria-hidden="true" focusable="false">
@@ -276,7 +288,14 @@ export class ChatView extends LitElement {
   private touchY: number | undefined;
   private loadMoreRequested = false;
   private readonly onViewportResize = () => { this.scrollFlows.onViewportResize(); };
-  private readonly handleScroll = () => { this.scrollFlows.onScroll(); };
+  private readonly handleScroll = () => {
+    this.scrollFlows.onScroll();
+    this.updateChromeVisibilityFromScroll();
+  };
+  /** Last scroll position the chrome visibility was evaluated against. */
+  private lastChromeScrollTop = 0;
+  /** Whether the header and composer are currently slid out of the way. */
+  private chromeHidden = false;
   // Native details toggles do not bubble; capture layout changes independently
   // of the listener that remembers a group's disclosure choice.
   private readonly handleDisclosureToggle = {
@@ -338,11 +357,19 @@ export class ChatView extends LitElement {
     super.disconnectedCallback();
   }
 
+  protected override firstUpdated(): void {
+    this.lastChromeScrollTop = this.chat?.scrollTop ?? 0;
+  }
+
   private prepareSessionUiState(): void {
     if (this.behaviors.rememberDisclosures) this.disclosures.syncSession(this.sessionId);
     this.pendingNotificationFocus = undefined;
     this.retainedEmptyNotificationTrayTargetKey = undefined;
     this.loadMoreRequested = false;
+    // A new session starts with the chrome revealed; also reset the scroll
+    // baseline so the first scroll of the next session is not read as a jump.
+    this.setChromeHidden(false);
+    this.lastChromeScrollTop = this.chat?.scrollTop ?? 0;
   }
 
   protected override willUpdate(changed: Map<string, unknown>): void {
@@ -1079,6 +1106,41 @@ export class ChatView extends LitElement {
 
   private scrollContentChanged(changed: Map<string, unknown>): boolean {
     return changed.has("messages") || changed.has("historyReady") || changed.has("messageEnd") || changed.has("messageTotal") || changed.has("onSubmitAsk") || changed.has("pendingDialogs") || changed.has("closedDialogs");
+  }
+
+  private updateChromeVisibilityFromScroll(): void {
+    const chat = this.chat;
+    if (!chat) return;
+    // Always reveal the app chrome when the conversation is pinned to the latest
+    // messages, so the composer and header stay reachable at the live tail.
+    if (this.isChatAtBottom()) {
+      this.setChromeHidden(false);
+      this.lastChromeScrollTop = chat.scrollTop;
+      return;
+    }
+    const delta = chat.scrollTop - this.lastChromeScrollTop;
+    // Scrolling down hides the chrome to free up reading space, unless the
+    // conversation is already pinned to the bottom (handled above). Scrolling
+    // up reveals it again so the header and composer stay reachable.
+    if (delta >= CHAT_CHROME_HIDE_SCROLL_DELTA) this.setChromeHidden(true);
+    else if (delta <= -CHAT_CHROME_HIDE_SCROLL_DELTA) this.setChromeHidden(false);
+    this.lastChromeScrollTop = chat.scrollTop;
+  }
+
+  private setChromeHidden(hidden: boolean): void {
+    if (this.chromeHidden === hidden) return;
+    this.chromeHidden = hidden;
+    this.dispatchEvent(new CustomEvent<ChatChromeVisibilityDetail>(CHAT_CHROME_VISIBILITY_EVENT, {
+      detail: { hidden },
+      bubbles: true,
+      composed: true,
+    }));
+  }
+
+  private isChatAtBottom(): boolean {
+    const chat = this.chat;
+    if (chat === undefined) return false;
+    return chat.scrollTop + chat.clientHeight >= chat.scrollHeight - 2;
   }
 
   private requestLoadMore(): void {
