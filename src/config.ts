@@ -14,7 +14,7 @@ export interface LoadedPiWebConfig {
   deprecatedAgentInputs: readonly DeprecatedAgentInput[];
 }
 
-export interface EffectivePiWebConfig extends Omit<PiWebConfig, "uploads" | "attachments" | "spawnSessions" | "subsessions" | "askUser" | "dockerEnvironmentFacts" | "agent" | "extensionDialogsTimeoutMs"> {
+export interface EffectivePiWebConfig extends Omit<PiWebConfig, "uploads" | "attachments" | "spawnSessions" | "subsessions" | "askUser" | "dockerEnvironmentFacts" | "agent" | "extensionDialogsTimeoutMs" | "archive"> {
   uploads: NonNullable<PiWebConfig["uploads"]>;
   attachments: NonNullable<PiWebConfig["attachments"]>;
   spawnSessions: boolean;
@@ -23,6 +23,7 @@ export interface EffectivePiWebConfig extends Omit<PiWebConfig, "uploads" | "att
   environmentFacts: boolean;
   extensionDialogsTimeoutMs: number;
   agent: EffectivePiWebAgentConfig;
+  archive: NonNullable<PiWebConfig["archive"]>;
 }
 
 export interface LoadedEffectivePiWebConfig extends Omit<LoadedPiWebConfig, "config"> {
@@ -79,6 +80,15 @@ export const PI_CODING_AGENT_SESSION_DIR_ENV = "PI_CODING_AGENT_SESSION_DIR";
  * SDK name.
  */
 export const AGENT_SESSION_DIR_ENV_KEYS = [PI_WEB_AGENT_SESSION_DIR_ENV, PI_CODING_AGENT_SESSION_DIR_ENV] as const;
+
+/**
+ * Env var (and config key `archive.parentDir`) that relocates BOTH the
+ * `archived-sessions.json` index and the `archived-sessions/` directory out of
+ * the pi-web data dir. Uses the same "set and non-empty" semantics as the other
+ * runtime env switches: the env var takes precedence over the config file, and
+ * when neither is set the archive stays inside `piWebDataDir()`.
+ */
+export const PI_WEB_ARCHIVE_PARENT_ENV = "PI_WEB_ARCHIVE_PARENT";
 
 export interface EffectivePiWebAgentConfig {
   dir: string;
@@ -139,6 +149,16 @@ export function effectiveAttachmentsConfig(config: Pick<PiWebConfig, "attachment
   return { defaultFolder: config.attachments?.defaultFolder ?? DEFAULT_ATTACHMENT_FOLDER };
 }
 
+/**
+ * Resolved archive parent directory config: `{ parentDir }` when the
+ * `archive.parentDir` config key is set, otherwise an object with an undefined
+ * `parentDir` so callers fall back to the data dir / env var.
+ */
+export function effectiveArchiveConfig(config: Pick<PiWebConfig, "archive"> = {}): NonNullable<PiWebConfig["archive"]> {
+  const parentDir = config.archive?.parentDir;
+  return { ...(parentDir !== undefined ? { parentDir } : {}) };
+}
+
 export function maxUploadBytes(env: NodeJS.ProcessEnv = process.env, config: PiWebConfig = {}): number {
   const fromEnv = env["PI_WEB_MAX_UPLOAD_BYTES"];
   if (fromEnv !== undefined && fromEnv !== "") {
@@ -153,6 +173,21 @@ export function piWebDataDir(env: NodeJS.ProcessEnv = process.env, cwd = process
   const configured = env["PI_WEB_DATA_DIR"];
   if (configured === undefined || configured === "") return defaultPiWebDataDir();
   return resolve(cwd, configured);
+}
+
+/**
+ * Resolve the parent directory that holds the session archive: both the
+ * `archived-sessions.json` index and the `archived-sessions/` directory. Defaults
+ * to the pi-web data dir; override it with the `PI_WEB_ARCHIVE_PARENT` env var or
+ * the `archive.parentDir` config key. The env var wins when both are set, mirroring
+ * the other runtime switches. Relative values are resolved against `cwd`.
+ */
+export function piWebArchiveParentDir(env: NodeJS.ProcessEnv = process.env, cwd = process.cwd(), config: Pick<PiWebConfig, "archive"> = {}): string {
+  const fromEnv = env[PI_WEB_ARCHIVE_PARENT_ENV];
+  if (fromEnv !== undefined && fromEnv !== "") return resolve(cwd, expandHomePath(fromEnv, env));
+  const fromConfig = config.archive?.parentDir;
+  if (fromConfig !== undefined && fromConfig !== "") return resolve(cwd, expandHomePath(fromConfig, env));
+  return piWebDataDir(env, cwd);
 }
 
 export function piWebConfigPath(env: NodeJS.ProcessEnv = process.env, cwd = process.cwd()): string {
@@ -207,6 +242,10 @@ export function resolveEffectivePiWebConfig(loaded: LoadedPiWebConfig, options: 
       environmentFacts: environmentFactsEnabled(env, loaded.config),
       // Always resolved; the unattended-dialog safety valve, not a gate.
       extensionDialogsTimeoutMs: loaded.config.extensionDialogsTimeoutMs ?? DEFAULT_EXTENSION_DIALOGS_TIMEOUT_MS,
+      // Resolved from the data dir by default; the `archive.parentDir` config key
+      // or `PI_WEB_ARCHIVE_PARENT` env var relocates both the archive index and its
+      // directory.
+      archive: effectiveArchiveConfig(loaded.config),
       agent,
     },
   };
@@ -263,6 +302,7 @@ function piWebConfigRecord(config: PiWebConfig): Record<string, unknown> {
     ...(config.askUser !== undefined ? { askUser: config.askUser } : {}),
     ...(config.environmentFacts !== undefined ? { environmentFacts: config.environmentFacts } : {}),
     ...(config.agent !== undefined ? { agent: config.agent } : {}),
+    ...(config.archive !== undefined ? { archive: config.archive } : {}),
   };
 }
 
@@ -283,6 +323,15 @@ function parsePiWebConfig(value: Record<string, unknown>, path: string): PiWebCo
     ...(value["environmentFacts"] !== undefined ? { environmentFacts: parseBooleanKey(value["environmentFacts"], "environmentFacts", path) } : {}),
     ...(value["extensionDialogsTimeoutMs"] !== undefined ? { extensionDialogsTimeoutMs: parseExtensionDialogsTimeoutMs(value["extensionDialogsTimeoutMs"], path) } : {}),
     ...(value["agent"] !== undefined ? { agent: parseAgentConfig(value["agent"], path) } : {}),
+    ...(value["archive"] !== undefined ? { archive: parseArchiveConfig(value["archive"], path) } : {}),
+  };
+}
+
+function parseArchiveConfig(value: unknown, path: string): NonNullable<PiWebConfig["archive"]> {
+  if (!isRecord(value)) throw new Error(`PI WEB config archive must be an object: ${path}`);
+  const parentDir = value["parentDir"];
+  return {
+    ...(parentDir !== undefined ? { parentDir: parseString(parentDir, "archive.parentDir", path) } : {}),
   };
 }
 
