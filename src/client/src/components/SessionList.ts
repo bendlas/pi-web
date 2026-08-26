@@ -61,6 +61,8 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
   @property({ attribute: false }) sessionFlags: Readonly<Record<string, StatusFlags>> | undefined;
   @property({ attribute: false }) sending: Record<string, true> = {};
   @property({ attribute: false }) unreadSessionIds: ReadonlySet<string> = new Set();
+  /** Sessions whose unread marker the user pinned; always shown as unread too. */
+  @property({ attribute: false }) keepUnreadSessionIds: ReadonlySet<string> = new Set();
   @property({ attribute: false }) selected?: SessionInfo;
   @property({ attribute: false }) sessionLabelItems: (session: SessionInfo) => SessionLabelItem[] = () => [];
   @property({ type: Number }) startingCount = 0;
@@ -84,6 +86,7 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
   @property({ attribute: false }) onDetachParent?: (session: SessionInfo) => void;
   @property({ attribute: false }) onMarkRead?: (session: SessionInfo) => void;
   @property({ attribute: false }) onMarkReadMany?: (sessions: SessionInfo[]) => void | Promise<void>;
+  @property({ attribute: false }) onToggleKeepUnread?: (session: SessionInfo) => void;
   @property({ attribute: false }) onReload?: (session: SessionInfo) => void;
   @property({ attribute: false }) onCleanup?: () => void;
 
@@ -493,9 +496,10 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
     const indicatorKind = sessionRowActivityKind(session, status, activity, this.sending[session.id] === true, this.sessionFlags);
     const unread = sessionRowUnread(session, this.unreadSessionIds);
     const labelItems = this.sessionLabelItems(session);
+    const keptUnread = this.keepUnreadSessionIds.has(session.id);
     return html`
       <div
-        class="action-row ${this.selected?.id === session.id ? "selected" : ""} ${bulkSelected ? "bulk-selected" : ""} ${session.archived === true ? "archived" : ""} ${selectionActive ? "selecting" : ""} ${unread ? "unread" : ""} ${agentChildCount > 0 ? "has-agent-subsessions" : ""} ${linkedAgentChild ? "linked-agent-child" : ""}"
+        class="action-row ${this.selected?.id === session.id ? "selected" : ""} ${bulkSelected ? "bulk-selected" : ""} ${session.archived === true ? "archived" : ""} ${selectionActive ? "selecting" : ""} ${unread ? "unread" : ""} ${keptUnread ? "keep-unread" : ""} ${agentChildCount > 0 ? "has-agent-subsessions" : ""} ${linkedAgentChild ? "linked-agent-child" : ""}"
         style=${`--depth:${String(cappedDepth)};--agent-offset:${String(agentOffset)}px`}
         tabindex="0"
         data-session-id=${session.id}
@@ -509,7 +513,7 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
           ${showsCheckbox ? html`<input class="session-checkbox" type="checkbox" aria-label=${`Select ${sessionLabel(session)}`} .checked=${bulkSelected} @click=${(event: MouseEvent) => { event.stopPropagation(); }} @change=${() => { this.toggleSelected(session.id); }}>` : null}
           <span class="action-name-line"><span class="action-name" dir="auto" title=${sessionLabel(session)}>${this.renderRowMarker(row)}${sessionLabel(session)}</span>${this.renderRowBadges(row)}</span>
           <small class="session-secondary"><span class="session-meta">${this.renderSessionMetaPrefix(session, status, activity)}${String(session.messageCount)} messages</span>${labelItems.length === 0 ? null : html`<span class="session-label-separator" aria-hidden="true">·</span><span class="session-labels">${renderSessionLabelItems(labelItems)}</span>`}</small>
-          ${this.renderActivity(indicatorKind, unread)}
+          ${this.renderActivity(indicatorKind, unread, keptUnread)}
         </div>
         <div class="action-menu">
           <button class="ui-button ui-button--icon action-menu-toggle" title="Session actions" @click=${(event: MouseEvent) => { event.stopPropagation(); this.toggleMenu(session.id); }}>⋯</button>
@@ -531,6 +535,7 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
     const isWorking = sessionRowActivityKind(session, status, this.activities[session.id], false, this.sessionFlags) === "session";
     const canDeleteTransient = isTransientNewSessionInfo(session, status);
     const descendantCount = descendantCounts?.get(session.id) ?? 0;
+    const keptUnread = this.keepUnreadSessionIds.has(session.id);
     // Fixed overlays are siblings of the isolated scroller, not trapped in its paint context.
     return html`
       <div class="action-menu-panel ui-menu" style=${this.menuPosition.style}
@@ -546,7 +551,11 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
           : canDeleteTransient
             ? html`<button class="ui-button ui-menu-item" title="Delete transient new session" @click=${() => { this.openMenuSessionId = undefined; this.onDelete?.(session); }}>Delete</button>`
             : html`
-              ${this.unreadSessionIds.has(session.id) ? html`<button class="ui-button ui-menu-item" title="Mark session as read" @click=${() => { this.openMenuSessionId = undefined; this.onMarkRead?.(session); }}>Mark as read</button>` : null}
+              ${keptUnread
+                ? html`<button title="Stop keeping this conversation unread and mark it read" @click=${(event: MouseEvent) => { event.stopPropagation(); this.openMenuSessionId = undefined; this.onToggleKeepUnread?.(session); }}>Stop keeping unread</button>`
+                : this.unreadSessionIds.has(session.id)
+                  ? html`<button class="ui-button ui-menu-item" title="Mark session as read" @click=${() => { this.openMenuSessionId = undefined; this.onMarkRead?.(session); }}>Mark as read</button>`
+                  : html`<button title="Keep this session's unread marker after reading it" @click=${(event: MouseEvent) => { event.stopPropagation(); this.openMenuSessionId = undefined; this.onToggleKeepUnread?.(session); }}>Keep unread</button>`}
               ${canArchive ? html`
                 <button class="ui-button ui-menu-item" title="Archive session" @click=${() => { this.openMenuSessionId = undefined; this.onArchive?.(session); }}>Archive</button>
                 ${descendantCount > 0 ? html`<button class="ui-button ui-menu-item" title="Archive this session and its descendants" @click=${() => { this.openMenuSessionId = undefined; this.confirmArchiveWithDescendants(session, descendantCount); }}>Archive with descendants (${descendantCount})</button>` : null}
@@ -764,9 +773,9 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
     return "";
   }
 
-  private renderActivity(kind: ActivityIndicatorKind | undefined, unread: boolean) {
+  private renderActivity(kind: ActivityIndicatorKind | undefined, unread: boolean, keepUnread: boolean) {
     const label = kind === "sending" ? "Sending message" : "Session active";
-    return renderActionActivityIndicator(kind, label, unread ? "Unread session activity" : undefined);
+    return renderActionActivityIndicator(kind, label, unread ? "Unread session activity" : undefined, keepUnread);
   }
 
   static override styles = [listStyles, sidebarListStyles, css`
