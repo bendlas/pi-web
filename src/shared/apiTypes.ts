@@ -162,6 +162,11 @@ export interface PiWebThemePreference {
   auto: boolean;
 }
 
+export interface PiWebArchiveConfig {
+  /** Parent directory that holds both `archived-sessions.json` and the `archived-sessions/` directory. Defaults to the pi-web data dir; the `PI_WEB_ARCHIVE_PARENT` env var overrides this. */
+  parentDir?: string;
+}
+
 export interface PiWebConfigValues {
   /** App-wide theme default; browser-local theme preferences take precedence. */
   defaultTheme?: PiWebThemePreference;
@@ -215,6 +220,8 @@ export interface PiWebConfigValues {
    * Tuning knob only — extension dialogs are always enabled.
    */
   extensionDialogsTimeoutMs?: number;
+  /** Relocate both the `archived-sessions.json` index and the `archived-sessions/` directory out of the pi-web data dir. The `PI_WEB_ARCHIVE_PARENT` env var takes precedence over this config key. */
+  archive?: PiWebArchiveConfig;
   /** Deprecated agent-configuration keys, still honored as aliases during the deprecation window and detected for the deprecation warning (see PiWebAgentConfig). */
   agent?: PiWebAgentConfig;
 }

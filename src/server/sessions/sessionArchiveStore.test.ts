@@ -32,6 +32,10 @@ describe("SessionArchiveStore", () => {
     const sourcePath = join(activeDir, "2026-01-01_managed.jsonl");
     await writeFile(sourcePath, "session contents\n", "utf8");
     vi.stubEnv("PI_WEB_DATA_DIR", dataDir);
+    // The archive-location feature honors PI_WEB_ARCHIVE_PARENT, which the
+    // surrounding PI WEB environment may set; clear it so this default-path
+    // test exercises the data-dir fallback.
+    vi.stubEnv("PI_WEB_ARCHIVE_PARENT", "");
 
     const store = new SessionArchiveStore();
     const record = await store.archive({
