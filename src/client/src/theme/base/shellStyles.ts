@@ -193,6 +193,11 @@ export const listStyles = css`
   .activity-indicator, .unread-ring { margin-right: 6px; vertical-align: 1px; }
   .unread-ring .activity-indicator { margin: 0; vertical-align: 0; }
   .action-activity .unread-ring { margin: 0; vertical-align: 0; }
+  /* Kept-unread pins use a distinct dark blue so a pinned marker is
+     distinguishable from a fresh daemon completion (which stays accent). */
+  .activity-indicator.unread.keep-unread { background: var(--pi-keep-unread); box-shadow: 0 0 0 2px color-mix(in srgb, var(--pi-keep-unread) 22%, transparent); }
+  .unread-ring.keep-unread { border-color: var(--pi-keep-unread); }
+  .action-row.keep-unread .action-name { color: var(--pi-keep-unread); }
   .action-menu { position: relative; align-self: stretch; }
   .action-menu-toggle { height: 100%; }
   .action-menu-panel { min-width: min(120px, calc(100vw - 16px)); overflow-wrap: anywhere; }
