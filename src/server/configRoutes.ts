@@ -136,6 +136,7 @@ function parseConfigRequest(value: unknown, agentPathHost: AgentPathHost = "curr
   const subsessions = value["subsessions"];
   const askUser = value["askUser"];
   const agent = value["agent"];
+  const archive = value["archive"];
   if (host !== undefined) {
     if (typeof host !== "string") throw new Error("PI WEB config host must be a string");
     config.host = host;
@@ -164,6 +165,7 @@ function parseConfigRequest(value: unknown, agentPathHost: AgentPathHost = "curr
     config.askUser = askUser;
   }
   if (agent !== undefined) config.agent = parseAgentRequest(agent, agentPathHost);
+  if (archive !== undefined) config.archive = parseArchiveRequest(archive, agentPathHost);
   return config;
 }
 
@@ -229,6 +231,14 @@ function parseMaxUploadBytesRequest(value: unknown): number {
 
 function parseAgentRequest(value: unknown, pathHost: AgentPathHost): NonNullable<PiWebConfig["agent"]> {
   return parseAgentConfig(value, "request", pathHost);
+}
+
+function parseArchiveRequest(value: unknown, pathHost: AgentPathHost = "current"): NonNullable<PiWebConfig["archive"]> {
+  if (!isRecord(value)) throw new Error("PI WEB config archive must be an object");
+  const parentDir = value["parentDir"];
+  if (parentDir === undefined) return {};
+  if (typeof parentDir !== "string" || parentDir === "") throw new Error("PI WEB config archive.parentDir must be a non-empty string");
+  return { parentDir };
 }
 
 function parsePluginsRequest(value: unknown): NonNullable<PiWebConfig["plugins"]> {
