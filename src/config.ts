@@ -166,11 +166,23 @@ export function piWebDataDir(env: NodeJS.ProcessEnv = process.env, cwd = process
   return resolve(cwd, configured);
 }
 
+/**
+ * Resolve the parent directory that holds the session archive: both the
+ * `archived-sessions.json` index and the default `archived-sessions/` directory.
+ * Defaults to the PI WEB data dir; the nonempty `PI_WEB_ARCHIVE_PARENT` alias wins
+ * over `sessionArchive.parentDir`. Relative values resolve against `cwd`.
+ */
+export function sessionArchiveParentDir(env: NodeJS.ProcessEnv = process.env, config: Pick<PiWebConfig, "sessionArchive"> = {}, cwd = process.cwd()): string {
+  const fromEnv = env["PI_WEB_ARCHIVE_PARENT"];
+  const configured = fromEnv !== undefined && fromEnv !== "" ? fromEnv : config.sessionArchive?.parentDir;
+  return configured === undefined || configured === "" ? piWebDataDir(env, cwd) : resolve(cwd, configured);
+}
+
 /** Resolve new archive destinations without changing the archive index location. */
 export function sessionArchiveDirectory(env: NodeJS.ProcessEnv = process.env, config: Pick<PiWebConfig, "sessionArchive"> = {}, cwd = process.cwd()): string {
   const fromEnv = env["PI_WEB_SESSION_ARCHIVE_DIR"];
   const configured = fromEnv !== undefined && fromEnv !== "" ? fromEnv : config.sessionArchive?.directory;
-  return configured === undefined ? join(piWebDataDir(env, cwd), "archived-sessions") : resolve(cwd, configured);
+  return configured === undefined ? join(sessionArchiveParentDir(env, config, cwd), "archived-sessions") : resolve(cwd, configured);
 }
 
 export function piWebConfigPath(env: NodeJS.ProcessEnv = process.env, cwd = process.cwd()): string {
@@ -312,6 +324,11 @@ function piWebConfigEnvOverrides(env: NodeJS.ProcessEnv): { config: PiWebConfig;
     config = overlayPiWebConfig(config, { sessionArchive: parseSessionArchiveConfig({ directory: archiveDir }, "PI_WEB_SESSION_ARCHIVE_DIR") });
     enforced["/sessionArchive/directory"] = "PI_WEB_SESSION_ARCHIVE_DIR";
   }
+  const archiveParent = envValue(env, "PI_WEB_ARCHIVE_PARENT");
+  if (archiveParent !== undefined) {
+    config = overlayPiWebConfig(config, { sessionArchive: parseSessionArchiveConfig({ parentDir: archiveParent }, "PI_WEB_ARCHIVE_PARENT") });
+    enforced["/sessionArchive/parentDir"] = "PI_WEB_ARCHIVE_PARENT";
+  }
   return { config, enforced };
 }
 
@@ -399,12 +416,20 @@ export function parseGitConfig(value: unknown, path: string, label = "PI WEB con
 export function parseSessionArchiveConfig(value: unknown, path: string): NonNullable<PiWebConfigValues["sessionArchive"]> {
   if (!isRecord(value)) throw new Error(`PI WEB config sessionArchive must be an object: ${path}`);
   requireNamespaceKeys(value, "sessionArchive", path);
-  const directory = value["directory"];
-  if (directory === undefined) return {};
-  if (typeof directory !== "string" || directory.trim() === "" || directory.includes("\u0000")) {
-    throw new Error(`PI WEB config sessionArchive.directory must be a non-empty path: ${path}`);
+  const directory = parseSessionArchivePath(value["directory"], "directory", path);
+  const parentDir = parseSessionArchivePath(value["parentDir"], "parentDir", path);
+  return {
+    ...(directory !== undefined ? { directory } : {}),
+    ...(parentDir !== undefined ? { parentDir } : {}),
+  };
+}
+
+function parseSessionArchivePath(value: unknown, field: "directory" | "parentDir", path: string): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string" || value.trim() === "" || value.includes("\u0000")) {
+    throw new Error(`PI WEB config sessionArchive.${field} must be a non-empty path: ${path}`);
   }
-  return { directory };
+  return value;
 }
 
 export function parseSessionNamingConfig(value: unknown, path: string): NonNullable<PiWebConfigValues["sessionNaming"]> {

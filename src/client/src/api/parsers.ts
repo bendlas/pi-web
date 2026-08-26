@@ -1574,7 +1574,10 @@ function parsePiWebConfigValues(value: unknown): PiWebConfigValues {
 function optionalSessionArchive(value: unknown): PiWebConfigValues["sessionArchive"] {
   if (value === undefined) return undefined;
   if (!isRecord(value) || Array.isArray(value)) throw new Error("Invalid PI WEB sessionArchive field");
-  return { ...optionalField("directory", optionalString(value, "directory")) };
+  return {
+    ...optionalField("directory", optionalString(value, "directory")),
+    ...optionalField("parentDir", optionalString(value, "parentDir")),
+  };
 }
 
 function optionalSessionNaming(value: unknown): PiWebConfigValues["sessionNaming"] {

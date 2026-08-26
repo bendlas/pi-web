@@ -17,7 +17,7 @@ const PI_WEB_CONFIG_NAMESPACES = {
   uploads: ["defaultFolder"],
   attachments: ["defaultFolder"],
   sessionNaming: ["model", "maxTokens", "thinkingLevel", "timeoutMs"],
-  sessionArchive: ["directory"],
+  sessionArchive: ["directory", "parentDir"],
   git: ["worktreeParentDir"],
   pathAccess: ["allowedPaths"],
 } as const satisfies { [Key in keyof PiWebConfigValues]?: readonly (keyof NonNullable<PiWebConfigValues[Key]>)[] };

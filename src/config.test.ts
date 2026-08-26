@@ -88,6 +88,18 @@ describe("sessionArchive config", () => {
     expect(loadPiWebConfig(testOptions()).config).not.toHaveProperty("sessionArchive");
   });
 
+  it("round-trips the archive parent independently of the destination", () => {
+    savePiWebConfig({ sessionArchive: { parentDir: "archive-parent" } }, testOptions());
+    expect(loadPiWebConfig(testOptions()).config.sessionArchive).toEqual({ parentDir: "archive-parent" });
+    savePiWebConfig({ sessionArchive: { directory: "archive-files" } }, testOptions());
+    expect(loadPiWebConfig(testOptions()).config.sessionArchive).toEqual({ directory: "archive-files" });
+  });
+
+  it.each([{ parentDir: "" }, { parentDir: "   " }, { parentDir: 1 }, { parentDir: null }, { parentDir: "a\u0000b" }])("rejects invalid archive parent %j", async (sessionArchive) => {
+    await writeFile(configPath, JSON.stringify({ sessionArchive }), "utf8");
+    expect(() => loadPiWebConfig(testOptions())).toThrow("PI WEB config sessionArchive.parentDir");
+  });
+
   it.each([null, [], "archive", { unknown: true }, { directory: "" }, { directory: "   " }, { directory: 1 }, { directory: null }, { directory: "a\u0000b" }])("rejects invalid archive config %j", async (sessionArchive) => {
     await writeFile(configPath, JSON.stringify({ sessionArchive }), "utf8");
     expect(() => loadPiWebConfig(testOptions())).toThrow("PI WEB config sessionArchive");
@@ -102,6 +114,19 @@ describe("sessionArchive config", () => {
     expect(sessionArchiveDirectory({ ...env, PI_WEB_SESSION_ARCHIVE_DIR: "" }, config, tempDir)).toBe(join(tempDir, "configured"));
     expect(sessionArchiveDirectory({}, { sessionArchive: { directory: tempDir } }, resolve(tempDir, "other"))).toBe(tempDir);
     expect(sessionArchiveDirectory(env, { sessionArchive: {} }, tempDir)).toBe(join(tempDir, "state", "archived-sessions"));
+  });
+
+  it("derives the destination from the archive parent unless one is configured", () => {
+    const env = { PI_WEB_DATA_DIR: "state", PI_WEB_ARCHIVE_PARENT: "enforced-parent" };
+    expect(sessionArchiveDirectory(env, { sessionArchive: {} }, tempDir)).toBe(join(tempDir, "enforced-parent", "archived-sessions"));
+    expect(sessionArchiveDirectory(env, { sessionArchive: { directory: "configured" } }, tempDir)).toBe(join(tempDir, "configured"));
+    expect(sessionArchiveDirectory(env, { sessionArchive: { parentDir: "config-parent" } }, tempDir)).toBe(join(tempDir, "enforced-parent", "archived-sessions"));
+    expect(sessionArchiveDirectory({ ...env, PI_WEB_ARCHIVE_PARENT: "" }, { sessionArchive: { parentDir: "config-parent" } }, tempDir)).toBe(join(tempDir, "config-parent", "archived-sessions"));
+  });
+
+  it("enforces PI_WEB_ARCHIVE_PARENT on the archive parent leaf", () => {
+    expect(piWebConfigEnforcedSettings({ PI_WEB_ARCHIVE_PARENT: "parent" })).toEqual({ "/sessionArchive/parentDir": "PI_WEB_ARCHIVE_PARENT" });
+    expect(applyPiWebConfigEnv({ sessionArchive: { directory: "configured" } }, { PI_WEB_ARCHIVE_PARENT: "parent" }).sessionArchive).toEqual({ directory: "configured", parentDir: "parent" });
   });
 });
 

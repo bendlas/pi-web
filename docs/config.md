@@ -69,7 +69,7 @@ enforced environment > browser-local choice > supported project override
 
 Browser-local choices apply to colour theme, file icon theme, and localization. Project config participates only for supported keys. Environment policy wins over both; it is not a default that projects or browsers can override.
 
-Each declared setting replaces its lower-priority value, including arrays and dictionaries; there is no general recursive merge. The schema declares these namespace leaves: `uploads.defaultFolder`, `attachments.defaultFolder`, `sessionNaming.model`, `.maxTokens`, `.thinkingLevel`, `.timeoutMs`, `sessionArchive.directory`, `pathAccess.allowedPaths`, and `defaultLocalization.language`, `.formatLocale`, `.timeZone`, `.hourCycle`. Each inherits independently across deployment defaults, writable config, applicable project config, and environment policy. An empty namespace `{}` contributes no overrides; missing leaves inherit.
+Each declared setting replaces its lower-priority value, including arrays and dictionaries; there is no general recursive merge. The schema declares these namespace leaves: `uploads.defaultFolder`, `attachments.defaultFolder`, `sessionNaming.model`, `.maxTokens`, `.thinkingLevel`, `.timeoutMs`, `sessionArchive.directory`, `sessionArchive.parentDir`, `pathAccess.allowedPaths`, and `defaultLocalization.language`, `.formatLocale`, `.timeZone`, `.hourCycle`. Each inherits independently across deployment defaults, writable config, applicable project config, and environment policy. An empty namespace `{}` contributes no overrides; missing leaves inherit.
 
 Each plugin's `enabled` and each top-level `plugins.<id>.settings.<key>` also resolve independently. An individual array/dictionary-valued setting still replaces entirely, including an explicit empty value. `defaultTheme` remains one atomic, coherent preference; `shortcuts` and deprecated `agent` are also atomic. JSON depth alone does not define a setting. Path additions have the separate composition rules below.
 
@@ -85,7 +85,7 @@ PI_WEB_DEFAULT_LOCALIZATION='{"timeZone":"UTC"}'
 PI_WEB_PLUGINS='{"git":{"settings":{"workspaceDiscoveryHooks":false}}}'
 ```
 
-Container JSON variables keep their existing names: `PI_WEB_UPLOADS`, `PI_WEB_ATTACHMENTS`, `PI_WEB_SESSION_NAMING`, `PI_WEB_SESSION_ARCHIVE`, `PI_WEB_PATH_ACCESS`, `PI_WEB_GIT`, and `PI_WEB_DEFAULT_LOCALIZATION`. Only supplied namespace leaves are enforced, including `pathAccess.allowedPaths` and plugin leaves; `{}` enforces none. Atomic settings lock the whole value. `PI_WEB_PORT` retains the `PORT` fallback; the nonempty `PI_WEB_SESSION_ARCHIVE_DIR` alias wins over `PI_WEB_SESSION_ARCHIVE` JSON. `PI_WEB_ALLOWED_HOSTS` accepts JSON `true` or a string array, plus legacy `true`/comma-separated hosts. Allowing all hosts is unsafe for an exposed development server; prefer an explicit list.
+Container JSON variables keep their existing names: `PI_WEB_UPLOADS`, `PI_WEB_ATTACHMENTS`, `PI_WEB_SESSION_NAMING`, `PI_WEB_SESSION_ARCHIVE`, `PI_WEB_PATH_ACCESS`, `PI_WEB_GIT`, and `PI_WEB_DEFAULT_LOCALIZATION`. Only supplied namespace leaves are enforced, including `pathAccess.allowedPaths` and plugin leaves; `{}` enforces none. Atomic settings lock the whole value. `PI_WEB_PORT` retains the `PORT` fallback; the nonempty `PI_WEB_SESSION_ARCHIVE_DIR` and `PI_WEB_ARCHIVE_PARENT` aliases win over `PI_WEB_SESSION_ARCHIVE` JSON for their respective leaves. `PI_WEB_ALLOWED_HOSTS` accepts JSON `true` or a string array, plus legacy `true`/comma-separated hosts. Allowing all hosts is unsafe for an exposed development server; prefer an explicit list.
 
 Boolean environment inputs accept only `true`/`false` (case-insensitive) or `1`/`0`. Invalid supplied policy values fail startup instead of being ignored. Unknown fields in declared core containers are errors, including misspellings in `pathAccess`, `uploads`, and `attachments`. Plugin environment envelopes accept only `enabled` and `settings`; keys inside `settings` remain plugin-owned. Unset a variable to remove enforcement; empty strings are not a general reset syntax. Legacy empty host, port, allowed-hosts, upload-limit, and archive-directory overrides remain ignored. Runtime-only variables have their own contracts; see offline flags below. Markers such as `PI_WEB_SESSION` are not config policy.
 
@@ -93,7 +93,7 @@ Boolean environment inputs accept only `true`/`false` (case-insensitive) or `1`/
 
 Settings identifies inherited sources and environment-enforced values. Enforced controls are read-only. Where a saved override has a **Reset saved override** control, resetting deletes that override and exposes the next applicable layer; it does not copy today's effective default into the writable file. Loading deployment defaults keeps them separate from writable overrides. Theme and localization enforcement temporarily masks saved browser choices without erasing them; removing policy restores those choices.
 
-The config API returns `config` (writable overrides), `effectiveConfig`, optional `defaultsPath` / `defaultsConfig`, `configSources` (JSON-pointer identifiers mapped to `defaults`, `config`, or the controlling environment variable), and `enforcedSettings` (identifiers mapped to environment variables). Source and enforcement pointers address declared leaves, such as `/sessionNaming/model` and `/pathAccess/allowedPaths`; the archive alias reports `/sessionArchive/directory`. Missing source entries inherit built-in/feature defaults; this is machine metadata, not browser/project provenance.
+The config API returns `config` (writable overrides), `effectiveConfig`, optional `defaultsPath` / `defaultsConfig`, `configSources` (JSON-pointer identifiers mapped to `defaults`, `config`, or the controlling environment variable), and `enforcedSettings` (identifiers mapped to environment variables). Source and enforcement pointers address declared leaves, such as `/sessionNaming/model` and `/pathAccess/allowedPaths`; the archive aliases report `/sessionArchive/directory` and `/sessionArchive/parentDir`. Missing source entries inherit built-in/feature defaults; this is machine metadata, not browser/project provenance.
 
 Use `PATCH /api/config` for explicit updates, or `PATCH /api/machines/<machineId>/config` for selected-machine-supported keys (`local` selects the gateway machine). The body has optional `set` (config-shaped values) and `unset` (JSON-pointer strings):
 
@@ -113,7 +113,7 @@ Process restarts depend on the key:
 - `host` / `port`: restart the gateway web/API service or process.
 - `maxUploadBytes`: restart both the web/API process and the session daemon on that machine.
 - `spawnSessions` / `subsessions` / `askUser` / `extensionDialogsTimeoutMs` / `environmentFacts`: restart the session daemon on that machine.
-- `sessionArchive.directory`: restart the session daemon on that machine; changes only the destination for new archives.
+- `sessionArchive.parentDir` / `sessionArchive.directory`: restart the session daemon on that machine. `parentDir` moves the archive index and the default archive directory; `directory` changes only the destination for new archives.
 - `sessionNaming`: saved model, token budget, thinking level, and timeout apply to the next naming request without a restart. Existing names and in-progress naming requests are unchanged.
 - `pathAccess`: applies on the next request; existing file views may need a browser refresh.
 - `uploads.defaultFolder`: applies to newly opened Files upload dialogs and new direct drag/drop batches after config/workspace refresh.
@@ -171,7 +171,7 @@ Turn it on in **Settings → General → Chat display → Quiet mode**. It is of
   },
   "maxUploadBytes": 67108864,
   "sessionArchive": {
-    "directory": "/srv/pi-web/archives"
+    "parentDir": "/srv/pi-web"
   },
   "spawnSessions": true,
   "subsessions": true,
@@ -271,7 +271,7 @@ Rows with JSON key `—` are runtime-only environment variables, not config-file
 | Agent can spawn sessions | `spawnSessions` | `PI_WEB_SPAWN_SESSIONS` | Global/session daemon | Not supported locally | Restart session daemon on that machine |
 | Tracked subsessions | `subsessions` | `PI_WEB_SUBSESSIONS` | Global/session daemon | Not supported locally; also requires `spawnSessions` | Restart session daemon on that machine |
 | Agent can post question forms | `askUser` | `PI_WEB_ASK_USER` | Global/session daemon | Not supported locally | Restart session daemon on that machine |
-| Session archive directory | `sessionArchive.directory` | `PI_WEB_SESSION_ARCHIVE` (JSON object), `PI_WEB_SESSION_ARCHIVE_DIR` alias | Global/session daemon | Not supported locally | Restart session daemon on that machine; new archives only |
+| Session archive location | `sessionArchive.parentDir`, `sessionArchive.directory` | `PI_WEB_SESSION_ARCHIVE` (JSON object), `PI_WEB_ARCHIVE_PARENT` and `PI_WEB_SESSION_ARCHIVE_DIR` aliases | Global/session daemon | Not supported locally | Restart session daemon on that machine; no migration |
 | Session naming | `sessionNaming.model`, `sessionNaming.maxTokens`, `sessionNaming.thinkingLevel`, `sessionNaming.timeoutMs` | `PI_WEB_SESSION_NAMING` (JSON object) | Global/session daemon | Not supported locally | Next naming request; no restart |
 | Extension dialog auto-cancel timeout | `extensionDialogsTimeoutMs` | `PI_WEB_EXTENSION_DIALOGS_TIMEOUT_MS` | Global/session daemon | Not supported locally | Restart session daemon on that machine |
 | Session environment facts | `environmentFacts` | `PI_WEB_ENVIRONMENT_FACTS` | Global/session daemon | Not supported locally | Restart session daemon on that machine |
@@ -309,25 +309,27 @@ Rows with JSON key `—` are runtime-only environment variables, not config-file
 
 PI WEB creates `$PI_WEB_DATA_DIR/maintenance` when a maintenance terminal first needs it. Commands from Updates run there on the selected machine, not in a user workspace. This directory is not registered as a project.
 
-Each data directory is independent: after pointing PI WEB at a new root, it starts there with empty registries and no archive index. Changing paths does not migrate data. Archive records retain their stored paths; see [Session archive directory](#session-archive-directory).
+Each data directory is independent: after pointing PI WEB at a new root, it starts there with empty registries and no archive index. Changing paths does not migrate data. Archive records retain their stored paths; see [Session archive location](#session-archive-location).
 
 Only one live session daemon may use a data directory. For a second instance, set a distinct `PI_WEB_DATA_DIR`, `PI_WEB_SESSIOND_SOCKET` (or `PI_WEB_SESSIOND_PORT` / `PI_WEB_SESSIOND_HOST`), and `PI_WEB_PORT`. Stale ownership markers are normally recovered automatically. If startup still refuses, verify the named owner is no longer running before deleting `sessiond-owner.json` as the error suggests.
 
 This setting does not change the PI WEB config file selected by `PI_WEB_CONFIG` or Pi-owned state such as the active session files selected by `PI_CODING_AGENT_SESSION_DIR`.
 
-### Session archive directory
+### Session archive location
 
-Set `sessionArchive.directory` in the global config file to choose where new session archives are written. It defaults to `$PI_WEB_DATA_DIR/archived-sessions`. Project-local overrides are not supported.
+By default PI WEB writes the `archived-sessions.json` index and the `archived-sessions/` transcript directory under `$PI_WEB_DATA_DIR`. Set `sessionArchive.parentDir` in the global config file to relocate both. Project-local overrides are not supported.
 
 ```json
-{ "sessionArchive": { "directory": "/srv/pi-web/archives" } }
+{ "sessionArchive": { "parentDir": "/srv/pi-web" } }
 ```
 
-`PI_WEB_SESSION_ARCHIVE` accepts a JSON object such as `{"directory":"/srv/pi-web/archives"}`. The nonempty `PI_WEB_SESSION_ARCHIVE_DIR` path alias takes precedence over both JSON environment policy and config files; an empty alias is ignored. Relative paths resolve against the process working directory. Use an absolute path for a predictable destination; do not rely on tilde expansion.
+`sessionArchive.directory` chooses the destination for newly archived transcripts on its own. It defaults to `<parentDir>/archived-sessions`, so an explicit value can separate transcripts from the index.
 
-Restart the session daemon on the affected machine after changing either value. Only the destination for new archives changes: the index stays at `$PI_WEB_DATA_DIR/archived-sessions.json`, existing records keep their stored paths, and no migration occurs.
+`PI_WEB_SESSION_ARCHIVE` accepts a JSON object with either leaf. The nonempty `PI_WEB_ARCHIVE_PARENT` and `PI_WEB_SESSION_ARCHIVE_DIR` aliases enforce `parentDir` and `directory` respectively; each alias takes precedence over both JSON environment policy and config files, and an empty alias is ignored. Relative paths resolve against the process working directory. Use an absolute path for a predictable location; do not rely on tilde expansion.
 
-Edit the global config file or daemon environment directly. Neither this destination nor the managed data directory is exposed in Settings.
+Restart the session daemon on the affected machine after changing any of these values. The index and the default archive directory move together with `parentDir`, while existing records keep their stored paths and no migration occurs: a relocated index starts empty, so earlier archive entries are no longer listed until the index file is moved manually.
+
+Edit the global config file or daemon environment directly. Neither the archive location nor the managed data directory is exposed in Settings.
 
 ### Agent process environment
 

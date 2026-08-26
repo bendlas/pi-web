@@ -335,7 +335,7 @@ async function createSessionDaemonRuntime() {
       agentDir: activeAgentProfile.dir,
       watchSessionNames: true,
       archiveStore: new SessionArchiveStore(
-        defaultSessionArchiveFilePath(daemonEnvironment, process.cwd()),
+        defaultSessionArchiveFilePath(daemonEnvironment, config, process.cwd()),
         sessionArchiveDirectory(daemonEnvironment, config, process.cwd()),
       ),
       workspaceActivity,
