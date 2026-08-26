@@ -4,6 +4,7 @@ import { configApi, effectiveWorkspaceUploadFolder, sessionsApi, terminalsApi, w
 import type { AppAction } from "../actions";
 import { initialAppState, type AppState, type ModelDialogOrigin } from "../appState";
 import { isSessionActive } from "../../../shared/activity";
+import type { MachineStatusSnapshot } from "../../../shared/machineStatus";
 import { PI_WEB_CAPABILITIES, supportsPiWebCapability } from "../../../shared/capabilities";
 import { machineScopedPluginId } from "../../../shared/machinePluginIds";
 import { AuthController } from "../controllers/authController";
@@ -23,6 +24,8 @@ import { SessionStorageWorkspaceSelectionMemory } from "../controllers/workspace
 import { KeyboardShortcutDispatcher } from "../keyboardShortcuts";
 import { selectedMachineId } from "../controllers/types";
 import type { SessionNotificationSummaryEvent } from "../../../shared/apiTypes";
+import { loadKeepUnreadIds, setKeepUnread } from "../keepUnreadSessions";
+import { augmentStatusSnapshotWithUnread } from "../statusUnreadProjection";
 import { machineSessionKey } from "../machineKeys";
 import { sessionCleanupRequestKey } from "../sessionCleanupUi";
 import { selectedNotificationView } from "../sessionNotifications";
@@ -129,7 +132,14 @@ export class PiWebApp extends LitElement {
       console.warn(`Failed to ${operation} session unread state for ${machineId}`, error);
     },
   });
-  @state() private unreadSessionIds: ReadonlySet<string> = this.sessionUnread.unreadSessionIds(selectedMachineId(this.state), this.state.sessions);
+  /** Machine the cached keep-unread overrides below were loaded for. */
+  private keepUnreadMachineId: string = selectedMachineId(this.state);
+  /** Sessions the user pinned as unread on {@link keepUnreadMachineId}. */
+  @state() private keepUnreadSessionIds: ReadonlySet<string> = loadKeepUnreadIds(selectedMachineId(this.state));
+  @state() private unreadSessionIds: ReadonlySet<string> = unionStringSets(
+    this.sessionUnread.unreadSessionIds(selectedMachineId(this.state), this.state.sessions),
+    this.keepUnreadSessionIds,
+  );
   private unreadConnected = false;
   private committedChatIdentity: string | undefined;
   private readyChatIdentity: string | undefined;
@@ -303,12 +313,49 @@ export class PiWebApp extends LitElement {
     if (session === undefined) return;
     const machineId = selectedMachineId(this.state);
     if (!this.isSessionSeen(machineId, session)) return;
+    // The user asked to keep this conversation unread, so reading it must not
+    // clear the marker: only an explicit mark-read or toggle-off does.
+    if (this.keepUnreadIds(machineId).has(session.id)) return;
     void this.sessionUnread.acknowledge(machineId, session);
   }
 
   private markSessionsRead(sessions: readonly SessionInfo[]): void {
     const machineId = selectedMachineId(this.state);
+    const keepUnread = this.keepUnreadIds(machineId);
+    const pinned = sessions.filter((session) => keepUnread.has(session.id));
+    if (pinned.length > 0) {
+      for (const session of pinned) setKeepUnread(machineId, session.id, false);
+      this.refreshKeepUnreadIds(machineId);
+    }
     for (const session of sessions) void this.sessionUnread.acknowledge(machineId, session);
+  }
+
+  /** Flip "keep unread" for one session of the selected machine. */
+  private toggleKeepUnread(session: SessionInfo): void {
+    const machineId = selectedMachineId(this.state);
+    const keep = !this.keepUnreadIds(machineId).has(session.id);
+    setKeepUnread(machineId, session.id, keep);
+    this.refreshKeepUnreadIds(machineId);
+    // Stop keeping unread must clear the marker now, exactly like Mark as read,
+    // so the two are the same action: ending up read and not pinned. Reading the
+    // conversation no longer does it, because the pin is gone.
+    if (!keep) void this.sessionUnread.acknowledge(machineId, session);
+  }
+
+  /**
+   * Keep-unread overrides for `machineId`, re-read from browser storage when the
+   * selected machine changed (another tab may also have edited them).
+   */
+  private keepUnreadIds(machineId: string): ReadonlySet<string> {
+    if (this.keepUnreadMachineId !== machineId) this.refreshKeepUnreadIds(machineId);
+    return this.keepUnreadSessionIds;
+  }
+
+  private refreshKeepUnreadIds(machineId: string): void {
+    this.keepUnreadMachineId = machineId;
+    const next = loadKeepUnreadIds(machineId);
+    if (!sameStringSet(next, this.keepUnreadSessionIds)) this.keepUnreadSessionIds = next;
+    this.syncUnreadSessionIds();
   }
 
   private async commitReadyChatAfterRender(machineId: string, session: SessionInfo): Promise<void> {
@@ -320,7 +367,11 @@ export class PiWebApp extends LitElement {
   }
 
   private syncUnreadSessionIds(): void {
-    const next = this.sessionUnread.unreadSessionIds(selectedMachineId(this.state), this.state.sessions);
+    const machineId = selectedMachineId(this.state);
+    const next = unionStringSets(
+      this.sessionUnread.unreadSessionIds(machineId, this.state.sessions),
+      this.keepUnreadIds(machineId),
+    );
     if (!sameStringSet(next, this.unreadSessionIds)) this.unreadSessionIds = next;
   }
 
@@ -1307,13 +1358,32 @@ export class PiWebApp extends LitElement {
     }
   }
 
+  /**
+   * `machineStatusSnapshots` with the client's unread set rolled up, so the
+   * workspace, project, and machine badges track the session rows. The unread
+   * flag is the one piece of the tree the client owns (daemon completions
+   * unioned with keep-unread pins), so it is derived here from `unreadSessionIds`
+   * rather than maintained as a separate model in the navigation panel.
+   */
+  private get augmentedMachineStatusSnapshots(): Record<string, MachineStatusSnapshot> {
+    const machineId = selectedMachineId(this.state);
+    const augmented = augmentStatusSnapshotWithUnread(
+      this.state.machineStatusSnapshots[machineId],
+      this.unreadSessionIds,
+      this.state.sessions,
+      this.state.workspaces,
+    );
+    if (augmented === undefined || augmented === this.state.machineStatusSnapshots[machineId]) return this.state.machineStatusSnapshots;
+    return { ...this.state.machineStatusSnapshots, [machineId]: augmented };
+  }
+
   private renderNavigationPanel() {
     return html`
       <app-navigation-panel
         .machines=${this.state.machines}
         .selectedMachine=${this.state.selectedMachine}
         .machineStatuses=${this.state.machineStatuses}
-        .machineStatusSnapshots=${this.state.machineStatusSnapshots}
+        .machineStatusSnapshots=${this.augmentedMachineStatusSnapshots}
         .machinesCollapsed=${this.navigationSections.isCollapsed("machines")}
         .onToggleMachines=${() => { this.navigationSections.toggle("machines"); }}
         .onSelectMachine=${(machine: Machine) => this.selectNavigationItem("machines", "projects", () => this.selectMachineWithMemory(machine))}
@@ -1328,6 +1398,7 @@ export class PiWebApp extends LitElement {
         .sessionActivities=${this.state.sessionActivities}
         .sendingPrompts=${this.state.sendingPrompts}
         .unreadSessionIds=${this.unreadSessionIds}
+        .keepUnreadSessionIds=${this.keepUnreadSessionIds}
         .selectedSession=${this.state.selectedSession}
         .startingSessionCount=${this.state.startingSessionCount}
         .canStartSession=${!!this.state.selectedWorkspace}
@@ -1351,6 +1422,7 @@ export class PiWebApp extends LitElement {
         .onSelectSession=${(session: SessionInfo) => this.selectNavigationItem("sessions", "chat", () => this.sessions.selectSession(session))}
         .onMarkSessionRead=${(session: SessionInfo) => { this.markSessionsRead([session]); }}
         .onMarkSessionsRead=${(sessions: SessionInfo[]) => { this.markSessionsRead(sessions); }}
+        .onToggleKeepUnread=${(session: SessionInfo) => { this.toggleKeepUnread(session); }}
         .onArchiveSession=${(session: SessionInfo) => this.sessions.archiveSession(session)}
         .onArchiveSessionWithDescendants=${(session: SessionInfo) => this.sessions.archiveSessionWithDescendants(session)}
         .onArchiveSessions=${(sessions: SessionInfo[]) => this.sessions.archiveSessions(sessions)}
@@ -2435,6 +2507,12 @@ function patchChangesState(state: AppState, patch: Partial<AppState>): boolean {
 
 function sameStringSet(left: ReadonlySet<string>, right: ReadonlySet<string>): boolean {
   return left.size === right.size && [...left].every((value) => right.has(value));
+}
+
+function unionStringSets(left: ReadonlySet<string>, right: ReadonlySet<string>): ReadonlySet<string> {
+  if (right.size === 0) return left;
+  if (left.size === 0) return right;
+  return new Set([...left, ...right]);
 }
 
 function isActive(state: Pick<AppState, "status" | "activity">): boolean {
