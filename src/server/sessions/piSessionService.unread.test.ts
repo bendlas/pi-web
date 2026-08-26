@@ -146,6 +146,41 @@ describe("PiSessionService daemon-owned unread state", () => {
     }
   });
 
+  it("drops unread records for cwds whose sessions no longer exist", async () => {
+    const unreadStore = new SessionUnreadStore({ createCatalogId: () => "catalog-test" });
+    // A completed session whose cwd has since vanished (e.g. a deleted git
+    // worktree), with no session file left to list.
+    unreadStore.observeActivityState("orphan-session", "/deleted-worktree", true);
+    unreadStore.observeActivityState("orphan-session", "/deleted-worktree", false);
+    expect(unreadStore.catalogSnapshot().sessions).toMatchObject([
+      { sessionId: "orphan-session", cwd: "/deleted-worktree" },
+    ]);
+
+    const hub = new CapturingSessionEventHub();
+    const fake = fakeRuntime("session-1");
+    const service = new PiSessionService(hub, {
+      agentDir: TEST_AGENT_DIR,
+      modelRuntime: testModelRuntime,
+      createAgentRuntime: runtimeCreator(fake.runtime),
+      // No record for /deleted-worktree, so list() reports no live session there.
+      sessionManager: sessionGateway([sessionRecord("session-1")]),
+      archiveStore: emptyArchiveStore(),
+      heartbeatIntervalMs: 10,
+      unreadReconcileIntervalMs: 10,
+      unreadStore,
+    });
+
+    try {
+      await vi.waitFor(() => {
+        expect(unreadStore.catalogSnapshot().sessions).not.toContainEqual(
+          expect.objectContaining({ sessionId: "orphan-session" }),
+        );
+      });
+    } finally {
+      await service.dispose();
+    }
+  });
+
   it("does not publish a mutation queued after the current batch became durable", async () => {
     const persistence = new BlockingUnreadPersistence();
     const unreadStore = new SessionUnreadStore({ persistence, createCatalogId: () => "catalog-test" });
