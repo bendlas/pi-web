@@ -13,6 +13,14 @@ import {
   type GatewayServerConfigDraft,
   type MachineAccessConfigDraft,
 } from "./settingsConfigDraft";
+import {
+  areBrowserNotificationsEnabled,
+  browserNotificationsSupported,
+  getBrowserNotificationPermission,
+  requestBrowserNotificationPermission,
+  setBrowserNotificationsEnabled,
+  type BrowserNotificationPermissionState,
+} from "../../browserNotification";
 
 function generalDescription(targetLabel: string): TemplateResult {
   return html`Gateway server fields edit this local gateway. File access and upload defaults edit ${targetLabel}.`;
@@ -37,6 +45,9 @@ export class SettingsGeneralPanel extends LitElement {
   @state() private machineDraft: MachineAccessConfigDraft = emptyMachineAccessConfigDraft();
   @state() private gatewayLocalError = "";
   @state() private machineLocalError = "";
+  @state() private browserNotificationsEnabled = false;
+  @state() private browserNotificationPermission: BrowserNotificationPermissionState = "default";
+  @state() private browserNotificationNotice = "";
 
   protected override willUpdate(changed: PropertyValues<this>): void {
     if (changed.has("configResponse") && this.configResponse !== undefined) {
@@ -47,6 +58,12 @@ export class SettingsGeneralPanel extends LitElement {
       this.machineDraft = machineAccessDraftFromConfig(this.machineConfigResponse.config);
       this.machineLocalError = "";
     }
+  }
+
+  protected override firstUpdated(changed: PropertyValues<this>): void {
+    super.firstUpdated(changed);
+    this.browserNotificationPermission = getBrowserNotificationPermission();
+    this.browserNotificationsEnabled = areBrowserNotificationsEnabled();
   }
 
   override render(): TemplateResult {
@@ -62,6 +79,7 @@ export class SettingsGeneralPanel extends LitElement {
         <div class="settings-sections">
           ${this.renderGatewayServerSettings()}
           ${this.renderSelectedMachineAccessSettings()}
+          ${this.renderBrowserNotificationSettings()}
         </div>
       </settings-panel-frame>
     `;
@@ -213,6 +231,55 @@ export class SettingsGeneralPanel extends LitElement {
     `;
   }
 
+  private renderBrowserNotificationSettings(): TemplateResult {
+    const unsupported = !browserNotificationsSupported();
+    const denied = this.browserNotificationPermission === "denied";
+    return html`
+      <section class="settings-card" aria-label="Browser notifications">
+        <div class="card-heading">
+          <h3>Browser notifications</h3>
+          <p>Show native OS/browser notifications for Pi Web alerts, but only while this tab is in the background. The in-app tray still shows every notification while you are looking at Pi Web.</p>
+        </div>
+        <label class="browser-notification-toggle">
+          <input
+            type="checkbox"
+            .checked=${this.browserNotificationsEnabled}
+            ?disabled=${unsupported}
+            @change=${(event: Event) => { void this.toggleBrowserNotifications(event); }}
+          >
+          <span>Enable browser notifications</span>
+        </label>
+        ${this.browserNotificationNotice !== "" ? html`<div class="message error-message">${this.browserNotificationNotice}</div>` : ""}
+        ${unsupported ? html`<small>This browser does not support desktop notifications.</small>` : ""}
+        ${denied && !unsupported ? html`<small>Notifications are blocked. Enable them in your browser's site settings, then reopen settings.</small>` : ""}
+      </section>
+    `;
+  }
+
+  private async toggleBrowserNotifications(event: Event): Promise<void> {
+    const target = event.target as HTMLInputElement | null;
+    const checked = target?.checked ?? false;
+    if (!checked) {
+      setBrowserNotificationsEnabled(false);
+      this.browserNotificationsEnabled = false;
+      this.browserNotificationNotice = "";
+      return;
+    }
+    const permission = await requestBrowserNotificationPermission();
+    this.browserNotificationPermission = permission;
+    if (permission === "granted") {
+      setBrowserNotificationsEnabled(true);
+      this.browserNotificationsEnabled = true;
+      this.browserNotificationNotice = "";
+    } else {
+      setBrowserNotificationsEnabled(false);
+      this.browserNotificationsEnabled = false;
+      this.browserNotificationNotice = permission === "unsupported"
+        ? "This browser does not support desktop notifications."
+        : "Notifications are blocked. Enable them in your browser's site settings, then try again.";
+    }
+  }
+
   private reloadAll(): void {
     void this.onReload?.();
     void this.onReloadMachine?.();
@@ -283,6 +350,9 @@ export class SettingsGeneralPanel extends LitElement {
     .muted { color: var(--pi-muted); }
     .form-actions { display: flex; justify-content: flex-end; gap: 8px; padding-top: 2px; }
     .primary { border-color: var(--pi-accent); background: var(--pi-selection-bg); color: var(--pi-text-bright); }
+    .browser-notification-toggle { display: flex; align-items: center; gap: 8px; }
+    .browser-notification-toggle input { width: auto; }
+    .settings-card small { color: var(--pi-muted); }
 
     @media (max-width: 760px) {
       .effective-card dl > div { grid-template-columns: minmax(0, 1fr); gap: 3px; }

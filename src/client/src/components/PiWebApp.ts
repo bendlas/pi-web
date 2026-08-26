@@ -14,6 +14,7 @@ import { ProjectController, type ProjectTrustChoice } from "../controllers/proje
 import { PiWebStatusController } from "../controllers/piWebStatusController";
 import { SessionController } from "../controllers/sessionController";
 import { SessionNotificationController } from "../controllers/sessionNotificationController";
+import { showBrowserNotification } from "../browserNotification";
 import { WorkspaceController } from "../controllers/workspaceController";
 import { emptyMachineNavigationSnapshot, machineNavigationSnapshotFromState, routeFromMachineNavigationSnapshot, SessionStorageMachineNavigationMemory, type MachineNavigationSnapshot, type WorkspaceRouteSurface } from "../controllers/machineNavigationMemory";
 import { SessionStorageSessionSelectionMemory } from "../controllers/sessionSelection";
@@ -21,6 +22,7 @@ import { SessionStorageTerminalSelectionMemory } from "../controllers/terminalSe
 import { SessionStorageWorkspaceSelectionMemory } from "../controllers/workspaceSelection";
 import { KeyboardShortcutDispatcher } from "../keyboardShortcuts";
 import { selectedMachineId } from "../controllers/types";
+import type { SessionNotificationSummaryEvent } from "../../../shared/apiTypes";
 import { machineSessionKey } from "../machineKeys";
 import { sessionCleanupRequestKey } from "../sessionCleanupUi";
 import { selectedNotificationView } from "../sessionNotifications";
@@ -194,6 +196,8 @@ export class PiWebApp extends LitElement {
   );
   private readonly keyboard = new KeyboardShortcutDispatcher();
   private readonly realtime = new RealtimeSocket();
+  /** Last seen retained notification count per session, used to fire native toasts for non-selected sessions. */
+  private readonly notificationRetainedBySession = new Map<string, number>();
   private readonly machineRealtimeSockets = new Map<string, RealtimeSocket>();
   private readonly activeTerminalIds = new Set<string>();
   private readonly machineNavigation = new SessionStorageMachineNavigationMemory();
@@ -984,10 +988,31 @@ export class PiWebApp extends LitElement {
   private handleRealtimeEvent(machineId: string, event: BrowserRealtimeEvent): void {
     if (event.type === "sessions.unread") this.sessionUnread.applyEvent(machineId, event);
     else if (event.type === "machine.status") this.machineStatus.apply(machineId, event.status);
+    else if (event.type === "notifications.summary") this.handleNotificationSummary(machineId, event);
     else if (isTerminalEvent(event)) {
       this.applyTerminalEvent(event);
       if (event.type === "terminal.exited") void this.refreshWorkspaceDeletionRuns();
     } else this.sessions.applyGlobalEvent(event);
+  }
+
+  private handleNotificationSummary(machineId: string, event: SessionNotificationSummaryEvent): void {
+    const { sessionId, cwd, retainedCount, highestSeverity } = event.summary;
+    const key = `${event.daemonInstanceId}:${cwd}:${sessionId}`;
+    const previous = this.notificationRetainedBySession.get(key);
+    this.notificationRetainedBySession.set(key, retainedCount);
+    // Don't fire for counts already present when we first learned about the session.
+    if (previous === undefined) return;
+    const added = retainedCount - previous;
+    if (added <= 0) return;
+    // The selected/visible session is already covered by the in-app tray and the per-session hook.
+    const selected = this.state.selectedSession;
+    const selectedMachine = selectedMachineId(this.state);
+    if (selected !== undefined && selected.id === sessionId && selected.cwd === cwd && selectedMachine === machineId) return;
+    const name = selected?.id === sessionId && selected?.cwd === cwd
+      ? (selected.name ?? sessionId)
+      : (this.state.sessions.find((s) => s.id === sessionId && s.cwd === cwd)?.name ?? sessionId);
+    // A non-selected session: fire natively even while this tab is focused, since the user isn't looking at it.
+    showBrowserNotification("Pi Web", `${added} new notification${added === 1 ? "" : "s"} in ${name}`, highestSeverity === "error" ? "error" : "info", false);
   }
 
   private applyTerminalEvent(event: TerminalUiEvent): void {

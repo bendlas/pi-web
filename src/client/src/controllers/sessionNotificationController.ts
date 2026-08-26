@@ -14,6 +14,7 @@ import type {
   SessionNotificationInboxSnapshot,
   SessionRef,
 } from "../../../shared/apiTypes";
+import { showBrowserNotification } from "../browserNotification";
 import type { GetState, SetState } from "./types";
 
 export interface SessionNotificationApi {
@@ -118,6 +119,11 @@ export class SessionNotificationController {
   applyInboxEvent(machineId: string, event: SessionNotificationInboxEvent): void {
     const target = this.selectedTarget;
     if (target?.machineId !== machineId || target.sessionId !== event.summary.sessionId || target.cwd !== event.summary.cwd) return;
+    if (event.delta.kind === "added") {
+      const notification = event.delta.notification;
+      // Selected/visible session: only surface natively while the tab is hidden (the in-app tray covers the focused case).
+      showBrowserNotification("Pi Web", notification.message, notification.severity, true);
+    }
     const join = this.selectedJoin;
     if (join?.generation === this.selectedGeneration) {
       join.events.push(event);

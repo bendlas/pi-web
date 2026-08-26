@@ -1,10 +1,10 @@
 import { realtimeEvents, sessionEvents } from "./api";
-import { parseRealtimeStreamEvent, parseSessionAskClosedEvent, parseSessionAskOpenedEvent, parseSessionDialogClosedEvent, parseSessionDialogOpenedEvent, parseSessionNotificationInboxEvent, parseSessionStartupProgressEvent, parseSessionStreamEvent, parseSessionUnreadEvent } from "./api/parsers";
+import { parseRealtimeStreamEvent, parseSessionAskClosedEvent, parseSessionAskOpenedEvent, parseSessionDialogClosedEvent, parseSessionDialogOpenedEvent, parseSessionNotificationInboxEvent, parseSessionNotificationSummaryEvent, parseSessionStartupProgressEvent, parseSessionStreamEvent, parseSessionUnreadEvent } from "./api/parsers";
 import type { RealtimeEvent, SessionRef, SessionUiEvent } from "../../shared/apiTypes";
 
 export type { GlobalSessionEvent, RealtimeEvent, SessionUiEvent } from "../../shared/apiTypes";
 
-export type BrowserRealtimeEvent = Exclude<RealtimeEvent, { type: "notifications.summary" }>;
+export type BrowserRealtimeEvent = RealtimeEvent;
 
 export class SessionSocket {
   private socket: WebSocket | undefined;
@@ -169,6 +169,7 @@ export function parseRealtimeSocketEvent(event: unknown): BrowserRealtimeEvent |
   const type = eventType(event);
   if (type === "sessions.unread") return safelyParseValidatedEvent(() => parseSessionUnreadEvent(event));
   if (type === "session.startup") return safelyParseValidatedEvent(() => parseSessionStartupProgressEvent(event));
+  if (type === "notifications.summary") return safelyParseValidatedEvent(() => parseSessionNotificationSummaryEvent(event));
   return safelyParseValidatedEvent(() => parseRealtimeStreamEvent(event));
 }
 
