@@ -10,11 +10,19 @@ const tempRoots: string[] = [];
 
 describe("defaultSessionArchiveFilePath", () => {
   it("uses PI_WEB_DATA_DIR when configured", () => {
-    expect(defaultSessionArchiveFilePath({ PI_WEB_DATA_DIR: "managed-state" }, "/tmp/pi-web")).toBe(resolve("/tmp/pi-web", "managed-state", "archived-sessions.json"));
+    expect(defaultSessionArchiveFilePath({ PI_WEB_DATA_DIR: "managed-state" }, {}, "/tmp/pi-web")).toBe(resolve("/tmp/pi-web", "managed-state", "archived-sessions.json"));
   });
 
   it("preserves the ~/.pi-web default when PI_WEB_DATA_DIR is unset", () => {
-    expect(defaultSessionArchiveFilePath({}, "/tmp/pi-web")).toBe(join(homedir(), ".pi-web", "archived-sessions.json"));
+    expect(defaultSessionArchiveFilePath({}, {}, "/tmp/pi-web")).toBe(join(homedir(), ".pi-web", "archived-sessions.json"));
+  });
+
+  it("follows sessionArchive.parentDir and the PI_WEB_ARCHIVE_PARENT alias", () => {
+    const env = { PI_WEB_DATA_DIR: "managed-state" };
+    const config = { sessionArchive: { parentDir: "archive-parent" } };
+    expect(defaultSessionArchiveFilePath(env, config, "/tmp/pi-web")).toBe(resolve("/tmp/pi-web", "archive-parent", "archived-sessions.json"));
+    expect(defaultSessionArchiveFilePath({ ...env, PI_WEB_ARCHIVE_PARENT: "enforced-parent" }, config, "/tmp/pi-web")).toBe(resolve("/tmp/pi-web", "enforced-parent", "archived-sessions.json"));
+    expect(defaultSessionArchiveFilePath({ ...env, PI_WEB_ARCHIVE_PARENT: "" }, config, "/tmp/pi-web")).toBe(resolve("/tmp/pi-web", "archive-parent", "archived-sessions.json"));
   });
 });
 
@@ -33,6 +41,10 @@ describe("SessionArchiveStore", () => {
     const sourcePath = join(activeDir, "2026-01-01_managed.jsonl");
     await writeFile(sourcePath, "session contents\n", "utf8");
     vi.stubEnv("PI_WEB_DATA_DIR", dataDir);
+    // PI_WEB_ARCHIVE_PARENT relocates the index and archive directory, and the
+    // surrounding PI WEB environment may set it; clear it so this test exercises
+    // the data-dir fallback.
+    vi.stubEnv("PI_WEB_ARCHIVE_PARENT", "");
 
     const store = new SessionArchiveStore();
     const record = await store.archive({
@@ -49,6 +61,34 @@ describe("SessionArchiveStore", () => {
     expect(record.archivePath).toBe(archivePath);
     await expect(readFile(archivePath, "utf8")).resolves.toBe("session contents\n");
     await expect(readFile(join(dataDir, "archived-sessions.json"), "utf8")).resolves.toContain('"sessionId": "managed"');
+  });
+
+  it("relocates the index and the default archive directory to the configured parent", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pi-web-archive-parent-"));
+    tempRoots.push(root);
+    const parentDir = join(root, "relocated");
+    const activeDir = join(root, "active");
+    await mkdir(activeDir, { recursive: true });
+    const sourcePath = join(activeDir, "2026-01-01_relocated.jsonl");
+    await writeFile(sourcePath, "session contents\n", "utf8");
+    const config = { sessionArchive: { parentDir } };
+
+    const store = new SessionArchiveStore(defaultSessionArchiveFilePath({ PI_WEB_DATA_DIR: join(root, "state") }, config), sessionArchiveDirectory({}, config));
+    const record = await store.archive({
+      sessionId: "relocated",
+      cwd: "/workspace",
+      path: sourcePath,
+      created: "2026-01-01T00:00:00.000Z",
+      modified: "2026-01-01T00:01:00.000Z",
+      messageCount: 1,
+      firstMessage: "hello",
+    });
+
+    const archivePath = join(parentDir, "archived-sessions", "2026-01-01_relocated.jsonl");
+    expect(record.archivePath).toBe(archivePath);
+    await expect(readFile(archivePath, "utf8")).resolves.toBe("session contents\n");
+    await expect(readFile(join(parentDir, "archived-sessions.json"), "utf8")).resolves.toContain('"sessionId": "relocated"');
+    await expect(access(join(root, "state"))).rejects.toThrow();
   });
 
   it("keeps old and new archives in the same index when the destination changes", async () => {

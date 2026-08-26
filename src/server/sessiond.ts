@@ -358,7 +358,7 @@ async function createSessionDaemonRuntime() {
       watchSessionNames: true,
       sessionPins: pins,
       archiveStore: new SessionArchiveStore(
-        defaultSessionArchiveFilePath(daemonEnvironment, process.cwd()),
+        defaultSessionArchiveFilePath(daemonEnvironment, config, process.cwd()),
         sessionArchiveDirectory(daemonEnvironment, config, process.cwd()),
       ),
       workspaceActivity,

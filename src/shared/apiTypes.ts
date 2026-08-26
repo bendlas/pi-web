@@ -212,8 +212,16 @@ export interface PiWebConfigValues {
   attachments?: PiWebAttachmentsConfig;
   /** Maximum accepted HTTP request body size in bytes (uploads/attachments). */
   maxUploadBytes?: number;
-  /** Destination for newly archived transcripts; the index remains in the PI WEB data directory. */
-  sessionArchive?: { directory?: string };
+  /**
+   * Session archive locations. `directory` is the destination for newly archived
+   * transcripts; `parentDir` holds both the `archived-sessions.json` index and the
+   * default `directory`. Both default into the PI WEB data directory.
+   */
+  sessionArchive?: {
+    directory?: string;
+    /** Parent directory for the archive index and the default archive directory. The `PI_WEB_ARCHIVE_PARENT` env var takes precedence over this config key. */
+    parentDir?: string;
+  };
   /** When true, LLMs can start new sessions via the spawn_session tool. */
   spawnSessions?: boolean;
   /** When true, LLMs can send messages to other sessions. On by default; independent of spawning. */
