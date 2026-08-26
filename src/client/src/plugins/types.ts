@@ -372,6 +372,8 @@ export type ThemeToken =
   | "--pi-dim"
   | "--pi-accent"
   | "--pi-accent-border"
+  | "--pi-keep-unread"
+  | "--pi-keep-unread-border"
   | "--pi-selection-bg"
   | "--pi-success"
   | "--pi-success-border"
