@@ -1589,6 +1589,25 @@ describe("server plugin runtime", () => {
     ]);
   });
 
+  it("preserves an optional createWorkspace capability through the provider snapshot", async () => {
+    const provider: WorkspaceProvider = {
+      probe: () => Promise.resolve("pass"),
+      list: () => Promise.resolve([]),
+      createWorkspace: () => Promise.resolve({ key: "/w", path: "/w", label: "w", isMain: false }),
+    };
+    const importer: ServerPluginModuleImporter = () => Promise.resolve(pluginModule("Creator", { workspaceProvider: provider }));
+    const runtime = await createServerPluginRuntime({
+      catalog: { snapshot: () => Promise.resolve(testSnapshot([entry("creator")])) },
+      importer,
+      logger: testLogger(),
+    });
+    const contributionProvider = runtime.providerContributions()[0]?.provider ?? {};
+    const createEntry = Object.entries(contributionProvider).find(
+      ([key, value]) => key === "createWorkspace" && typeof value === "function",
+    );
+    expect(createEntry).toBeDefined();
+  });
+
   it("rejects plural providers, malformed peers, and non-JSON settings before publication", async () => {
     const pluralActivation = { workspaceProviders: [testProvider()] };
     const circular: Record<string, unknown> = {};

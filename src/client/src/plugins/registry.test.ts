@@ -68,6 +68,7 @@ function createContext(statePatch: Partial<AppState> = {}) {
     refreshAppData: vi.fn(() => { calls.push("refreshAppData"); }),
     reloadPage: vi.fn(() => { calls.push("reloadPage"); }),
     deleteWorkspace: vi.fn(() => { calls.push("deleteWorkspace"); }),
+    createWorkspace: vi.fn(() => { calls.push("createWorkspace"); }),
     startSession: vi.fn(() => { calls.push("startSession"); }),
     archiveSession: vi.fn(() => { calls.push("archiveSession"); }),
     reloadSession: vi.fn(() => { calls.push("reloadSession"); }),
@@ -105,6 +106,7 @@ describe("PluginRegistry", () => {
     await registry.register({ id: "core", plugin: corePlugin });
 
     expect(registry.getActions(createContext().context).some((action) => action.id === "core:actions.show")).toBe(true);
+    expect(registry.getActions(createContext().context).some((action) => action.id === "core:workspace.create")).toBe(true);
     expect(registry.getWorkspacePanels()).toEqual([]);
     expect(registry.resolveWorkspacePanelRouteId("files", "local")).toBeUndefined();
     expect(registry.resolveWorkspacePanelRouteId("core:workspace.files", "local")).toBeUndefined();

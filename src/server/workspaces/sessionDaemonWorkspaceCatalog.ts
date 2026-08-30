@@ -205,10 +205,13 @@ function parseProvider(value: unknown, workspaceLabel: string): NonNullable<Work
   const capabilities = value["capabilities"];
   if (!isRecord(capabilities)) throw protocolError(`${label} capabilities must be an object`);
   const metadata = value["metadata"] === undefined ? undefined : parseJsonObject(value["metadata"], `${label} metadata`);
+  const create = capabilities["create"];
+  const createCapability = typeof create === "boolean" ? create : undefined;
   return Object.freeze({
     pluginId: requirePluginId(value, "pluginId", label),
     capabilities: Object.freeze({
       remove: requireBoolean(capabilities, "remove", `${label} capabilities`),
+      ...(createCapability === undefined ? {} : { create: createCapability }),
     }),
     ...(metadata === undefined ? {} : { metadata }),
   });

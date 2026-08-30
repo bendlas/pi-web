@@ -71,6 +71,23 @@ describe("SessionDaemonWorkspaceCatalog", () => {
     expect(Object.isFrozen(resolved)).toBe(true);
   });
 
+  it("preserves the create capability advertised by the session daemon", async () => {
+    const createWorkspace = {
+      ...providerWorkspace,
+      provider: {
+        pluginId: "replacement",
+        capabilities: { request: true, remove: false, create: true },
+        metadata: { isGitRepo: true, isGitWorktree: true },
+      },
+    };
+    const request = vi.fn<SessionDaemonRequestClient["request"]>(() => Promise.resolve(jsonResponse(providerResolution([createWorkspace]))));
+    const catalog = new SessionDaemonWorkspaceCatalog({ request });
+
+    const listed = await catalog.list("project a");
+    expect(listed).toHaveLength(1);
+    expect(listed[0]?.provider?.capabilities).toEqual({ request: true, remove: false, create: true });
+  });
+
   it("parses the immutable provider runtime and startup-health snapshot", async () => {
     const request = vi.fn<SessionDaemonRequestClient["request"]>(() => Promise.resolve(jsonResponse({
       protocolVersion: 2,

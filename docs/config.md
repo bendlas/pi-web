@@ -122,7 +122,27 @@ Project-local `uploads.defaultFolder` overrides the global upload destination fo
 
 Plugins may own separate project files, such as `.pi-web/tasks.json` for the built-in Workspace Tasks plugin.
 
-PI WEB also honors one optional project hook; see [Worktree pre-remove hook](#worktree-pre-remove-hook).
+PI WEB also honors one optional project hook; see [Worktree pre-remove hook](#worktree-pre-remove-hook). See also [Add-workspace worktree location](#add-workspace-worktree-location) for where new worktrees are created.
+
+## Add-workspace worktree location
+
+The Add-workspace action creates a new git worktree directly from the UI, without starting a session. PI WEB places each new worktree under a configured parent directory. Set it per project in `.pi-web/config.json` or globally in your PI WEB config:
+
+```json
+{
+  "git": {
+    "worktreeParentDir": "../my-repo-worktrees"
+  }
+}
+```
+
+- **Value:** an absolute path, or a path relative to the project root. Relative paths are resolved against the registered project directory.
+- **Default:** when unset, PI WEB uses a sibling directory named `<repo>-worktrees` next to the main checkout (for example `../my-repo-worktrees` for a project at `./my-repo`).
+- **Precedence:** project-local `.pi-web/config.json` overrides the global config; the sibling default applies when neither is set.
+
+The action opens a small dialog collecting the worktree name, an optional base ref (branch, commit, or tag to branch from — defaults to the current branch), and an optional new branch name (defaults to the worktree name). PI WEB runs `git worktree add <parent>/<name> -b <branch> [<baseRef>]`, then surfaces the new workspace immediately.
+
+The worktree parent directory is created if it does not already exist. Because creation runs through the Git workspace provider, the action is available only for Git projects.
 
 ## Worktree pre-remove hook
 

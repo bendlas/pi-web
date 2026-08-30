@@ -259,6 +259,25 @@ export interface ServerPluginHealth {
   details?: JsonObject;
 }
 
+/** Provider-private input for a workspace creation request. */
+export interface ProviderCreateInput {
+  /** Directory name of the new worktree under the host-resolved parent directory. */
+  readonly name: string;
+  /** Optional base ref (branch/commit/tag) to branch from; defaults to HEAD. */
+  readonly baseRef?: string;
+  /** Optional new branch name; defaults to `name`. */
+  readonly branchName?: string;
+}
+
+/** Host-resolved context handed to a provider when creating a workspace. */
+export interface ProviderCreateContext {
+  readonly project: ProjectInput;
+  /** Host-resolved absolute worktree parent directory (from project/global config). */
+  readonly worktreeParentDir: string;
+  readonly input: ProviderCreateInput;
+  readonly signal: AbortSignal;
+}
+
 /**
  * Capabilities for this package's matching browser entry. An activation may
  * supply a request handler, a channel handler, or both, but never neither.
@@ -345,6 +364,7 @@ export interface WorkspaceProvider {
   probe(project: ProjectInput, signal: AbortSignal): Promise<ProviderClaim>;
   list(project: ProjectInput, signal: AbortSignal): Promise<ProviderWorkspace[]>;
   prepareRemove?(context: ProviderRemoveContext): Promise<WorkspaceRemovePlan>;
+  createWorkspace?(context: ProviderCreateContext): Promise<ProviderWorkspace>;
 }
 
 export type ProviderClaim = "claim" | "pass";
@@ -378,6 +398,7 @@ export interface ProviderRemoveContext {
   readonly workspace: Readonly<ProviderWorkspace>;
   readonly signal: AbortSignal;
 }
+
 
 /**
  * Plugin-authored plan for a visible host terminal run. Returning this plan
