@@ -1,4 +1,5 @@
 import { basename, resolve } from "node:path";
+import { mkdir as mkdirFs } from "node:fs/promises";
 import type {
   PiWebServerPlugin,
   ProjectInput,
@@ -9,6 +10,7 @@ import type {
   ServerPluginExecFileResult,
   WorkspaceProvider,
   WorkspaceRemovePlan,
+  ProviderCreateContext,
 } from "@jmfederico/pi-web/server-plugin-api";
 import { requestGitBackend } from "./git-backend.js";
 
@@ -110,6 +112,30 @@ export function createGitWorkspaceProvider(context: ServerPluginActivationContex
           ...(isMain ? {} : { removal: gitRemovalPresentation(label, path) }),
         };
       });
+    },
+    async createWorkspace({ project, worktreeParentDir, input, signal }: ProviderCreateContext): Promise<ProviderWorkspace> {
+      const name = input.name;
+      const branchName = input.branchName === undefined || input.branchName === "" ? name : input.branchName;
+      const baseRef = input.baseRef === undefined || input.baseRef === "" ? undefined : input.baseRef;
+      const worktreePath = resolve(worktreeParentDir, name);
+
+      await mkdirFs(worktreeParentDir, { recursive: true });
+      const args = ["worktree", "add", worktreePath, "-b", branchName];
+      if (baseRef !== undefined) args.push(baseRef);
+      const result = await runGit(context, project.path, args, signal);
+      if (result.signal !== null) throw new Error(`git worktree add ended from signal ${result.signal}`);
+      if (result.exitCode !== 0) {
+        const detail = result.stderr.trim() || result.stdout.trim();
+        throw new Error(`Unable to create worktree ${name} (exit ${String(result.exitCode)})${detail === "" ? "" : `: ${detail}`}`);
+      }
+      return {
+        key: worktreePath,
+        path: worktreePath,
+        label: branchName,
+        isMain: false,
+        data: { worktreePath },
+        publicMetadata: { isGitRepo: true, isGitWorktree: true, branch: branchName },
+      };
     },
     async prepareRemove({ project, workspace, signal }: ProviderRemoveContext): Promise<WorkspaceRemovePlan> {
       const privatePath = gitPrivateWorktreePath(workspace);

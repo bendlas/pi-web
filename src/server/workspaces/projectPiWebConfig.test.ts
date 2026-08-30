@@ -3,7 +3,7 @@ import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { DEFAULT_ATTACHMENT_FOLDER } from "../../config.js";
-import { loadEffectiveProjectAttachmentsConfig, loadEffectiveProjectPathAccess, loadEffectiveProjectUploadsConfig, loadProjectPiWebConfig, mergePathAccessConfigs, PROJECT_PI_WEB_CONFIG_PATH } from "./projectPiWebConfig.js";
+import { loadEffectiveProjectAttachmentsConfig, loadEffectiveProjectPathAccess, loadEffectiveProjectUploadsConfig, loadEffectiveWorktreeParentDir, loadProjectPiWebConfig, mergePathAccessConfigs, resolveWorktreeParentDir, PROJECT_PI_WEB_CONFIG_PATH } from "./projectPiWebConfig.js";
 
 let tempDir: string;
 let projectPath: string;
@@ -109,6 +109,38 @@ describe("mergePathAccessConfigs", () => {
 
   it("deduplicates configured roots", () => {
     expect(mergePathAccessConfigs({ allowedPaths: ["/a", "/b"] }, { allowedPaths: ["/b", "/c"] })).toEqual({ allowedPaths: ["/a", "/b", "/c"] });
+  });
+});
+
+describe("resolveWorktreeParentDir", () => {
+  it("defaults to a sibling <repo>-worktrees directory next to the main checkout", () => {
+    expect(resolveWorktreeParentDir(undefined, join(tempDir, "repo"))).toBe(join(tempDir, "repo-worktrees"));
+  });
+
+  it("resolves an absolute configured path as-is", () => {
+    expect(resolveWorktreeParentDir("/srv/worktrees", join(tempDir, "repo"))).toBe("/srv/worktrees");
+  });
+
+  it("resolves a repo-relative configured path against the project root", () => {
+    expect(resolveWorktreeParentDir(".pi-web/worktrees", join(tempDir, "repo"))).toBe(join(tempDir, "repo", ".pi-web", "worktrees"));
+  });
+});
+
+describe("loadEffectiveWorktreeParentDir", () => {
+  it("prefers project config over global config, then the sibling default", async () => {
+    await writeProjectConfig({ version: 1, git: { worktreeParentDir: ".pi-web/worktrees" } });
+
+    await expect(loadEffectiveWorktreeParentDir(projectPath, { git: { worktreeParentDir: "/global/worktrees" } }))
+      .resolves.toBe(join(projectPath, ".pi-web", "worktrees"));
+    await expect(loadEffectiveWorktreeParentDir(join(tempDir, "repo-unset"), { git: { worktreeParentDir: "/global/worktrees" } }))
+      .resolves.toBe("/global/worktrees");
+    await expect(loadEffectiveWorktreeParentDir(join(tempDir, "repo-unset"), {})).resolves.toBe(join(tempDir, "repo-unset-worktrees"));
+  });
+
+  it("rejects a non-string project git.worktreeParentDir", async () => {
+    await writeProjectConfig({ version: 1, git: { worktreeParentDir: 5 } });
+
+    await expect(loadEffectiveWorktreeParentDir(projectPath, {})).rejects.toThrow(/worktreeParentDir/);
   });
 });
 

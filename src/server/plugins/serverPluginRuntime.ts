@@ -13,6 +13,7 @@ import type {
   ServerPluginPeerChannelOpenContext,
   ServerPluginPeerRequestContext,
   ProjectInput,
+  ProviderCreateContext,
   ProviderRemoveContext,
   ServerPluginActivation,
   ServerPluginActivationContext,
@@ -1364,16 +1365,19 @@ function snapshotWorkspaceProvider(value: unknown): WorkspaceProvider {
     probe: value["probe"],
     list: value["list"],
     prepareRemove: value["prepareRemove"],
+    createWorkspace: value["createWorkspace"],
   };
   if (!isWorkspaceProvider(candidate)) throw new IncompatibleServerPluginError("Server plugin workspaceProvider is invalid");
   const probe = candidate.probe.bind(value);
   const list = candidate.list.bind(value);
   const prepareRemove = candidate.prepareRemove?.bind(value);
+  const createWorkspace = candidate.createWorkspace?.bind(value);
   return Object.freeze({
     ...(candidate.fallback === undefined ? {} : { fallback: candidate.fallback }),
     probe: (project: ProjectInput, signal: AbortSignal) => probe(project, signal),
     list: (project: ProjectInput, signal: AbortSignal) => list(project, signal),
     ...(prepareRemove === undefined ? {} : { prepareRemove: (context: ProviderRemoveContext) => prepareRemove(context) }),
+    ...(createWorkspace === undefined ? {} : { createWorkspace: (context: ProviderCreateContext) => createWorkspace(context) }),
   });
 }
 
@@ -1383,10 +1387,12 @@ function isWorkspaceProvider(value: unknown): value is WorkspaceProvider {
   const probe = value["probe"];
   const list = value["list"];
   const prepareRemove = value["prepareRemove"];
+  const createWorkspace = value["createWorkspace"];
   return (fallback === undefined || typeof fallback === "boolean")
     && typeof probe === "function"
     && typeof list === "function"
-    && (prepareRemove === undefined || typeof prepareRemove === "function");
+    && (prepareRemove === undefined || typeof prepareRemove === "function")
+    && (createWorkspace === undefined || typeof createWorkspace === "function");
 }
 
 function parseHealth(value: unknown): ServerPluginHealth {
