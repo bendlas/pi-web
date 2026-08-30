@@ -485,6 +485,19 @@ describe("machine-scoped workspace API", () => {
 });
 
 describe("machine-scoped terminal command-run API", () => {
+  it("creates a workspace through the selected machine scope with the encoded project route", async () => {
+    const created = { ...workspace, id: "w/new", path: "/repo/worktrees/feature-x", provider: { pluginId: "git", capabilities: { request: false, remove: false, create: true } } };
+    const fetchMock = stubJsonFetch(created);
+
+    await workspacesApi.createWorkspace("p 1", { name: "feature-x", baseRef: "main" }, "remote a");
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [url, init] = fetchCall(fetchMock, 0);
+    expect(url).toBe("https://pi.example.test/api/machines/remote%20a/projects/p%201/workspaces");
+    expect(init?.method).toBe("POST");
+    expect(JSON.parse(String(init?.body))).toEqual({ name: "feature-x", baseRef: "main" });
+  });
+
   it("deletes workspaces through the selected machine scope with the confirmed host precondition", async () => {
     const fetchMock = stubJsonFetch(commandRun);
 

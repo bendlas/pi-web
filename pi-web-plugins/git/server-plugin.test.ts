@@ -345,6 +345,71 @@ describe("bundled Git workspace provider", () => {
       "Unable to list Git worktrees (exit 128): worktree metadata unavailable",
     );
   });
+
+  it("creates a worktree in a designated parent dir, branching from HEAD by default", async () => {
+    const repository = await createRepository("create repo");
+    const workspaceProvider = await providerFor(createServerPluginExecFile({ env: cleanGitEnvironment() }));
+    const worktreeParentDir = join(repository.parent, "worktrees");
+    await mkdir(worktreeParentDir, { recursive: true });
+
+    const created = await workspaceProvider.createWorkspace!({
+      project: project(repository.path),
+      worktreeParentDir,
+      input: { name: "feature-x" },
+      signal: new AbortController().signal,
+    });
+
+    const worktreePath = join(worktreeParentDir, "feature-x");
+    expect(created).toMatchObject({
+      key: worktreePath,
+      path: worktreePath,
+      label: "feature-x",
+      isMain: false,
+      publicMetadata: { isGitRepo: true, isGitWorktree: true, branch: "feature-x" },
+    });
+    expect(runGit(worktreePath, ["rev-parse", "--abbrev-ref", "HEAD"]).trim()).toBe("feature-x");
+    // The new worktree is discoverable through the regular listing.
+    const workspaces = await workspaceProvider.list(project(repository.path), new AbortController().signal);
+    expect(workspaces.map(({ path }) => path)).toContain(worktreePath);
+  });
+
+  it("creates a worktree from an explicit base ref and branch name", async () => {
+    const repository = await createRepository("create repo base");
+    runGit(repository.path, ["branch", "base-branch"]);
+    const workspaceProvider = await providerFor(createServerPluginExecFile({ env: cleanGitEnvironment() }));
+    const worktreeParentDir = join(repository.parent, "worktrees");
+    await mkdir(worktreeParentDir, { recursive: true });
+
+    const created = await workspaceProvider.createWorkspace!({
+      project: project(repository.path),
+      worktreeParentDir,
+      input: { name: "wt", baseRef: "base-branch", branchName: "explicit-branch" },
+      signal: new AbortController().signal,
+    });
+
+    expect(created.label).toBe("explicit-branch");
+    expect(runGit(join(worktreeParentDir, "wt"), ["rev-parse", "--abbrev-ref", "HEAD"]).trim()).toBe("explicit-branch");
+  });
+
+  it("fails when the worktree already exists", async () => {
+    const repository = await createRepository("create repo dup");
+    const workspaceProvider = await providerFor(createServerPluginExecFile({ env: cleanGitEnvironment() }));
+    const worktreeParentDir = join(repository.parent, "worktrees");
+    await mkdir(worktreeParentDir, { recursive: true });
+    await workspaceProvider.createWorkspace!({
+      project: project(repository.path),
+      worktreeParentDir,
+      input: { name: "feature-x" },
+      signal: new AbortController().signal,
+    });
+
+    await expect(workspaceProvider.createWorkspace!({
+      project: project(repository.path),
+      worktreeParentDir,
+      input: { name: "feature-x" },
+      signal: new AbortController().signal,
+    })).rejects.toThrow(/Unable to create worktree feature-x/);
+  });
 });
 
 describe("parseGitWorktreeList", () => {
