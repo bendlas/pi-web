@@ -1,12 +1,13 @@
 import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { effectiveAttachmentsConfig, effectiveUploadsConfig, parseAttachmentsConfig, parsePathAccessConfig, parseUploadsConfig, type PiWebConfig } from "../../config.js";
-import type { PiWebAttachmentsConfig, PiWebPathAccessConfig, PiWebUploadsConfig } from "../../shared/apiTypes.js";
+import type { PiWebGitConfig, PiWebAttachmentsConfig, PiWebPathAccessConfig, PiWebUploadsConfig } from "../../shared/apiTypes.js";
 
 export const PROJECT_PI_WEB_CONFIG_PATH = ".pi-web/config.json";
 
 export interface ProjectPiWebConfig {
   version?: 1;
+  git?: PiWebGitConfig;
   pathAccess?: PiWebPathAccessConfig;
   uploads?: PiWebUploadsConfig;
   attachments?: PiWebAttachmentsConfig;
@@ -16,6 +17,25 @@ export interface LoadedProjectPiWebConfig {
   path: string;
   exists: boolean;
   config: ProjectPiWebConfig;
+}
+
+/**
+ * Resolve the absolute directory where PI WEB should create new git worktrees.
+ * Project config wins over global config; when neither sets it, PI WEB uses a
+ * sibling `<repo>-worktrees` directory next to the main checkout.
+ */
+export async function loadEffectiveWorktreeParentDir(projectPath: string, globalConfig: PiWebConfig): Promise<string> {
+  const projectConfig = await loadProjectPiWebConfig(projectPath);
+  const raw = projectConfig.config.git?.worktreeParentDir ?? globalConfig.git?.worktreeParentDir;
+  return resolveWorktreeParentDir(raw, projectPath);
+}
+
+/** Resolve a single `git.worktreeParentDir` value to an absolute directory. */
+export function resolveWorktreeParentDir(raw: string | undefined, projectPath: string): string {
+  if (raw === undefined || raw === "") {
+    return resolve(dirname(projectPath), `${basename(projectPath)}-worktrees`);
+  }
+  return isAbsolute(raw) ? resolve(raw) : resolve(projectPath, raw);
 }
 
 export async function loadProjectPiWebConfig(projectPath: string): Promise<LoadedProjectPiWebConfig> {
@@ -54,9 +74,21 @@ function parseProjectPiWebConfig(value: Record<string, unknown>, path: string): 
   const version = value["version"];
   return {
     ...(version !== undefined ? { version: parseProjectConfigVersion(version, path) } : {}),
+    ...(value["git"] !== undefined ? { git: parseGitConfig(value["git"], path) } : {}),
     ...(value["pathAccess"] !== undefined ? { pathAccess: parsePathAccessConfig(value["pathAccess"], path) } : {}),
     ...(value["uploads"] !== undefined ? { uploads: parseUploadsConfig(value["uploads"], path) } : {}),
     ...(value["attachments"] !== undefined ? { attachments: parseAttachmentsConfig(value["attachments"], path) } : {}),
+  };
+}
+
+function parseGitConfig(value: unknown, path: string): PiWebGitConfig {
+  if (!isRecord(value)) throw new Error(`PI WEB project git config must be an object: ${path}`);
+  const worktreeParentDir = value["worktreeParentDir"];
+  if (worktreeParentDir !== undefined && (typeof worktreeParentDir !== "string" || worktreeParentDir === "")) {
+    throw new Error(`PI WEB project git.worktreeParentDir must be a non-empty string: ${path}`);
+  }
+  return {
+    ...(worktreeParentDir === undefined ? {} : { worktreeParentDir }),
   };
 }
 
