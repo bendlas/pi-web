@@ -85,7 +85,7 @@ PI_WEB_DEFAULT_LOCALIZATION='{"timeZone":"UTC"}'
 PI_WEB_PLUGINS='{"git":{"settings":{"workspaceDiscoveryHooks":false}}}'
 ```
 
-Container JSON variables keep their existing names: `PI_WEB_UPLOADS`, `PI_WEB_ATTACHMENTS`, `PI_WEB_SESSION_NAMING`, `PI_WEB_SESSION_ARCHIVE`, `PI_WEB_PATH_ACCESS`, and `PI_WEB_DEFAULT_LOCALIZATION`. Only supplied namespace leaves are enforced, including `pathAccess.allowedPaths` and plugin leaves; `{}` enforces none. Atomic settings lock the whole value. `PI_WEB_PORT` retains the `PORT` fallback; a nonempty `PI_WEB_SESSION_ARCHIVE_DIR` alias wins over `PI_WEB_SESSION_ARCHIVE` JSON. `PI_WEB_ALLOWED_HOSTS` accepts JSON `true` or a string array, plus legacy `true`/comma-separated hosts. Allowing all hosts is unsafe for an exposed development server; prefer an explicit list.
+Container JSON variables keep their existing names: `PI_WEB_UPLOADS`, `PI_WEB_ATTACHMENTS`, `PI_WEB_SESSION_NAMING`, `PI_WEB_SESSION_ARCHIVE`, `PI_WEB_PATH_ACCESS`, `PI_WEB_GIT`, and `PI_WEB_DEFAULT_LOCALIZATION`. Only supplied namespace leaves are enforced, including `pathAccess.allowedPaths` and plugin leaves; `{}` enforces none. Atomic settings lock the whole value. `PI_WEB_PORT` retains the `PORT` fallback; the nonempty `PI_WEB_SESSION_ARCHIVE_DIR` alias wins over `PI_WEB_SESSION_ARCHIVE` JSON. `PI_WEB_ALLOWED_HOSTS` accepts JSON `true` or a string array, plus legacy `true`/comma-separated hosts. Allowing all hosts is unsafe for an exposed development server; prefer an explicit list.
 
 Boolean environment inputs accept only `true`/`false` (case-insensitive) or `1`/`0`. Invalid supplied policy values fail startup instead of being ignored. Unknown fields in declared core containers are errors, including misspellings in `pathAccess`, `uploads`, and `attachments`. Plugin environment envelopes accept only `enabled` and `settings`; keys inside `settings` remain plugin-owned. Unset a variable to remove enforcement; empty strings are not a general reset syntax. Legacy empty host, port, allowed-hosts, upload-limit, and archive-directory overrides remain ignored. Runtime-only variables have their own contracts; see offline flags below. Markers such as `PI_WEB_SESSION` are not config policy.
 
@@ -216,7 +216,28 @@ Project-local `plugins.<id>.settings` supplies overrides for server plugins that
 
 Plugins may also own separate project files, such as `.pi-web/tasks.json` for the built-in Workspace Tasks plugin.
 
-PI WEB also honors one optional project hook; see [Worktree pre-remove hook](#worktree-pre-remove-hook).
+PI WEB also honors one optional project hook; see [Worktree pre-remove hook](#worktree-pre-remove-hook). See also [Add-workspace worktree location](#add-workspace-worktree-location) for where new worktrees are created.
+
+## Add-workspace worktree location
+
+The Add-workspace action creates a new git worktree directly from the UI, without starting a session. PI WEB places each new worktree under a configured parent directory. Set it per project in `.pi-web/config.json` or globally in your PI WEB config:
+
+```json
+{
+  "git": {
+    "worktreeParentDir": "../my-repo-worktrees"
+  }
+}
+```
+
+- **Value:** an absolute path, or a path relative to the project root. Relative paths are resolved against the registered project directory.
+- **Default:** when unset, PI WEB uses a sibling directory named `<repo>-worktrees` next to the main checkout (for example `../my-repo-worktrees` for a project at `./my-repo`).
+- **Precedence:** project-local `.pi-web/config.json` overrides the global config; the sibling default applies when neither is set.
+- **Environment policy:** `PI_WEB_GIT='{"worktreeParentDir":"/srv/worktrees"}'` enforces the leaf over project and global config. The global value is read when the session daemon starts, so restart the daemon after changing it; a project config change applies to the next creation.
+
+The action opens a small dialog collecting the worktree name, an optional base ref (branch, commit, or tag to branch from — defaults to the current branch), and an optional new branch name (defaults to the worktree name). PI WEB runs `git worktree add <parent>/<name> -b <branch> [<baseRef>]`, then surfaces the new workspace immediately.
+
+The worktree parent directory is created if it does not already exist. Because creation runs through the Git workspace provider, the action is available only for Git projects.
 
 ## Worktree pre-remove hook
 
@@ -245,6 +266,7 @@ Rows with JSON key `—` are runtime-only environment variables, not config-file
 | Additional filesystem roots | `pathAccess.allowedPaths` | `PI_WEB_PATH_ACCESS` (JSON object) | Global + project | **Adds** after base roots; global then project, deduplicated; env replaces effective additions | Next file request; refresh existing views if needed |
 | Manual file upload default folder | `uploads.defaultFolder` | `PI_WEB_UPLOADS` (JSON object) | Global + project | **Overrides**: project value wins for workspaces in that project; otherwise global/default applies | New Upload dialogs and direct drag/drop batches after config/workspace refresh |
 | Prompt attachment default folder | `attachments.defaultFolder` | `PI_WEB_ATTACHMENTS` (JSON object) | Global + project | **Overrides**: project value wins for workspaces in that project; otherwise global/default applies | New prompt-attachment saves after config/workspace refresh |
+| Add-workspace worktree parent | `git.worktreeParentDir` | `PI_WEB_GIT` (JSON object) | Global + project | **Overrides**: project value wins for that project; otherwise global/default applies | Restart the session daemon for the global value; a project config change applies to the next creation |
 | Upload/body limit | `maxUploadBytes` | `PI_WEB_MAX_UPLOAD_BYTES` | Global | Not supported locally | Restart web/API and session daemon on that machine |
 | Agent can spawn sessions | `spawnSessions` | `PI_WEB_SPAWN_SESSIONS` | Global/session daemon | Not supported locally | Restart session daemon on that machine |
 | Tracked subsessions | `subsessions` | `PI_WEB_SUBSESSIONS` | Global/session daemon | Not supported locally; also requires `spawnSessions` | Restart session daemon on that machine |

@@ -1,7 +1,7 @@
 import { LocalizationController, localization } from "../localization/browser";
 import { projectWorkspaceMessages as messages } from "../projectWorkspaceMessages";
 import { stylesheetIntegrationCapability } from "../plugins/styles";
-import { LitElement, html, type PropertyValues, type TemplateResult } from "lit";
+import { LitElement, css, html, type PropertyValues, type TemplateResult } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import { repeat } from "lit/directives/repeat.js";
 import { trustApi } from "../api";
@@ -46,6 +46,9 @@ export class WorkspaceList extends LitElement implements KeyboardNavigableSectio
   @property({ attribute: false }) onSelect?: (workspace: Workspace) => void;
   @property({ attribute: false }) onDelete?: (workspace: Workspace) => void;
   @property({ attribute: false }) onMove?: (workspace: Workspace, direction: -1 | 1) => void;
+  /** When true, the workspace authority supports creating new workspaces for this project. */
+  @property({ type: Boolean }) canCreateWorkspace = false;
+  @property({ attribute: false }) onCreateWorkspace?: () => void;
   @property({ attribute: false }) onToggleCollapsed?: () => void;
   @property({ attribute: false }) onFocusPreviousSection?: () => void | Promise<void>;
   @property({ attribute: false }) onFocusNextSection?: () => void | Promise<void>;
@@ -131,10 +134,18 @@ export class WorkspaceList extends LitElement implements KeyboardNavigableSectio
   }
 
   private renderHeading() {
-    if (!this.collapsible) return html`<span>${messages.t("workspaces")}</span>`;
+    const addButton = this.canCreateWorkspace ? html`
+      <button
+        class="add-workspace"
+        title=${messages.t("addWorkspace")}
+        aria-label=${messages.t("addWorkspace")}
+        @click=${() => { this.onCreateWorkspace?.(); }}
+      >＋</button>
+    ` : null;
+    if (!this.collapsible) return html`<span class="heading-row"><span>${messages.t("workspaces")}</span>${addButton}</span>`;
     const selectedSummary = this.selected === undefined ? messages.t("noWorkspace") : messages.t("workspaceSummary", { label: workspacePrimaryLabel(this.selected), path: this.selected.path });
     const selectedTitle = this.selected?.path ?? selectedSummary;
-    return html`<button class="ui-button ui-toolbar-title section-toggle" aria-expanded=${String(!this.collapsed)} @click=${() => { this.onToggleCollapsed?.(); }}><span class="section-title"><span class="section-name">${this.collapsed ? "▸" : "▾"} ${messages.t("workspaces")}</span>${this.collapsed ? html`<small class="section-selected" title=${selectedTitle}>${selectedSummary}</small>` : null}</span><small class="section-count">${localization.number(this.workspaces.length)}</small></button>`;
+    return html`<span class="heading-row"><button class="ui-button ui-toolbar-title section-toggle" aria-expanded=${String(!this.collapsed)} @click=${() => { this.onToggleCollapsed?.(); }}><span class="section-title"><span class="section-name">${this.collapsed ? "▸" : "▾"} ${messages.t("workspaces")}</span>${this.collapsed ? html`<small class="section-selected" title=${selectedTitle}>${selectedSummary}</small>` : null}</span><small class="section-count">${localization.number(this.workspaces.length)}</small></button>${addButton}</span>`;
   }
 
   private renderActivity(workspace: Workspace): TemplateResult | undefined {
@@ -340,7 +351,17 @@ export class WorkspaceList extends LitElement implements KeyboardNavigableSectio
     this.renderRoot.querySelector<HTMLElement>(".action-row.selected")?.scrollIntoView({ block: "nearest" });
   }
 
-  static override styles = [listStyles, sidebarListStyles];
+  static override styles = [listStyles, sidebarListStyles, css`
+    .heading-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .add-workspace { border: 1px solid var(--pi-border); border-radius: 8px; background: var(--pi-surface); color: var(--pi-text); cursor: pointer; font-size: 16px; line-height: 1; padding: 2px 8px; }
+    .add-workspace:hover { border-color: var(--pi-accent, #2d7ef7); color: var(--pi-accent, #2d7ef7); }
+    .workspace-menu-trust { display: flex; flex-direction: column; gap: 3px; padding: 4px 2px; }
+    .workspace-menu-trust-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .workspace-menu-trust label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+    .workspace-menu-trust input { cursor: pointer; }
+    .workspace-trust-link { color: var(--pi-accent); font-size: 12px; text-align: right; white-space: nowrap; }
+    .workspace-trust-error { color: var(--pi-danger, #c0392b); line-height: 1.3; }
+  `];
 }
 
 function workspacePrimaryLabel(workspace: Workspace): string {

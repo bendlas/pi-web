@@ -3,6 +3,7 @@ import { isSessionActive } from "../../../../shared/activity";
 import type { AppState } from "../../appState";
 import { isArchivableSessionInfo, isTransientNewSessionInfo } from "../../sessionPersistence";
 import { canDeleteWorkspace, isWorkspaceDeletionPending } from "../../workspaceDeletion";
+import { canCreateWorkspace } from "../../workspaceCreation";
 import type { PluginAction } from "../types";
 
 export function createCoreActions(): PluginAction[] {
@@ -129,6 +130,14 @@ export function createCoreActions(): PluginAction[] {
       run: (context) => context.deleteWorkspace(),
     },
     {
+      id: "workspace.create",
+      get title() { return m.t("workspace_create_title"); },
+      get description() { return m.t("workspace_create_description"); },
+      get group() { return m.t("groupWorkspace"); },
+      enabled: hasCreatableWorkspace,
+      run: (context) => context.createWorkspace(),
+    },
+    {
       id: "session.start",
       get title() { return m.t("session_start_title"); },
       shortcut: "mod+enter",
@@ -194,6 +203,10 @@ function hasWorkspace(context: { state: AppState }): boolean {
 function hasDeletableWorkspace(context: { state: AppState }): boolean {
   const workspace = context.state.selectedWorkspace;
   return canDeleteWorkspace(workspace) && !isWorkspaceDeletionPending(context.state, workspace);
+}
+
+function hasCreatableWorkspace(context: { state: AppState }): boolean {
+  return canCreateWorkspace(context.state.selectedWorkspace);
 }
 
 function hasSelectableSession(context: { state: AppState }): boolean {
