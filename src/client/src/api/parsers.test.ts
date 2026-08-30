@@ -822,6 +822,34 @@ describe("API parsers", () => {
     })).toThrow("Expected string field: precondition");
   });
 
+  it("parses the create capability when the owner advertises it", () => {
+    const workspace = parseWorkspace({
+      id: "w1",
+      projectId: "p1",
+      path: "/repo/worktrees/feature-x",
+      label: "feature-x",
+      isMain: false,
+      provider: { pluginId: "git", capabilities: { remove: true, create: true } },
+      effectiveConfig: {},
+    });
+
+    expect(workspace.provider?.capabilities).toEqual({ remove: true, create: true });
+  });
+
+  it("omits the create capability when the owner does not advertise it", () => {
+    const workspace = parseWorkspace({
+      id: "w1",
+      projectId: "p1",
+      path: "/repo",
+      label: "main",
+      isMain: true,
+      provider: { pluginId: "folder", capabilities: { remove: false } },
+      effectiveConfig: {},
+    });
+
+    expect(workspace.provider?.capabilities.create).toBeUndefined();
+  });
+
   it("rejects empty workspace removal wording", () => {
     expect(() => parseWorkspace({
       id: "w1",

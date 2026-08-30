@@ -167,6 +167,8 @@ export interface PiWebConfigValues {
   allowedHosts?: string[] | true;
   shortcuts?: PiWebShortcutConfig;
   plugins?: PiWebPluginConfigMap;
+  /** Git-specific PI WEB behavior. */
+  git?: PiWebGitConfig;
   /** External filesystem roots PI WEB may expose outside a workspace. */
   pathAccess?: PiWebPathAccessConfig;
   /** Workspace-relative defaults for manual file uploads. */
@@ -209,6 +211,31 @@ export interface PiWebConfigValues {
 }
 
 export type PiWebPluginScope = "bundled" | "local" | "user" | "project";
+
+/** Git-specific PI WEB behavior, honored both globally and per project. */
+export interface PiWebGitConfig {
+  /**
+   * Absolute path, or a path relative to the project root, where PI WEB creates
+   * new git worktrees from the Add-workspace action. When unset, PI WEB uses a
+   * sibling directory named `<repo>-worktrees` next to the main checkout.
+   */
+  worktreeParentDir?: string;
+}
+
+/** Request to create a new git worktree for a project (Add-workspace action). */
+export interface CreateWorkspaceRequest {
+  /** Directory name of the new worktree under the configured worktree parent. */
+  name: string;
+  /** Optional base ref (branch/commit/tag) to branch from; defaults to HEAD. */
+  baseRef?: string;
+  /** Optional new branch name; defaults to `name`. */
+  branchName?: string;
+}
+
+/** Response from creating a workspace: the freshly created workspace snapshot. */
+export interface CreateWorkspaceResponse {
+  workspace: Workspace;
+}
 
 export const PI_WEB_PLUGIN_LIFECYCLE_VERSION = 2;
 
