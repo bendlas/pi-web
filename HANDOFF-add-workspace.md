@@ -79,6 +79,9 @@ Changeset: `.changeset/add-workspace-button.md`.
 ```sh
 cd /home/herwig/.pi/pi-web-worktrees/add-workspace
 
+# 0. Full build (tsc server -> dist, plugins, vite client) — clean
+npm run build
+
 # 1. Typecheck (clean)
 npx tsc --noEmit
 
@@ -121,9 +124,11 @@ npx vitest run --config vitest.config.ts pi-web-plugins/git/server-plugin.test.t
 ## Operational notes
 
 - **Session daemon restart is required.** `src/server/sessiond.ts` changed (new
-  `workspaceCreations` runtime + route). The long-lived `pi-web-sessiond.service` must be
-  restarted manually for the new route to be served. The `pi-web-ui-dev.service` autoreload
-  picks up the client/server changes on its own.
+  `workspaceCreations` runtime + route). `start:sessiond` runs `tsx src/server/sessiond.ts`
+  directly from source (it is NOT served from `dist`), so the long-lived
+  `pi-web-sessiond.service` must be **restarted manually** for the new route to be picked up.
+  The `pi-web-ui-dev.service` autoreload picks up the client/server changes on its own
+  (and `npm run build` already regenerated `dist`).
 - The feature only takes effect when running from this worktree (the running services are
   still on `main`, which no longer contains these changes).
 
