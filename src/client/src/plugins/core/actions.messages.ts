@@ -37,6 +37,8 @@ export default {
   groupNavigation: message("Navigation", "Command palette action group: Navigation"),
   workspace_delete_title: message("Remove Workspace", "Core action workspace.delete: title"),
   workspace_delete_description: message("Run the owning provider's workspace removal operation", "Core action workspace.delete: description"),
+  workspace_create_title: message("Add Workspace", "Core action workspace.create: title"),
+  workspace_create_description: message("Create a new workspace without starting a session", "Core action workspace.create: description"),
   groupWorkspace: message("Workspace", "Command palette action group: Workspace"),
   session_start_title: message("Start Session", "Core action session.start: title"),
   groupSession: message("Session", "Command palette action group: Session"),

@@ -158,6 +158,28 @@ describe("sessionArchive config", () => {
   });
 });
 
+describe("git config", () => {
+  it("round-trips git.worktreeParentDir and rejects malformed values", () => {
+    savePiWebConfig({ git: { worktreeParentDir: "/srv/worktrees" } }, testOptions());
+    expect(loadPiWebConfig(testOptions()).config.git).toEqual({ worktreeParentDir: "/srv/worktrees" });
+    expect(effectivePiWebConfig(testOptions()).config.git).toEqual({ worktreeParentDir: "/srv/worktrees" });
+    savePiWebConfig({}, testOptions());
+    expect(loadPiWebConfig(testOptions()).config).not.toHaveProperty("git");
+  });
+
+  it.each([null, [], "worktrees", { unknown: true }, { worktreeParentDir: "" }, { worktreeParentDir: "   " }, { worktreeParentDir: 1 }, { worktreeParentDir: null }, { worktreeParentDir: "a\u0000b" }])("rejects invalid git config %j", async (git) => {
+    await writeFile(configPath, JSON.stringify({ git }), "utf8");
+    expect(() => loadPiWebConfig(testOptions())).toThrow("PI WEB config git");
+  });
+
+  it("accepts the setting through the JSON environment override", () => {
+    expect(applyPiWebConfigEnv({}, { PI_WEB_GIT: JSON.stringify({ worktreeParentDir: "/srv/env-worktrees" }) }).git)
+      .toEqual({ worktreeParentDir: "/srv/env-worktrees" });
+    expect(piWebConfigEnforcedSettings({ PI_WEB_GIT: JSON.stringify({ worktreeParentDir: "/srv/env-worktrees" }) }))
+      .toEqual({ "/git/worktreeParentDir": "PI_WEB_GIT" });
+  });
+});
+
 describe("PI WEB config persistence", () => {
   it("writes and reads the configured PI WEB config path", () => {
     const requestedConfig = {
