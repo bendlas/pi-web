@@ -1,4 +1,4 @@
-import type { FastifyInstance, FastifyReply } from "fastify";
+import type { FastifyInstance } from "fastify";
 import type { Workspace } from "../shared/apiTypes.js";
 import {
   parseWorkspaceCreationRequest,
@@ -65,14 +65,13 @@ export function registerWorkspaceCreationRoutes(
           { signal: cancellation.signal },
         );
         if (upstream.statusCode >= 400) {
-          return reply.code(upstream.statusCode).send(upstream.body === "" ? undefined : parseErrorBody(upstream.body));
+          return await reply.code(upstream.statusCode).send(upstream.body === "" ? undefined : parseErrorBody(upstream.body));
         }
         const listing = parseListing(upstream.body);
         const effectiveConfig = await workspaceEffectiveConfig(projectPath, deps.config);
-        const workspace: Workspace = { ...listing, effectiveConfig };
-        return reply.code(201).send(workspace);
+        return await reply.code(201).send({ ...listing, effectiveConfig });
       } catch (error) {
-        return reply.code(workspaceCreationHttpStatus(error)).send({ error: errorMessage(error) });
+        return await reply.code(workspaceCreationHttpStatus(error)).send({ error: errorMessage(error) });
       } finally {
         cancellation.dispose();
       }
@@ -85,12 +84,12 @@ async function workspaceEffectiveConfig(projectPath: string, config?: Pick<PiWeb
   return { uploads: await loadEffectiveProjectUploadsConfig(projectPath, globalConfig) };
 }
 
-function parseListing(body: string): Workspace {
+function parseListing(body: string): Record<string, unknown> {
   const value: unknown = JSON.parse(body);
   if (!isRecord(value) || typeof value["path"] !== "string") {
     throw new Error("Invalid workspace creation response");
   }
-  return value as unknown as Workspace;
+  return value;
 }
 
 function parseErrorBody(body: string): unknown {

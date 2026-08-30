@@ -1948,9 +1948,8 @@ export class PiWebApp extends LitElement {
     // Default the base ref to the current branch of the main checkout.
     const mainWorkspace = this.state.workspaces.find((workspace) => workspace.isMain)
       ?? this.state.selectedWorkspace;
-    const defaultBaseRef = typeof mainWorkspace?.provider?.metadata?.["branch"] === "string"
-      ? String(mainWorkspace.provider.metadata["branch"])
-      : "";
+    const branch = mainWorkspace?.provider?.metadata?.["branch"];
+    const defaultBaseRef = typeof branch === "string" ? branch : "";
     this.openWorkspaceCreateDialogFor = { machineId, projectId };
     this.workspaceCreateDialog = { defaultBaseRef, error: "", loading: false };
   }
@@ -2491,7 +2490,7 @@ export class PiWebApp extends LitElement {
         ${state.projectDialogOpen ? html`<project-dialog .machineId=${selectedMachineId(state)} .onSubmit=${(path: string, create: boolean, trust: ProjectTrustChoice | undefined) => this.projects.addProject(path, create, trust)} .onCancel=${() => { this.setState({ projectDialogOpen: false }); }}></project-dialog>` : null}
         ${state.machineDialogOpen ? html`<machine-dialog .error=${state.error} .onSubmit=${(input: MachineDialogSubmit) => this.submitMachineDialog(input)} .onCancel=${() => { this.setState({ machineDialogOpen: false }); }}></machine-dialog>` : null}
         ${this.sessionCleanupDialog !== undefined ? html`<session-cleanup-dialog .preview=${this.sessionCleanupDialog.preview} .previewRequest=${this.sessionCleanupDialog.previewRequest} .result=${this.sessionCleanupDialog.result} .loading=${this.sessionCleanupDialog.loading === true} .running=${this.sessionCleanupDialog.running === true} .error=${this.sessionCleanupDialog.error ?? ""} .onPreview=${(request: SessionCleanupRequest) => { void this.previewSessionCleanup(request); }} .onRun=${(request: SessionCleanupRequest) => { void this.runSessionCleanup(request); }} .onClose=${() => { this.closeSessionCleanupDialog(); }}></session-cleanup-dialog>` : null}
-        ${this.workspaceCreateDialog !== undefined ? html`<workspace-create-dialog .defaultBaseRef=${this.workspaceCreateDialog.defaultBaseRef} .loading=${this.workspaceCreateDialog.loading === true} .error=${this.workspaceCreateDialog.error} .onSubmit=${(draft: WorkspaceCreateDraft) => { void this.createWorkspace(draft); }} .onClose=${() => { this.closeWorkspaceCreateDialog(); }}></workspace-create-dialog>` : null}
+        ${this.workspaceCreateDialog !== undefined ? html`<workspace-create-dialog .defaultBaseRef=${this.workspaceCreateDialog.defaultBaseRef} .loading=${this.workspaceCreateDialog.loading} .error=${this.workspaceCreateDialog.error} .onSubmit=${(draft: WorkspaceCreateDraft) => { void this.createWorkspace(draft); }} .onClose=${() => { this.closeWorkspaceCreateDialog(); }}></workspace-create-dialog>` : null}
         ${state.themeDialog !== undefined ? html`<command-picker title=${state.themeDialog.title} .options=${state.themeDialog.options} .selectedValue=${state.themeDialog.selectedValue} .onPick=${(value: string) => { this.pickTheme(value); }} .onCancel=${() => { this.setState({ themeDialog: undefined }); }}></command-picker>` : null}
         ${this.settingsSection !== undefined ? html`<settings-dialog .section=${this.settingsSection} .machine=${state.selectedMachine} .machineRuntime=${this.selectedMachineRuntime()} .actions=${this.getDefaultActions()} .onNavigate=${(section: SettingsSection) => { this.navigateSettings(section); }} .onClose=${() => { this.closeSettings(); }} .onConfigSaved=${(config: PiWebConfigValues) => { this.applyClientConfig(config); }} .onRefreshMachineRuntime=${async (machineId: string) => { await this.machines.refreshMachineRuntime(machineId); }}></settings-dialog>` : null}
       </div>

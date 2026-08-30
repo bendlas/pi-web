@@ -484,7 +484,7 @@ export class WorkspaceProviderRegistry {
             remove: false,
             create: true,
           }),
-          ...(validated.publicMetadata !== undefined && validated.publicMetadata !== null ? { metadata: validated.publicMetadata as JsonObject } : {}),
+          ...(validated.publicMetadata !== undefined && validated.publicMetadata !== null ? { metadata: cloneJsonObject(validated.publicMetadata, "workspace publicMetadata") } : {}),
         }),
       });
     }
