@@ -34,6 +34,9 @@ export class WorkspaceList extends LitElement implements KeyboardNavigableSectio
   @property({ attribute: false }) deletingWorkspaceIds: string[] = [];
   @property({ attribute: false }) onSelect?: (workspace: Workspace) => void;
   @property({ attribute: false }) onDelete?: (workspace: Workspace) => void;
+  /** When true, the workspace authority supports creating new workspaces for this project. */
+  @property({ type: Boolean }) canCreateWorkspace = false;
+  @property({ attribute: false }) onCreateWorkspace?: () => void;
   @property({ attribute: false }) onToggleCollapsed?: () => void;
   @property({ attribute: false }) onFocusPreviousSection?: () => void | Promise<void>;
   @property({ attribute: false }) onFocusNextSection?: () => void | Promise<void>;
@@ -112,10 +115,18 @@ export class WorkspaceList extends LitElement implements KeyboardNavigableSectio
   }
 
   private renderHeading() {
-    if (!this.collapsible) return html`<span>Workspaces</span>`;
+    const addButton = this.canCreateWorkspace ? html`
+      <button
+        class="add-workspace"
+        title="Add workspace"
+        aria-label="Add workspace"
+        @click=${() => { this.onCreateWorkspace?.(); }}
+      >＋</button>
+    ` : null;
+    if (!this.collapsible) return html`<span class="heading-row"><span>Workspaces</span>${addButton}</span>`;
     const selectedSummary = this.selected === undefined ? "No workspace selected" : `${this.selected.label}${this.selected.isMain ? " · main" : ""} · ${this.selected.path}`;
     const selectedTitle = this.selected?.path ?? selectedSummary;
-    return html`<button class="section-toggle" aria-expanded=${String(!this.collapsed)} @click=${() => { this.onToggleCollapsed?.(); }}><span class="section-title"><span class="section-name">${this.collapsed ? "▸" : "▾"} Workspaces</span>${this.collapsed ? html`<small class="section-selected" title=${selectedTitle}>${selectedSummary}</small>` : null}</span><small class="section-count">${this.workspaces.length}</small></button>`;
+    return html`<span class="heading-row"><button class="section-toggle" aria-expanded=${String(!this.collapsed)} @click=${() => { this.onToggleCollapsed?.(); }}><span class="section-title"><span class="section-name">${this.collapsed ? "▸" : "▾"} Workspaces</span>${this.collapsed ? html`<small class="section-selected" title=${selectedTitle}>${selectedSummary}</small>` : null}</span><small class="section-count">${this.workspaces.length}</small></button>${addButton}</span>`;
   }
 
   private renderActivity(workspace: Workspace): TemplateResult | undefined {
@@ -316,6 +327,9 @@ export class WorkspaceList extends LitElement implements KeyboardNavigableSectio
   }
 
   static override styles = [listStyles, css`
+    .heading-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .add-workspace { border: 1px solid var(--pi-border); border-radius: 8px; background: var(--pi-surface); color: var(--pi-text); cursor: pointer; font-size: 16px; line-height: 1; padding: 2px 8px; }
+    .add-workspace:hover { border-color: var(--pi-accent, #2d7ef7); color: var(--pi-accent, #2d7ef7); }
     .workspace-menu-trust { display: flex; flex-direction: column; gap: 3px; padding: 4px 2px; }
     .workspace-menu-trust-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
     .workspace-menu-trust label { display: flex; align-items: center; gap: 6px; cursor: pointer; }

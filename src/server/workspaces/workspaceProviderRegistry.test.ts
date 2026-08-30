@@ -1,6 +1,6 @@
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { JsonValue, ProviderRemoveContext, ProviderRequestContext, ProviderWorkspace, WorkspaceProvider } from "../../server-plugin-api.js";
+import type { JsonValue, ProviderCreateContext, ProviderRemoveContext, ProviderRequestContext, ProviderWorkspace, WorkspaceProvider } from "../../server-plugin-api.js";
 import type { Project } from "../types.js";
 import type { ServerPluginProviderContribution } from "../plugins/serverPluginRuntime.js";
 import { ProjectScopedSpawnTargetResolver } from "../sessions/spawnTargetResolver.js";
@@ -817,6 +817,71 @@ describe("WorkspaceProviderRegistry", () => {
       allowedCwds: [hostPath("/repo"), hostPath("/new-linked")],
     });
     await expect(resolver.resolveSpawnTarget(hostPath("/repo"), hostPath("/new-linked"))).resolves.toEqual({ allowed: true, cwd: hostPath("/new-linked") });
+  });
+});
+
+describe("WorkspaceProviderRegistry.createWorkspace", () => {
+  it("creates a workspace through the owner provider and advertises the create capability", async () => {
+    const createWorkspace = vi.fn((context: ProviderCreateContext) => Promise.resolve(
+      workspace(context.input.name, join(context.worktreeParentDir, context.input.name), false, {
+        publicMetadata: { branch: context.input.name },
+      }),
+    ));
+    const registry = registryFor([contribution("owner", provider({
+      probe: () => Promise.resolve("claim"),
+      list: () => Promise.resolve([workspace("root", hostPath("/repo"), true)]),
+      createWorkspace,
+    }))]);
+
+    const created = await registry.createWorkspace(
+      project,
+      { name: "feature-x", baseRef: "main" },
+      hostPath("/worktrees"),
+      new AbortController().signal,
+    );
+
+    expect(createWorkspace).toHaveBeenCalledOnce();
+    expect(created).toMatchObject({
+      projectId: project.id,
+      path: join(hostPath("/worktrees"), "feature-x"),
+      label: "feature-x",
+      isMain: false,
+      provider: {
+        pluginId: "owner",
+        capabilities: { request: false, remove: false, create: true },
+        metadata: { branch: "feature-x" },
+      },
+    });
+    expect(Object.isFrozen(created.provider?.capabilities)).toBe(true);
+  });
+
+  it("rejects creation when the owner provider does not support it", async () => {
+    const registry = registryFor([contribution("owner", provider({
+      probe: () => Promise.resolve("claim"),
+      list: () => Promise.resolve([workspace("root", hostPath("/repo"), true)]),
+    }))]);
+
+    await expect(registry.createWorkspace(
+      project,
+      { name: "feature-x" },
+      hostPath("/worktrees"),
+      new AbortController().signal,
+    )).rejects.toThrow(/does not support workspace creation/);
+  });
+
+  it("rejects a created workspace that the path boundary cannot access", async () => {
+    const registry = registryFor([contribution("owner", provider({
+      probe: () => Promise.resolve("claim"),
+      list: () => Promise.resolve([workspace("root", hostPath("/repo"), true)]),
+      createWorkspace: () => Promise.resolve(workspace("ghost", hostPath("/missing"), false)),
+    }))], { pathInspector: () => false });
+
+    await expect(registry.createWorkspace(
+      project,
+      { name: "ghost" },
+      hostPath("/worktrees"),
+      new AbortController().signal,
+    )).rejects.toThrow(/not an accessible directory/);
   });
 });
 
