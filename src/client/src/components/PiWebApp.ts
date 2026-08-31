@@ -1903,6 +1903,7 @@ export class PiWebApp extends LitElement {
       checkForPiWebUpdates: () => this.piWebStatusController.checkForUpdates(),
       reloadPage: () => { this.hardReloadApp(); },
       deleteWorkspace: (workspace) => this.deleteWorkspace(workspace),
+      createWorkspace: () => { this.openWorkspaceCreateDialog(); },
       startSession: () => this.withChatScrollTransition(() => this.startSessionAndOpenChat()),
       archiveSession: () => this.sessions.archiveSession(),
       reloadSession: () => this.sessions.reloadSession(),

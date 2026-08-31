@@ -134,6 +134,7 @@ export interface PluginRuntimeContext {
   checkForPiWebUpdates?: () => void | Promise<void>;
   reloadPage: () => void;
   deleteWorkspace: (workspace?: Workspace) => void | Promise<void>;
+  createWorkspace: () => void | Promise<void>;
   startSession: () => void | Promise<void>;
   archiveSession: () => void | Promise<void>;
   reloadSession: () => void | Promise<void>;
