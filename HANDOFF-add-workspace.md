@@ -12,6 +12,45 @@ tests/build run without reinstalling. `package-lock.json` and the unrelated untr
 dirs (`.pi/`, `docs/notifications/`) were intentionally left on `main` and are not part
 of this change.
 
+## Update — capability propagation fix + command-palette action
+
+Two follow-up commits resolve the "button never shows" report and add a palette action:
+
+- `93cda4bb` fix: propagate workspace create capability from session daemon to web API
+- `de7f7b34` feat: add "Add Workspace" pi-web action reusing the workspace creation flow
+
+### Root cause of "no dice"
+
+The session daemon was never the problem: it returns `capabilities: { request, remove,
+create: true }` for Git projects (verified by querying the live sessiond socket directly).
+The capability was dropped at the **web server's own parser**, which the browser's data
+flows through:
+
+- `src/server/plugins/serverPluginRuntime.ts` `snapshotWorkspaceProvider()` omitted
+  `createWorkspace` when bridging a server plugin's `workspaceProvider` into a
+  `WorkspaceProvider`, so the registry never advertised `create` to the session daemon.
+  *(Earlier fix.)*
+- `src/server/workspaces/sessionDaemonWorkspaceCatalog.ts` `parseProvider()` decoded only
+  `request` and `remove` capabilities and **discarded `create`** before the web API forwarded
+  the workspace resolution to the browser. This was the actual blocker the user hit: the web
+  API rebuilt capabilities as `{ request, remove }`, so clients never saw `create` and the
+  `+` button / action stayed hidden.
+
+Both are preserved now; regression tests added in each file.
+
+### Command-palette action
+
+`workspace.create` ("Add Workspace") is contributed by the core plugin actions. It is gated
+on `canCreateWorkspace(selectedWorkspace)` (same condition as the `+` button) and reuses
+`PiWebApp.openWorkspaceCreateDialog()` via a new `PluginRuntimeContext.createWorkspace`.
+
+### Deployment
+
+The running services were on built `dist`. After these commits, rebuild and restart the
+**web/UI server** (it serves `dist/server` + the vite client bundle). The session daemon
+(`dist/server/sessiond.js`, pid 2) already advertised `create` and was left running; a
+restart is harmless but not required for this fix.
+
 ## What it does
 
 Adds an **Add workspace** (`+`) button in the Workspaces panel header for Git projects.
@@ -72,7 +111,18 @@ Client
 - `src/client/src/components/appShell/AppNavigationPanel.ts` — prop passthrough.
 - `src/client/src/components/PiWebApp.ts` — open/submit/select wiring + dialog render.
 
-Changeset: `.changeset/add-workspace-button.md`.
+Changeset: `.changeset/add-workspace-button.md` (patch; updated to mention the palette action).
+
+## Files added after the initial hand-off (two follow-up commits)
+
+Capability propagation fix
+- `src/server/plugins/serverPluginRuntime.ts` (+ test) — preserve `createWorkspace` in the plugin snapshot.
+- `src/server/workspaces/sessionDaemonWorkspaceCatalog.ts` (+ test) — preserve `create` in `parseProvider`.
+
+Command-palette action
+- `src/client/src/plugins/types.ts` — `PluginRuntimeContext.createWorkspace`.
+- `src/client/src/components/PiWebApp.ts` — bind `createWorkspace` to `openWorkspaceCreateDialog`.
+- `src/client/src/plugins/core/actions.ts` (+ test) — `workspace.create` action, gated on `canCreateWorkspace`.
 
 ## Post-move verification
 
@@ -134,8 +184,10 @@ npx vitest run --config vitest.config.ts pi-web-plugins/git/server-plugin.test.t
 
 ## Lint note (pre-existing, not introduced here)
 
-`src/client/src/components/PiWebApp.ts` lines ~1014–1019 have 3 lint errors
-(`prefer-optional-chain`, `no-unnecessary-condition`, `restrict-template-expressions`) that
-exist on `main` at `49a5eed` already (verified by reverting the file and re-linting). They
-are in notification code unrelated to this feature and were left untouched to keep the diff
-focused. They can be cleaned up separately if the project's lint gate flags them.
+`src/client/src/components/PiWebApp.ts` has **8** lint errors on `main` (lines ~1143–1148 and
+~2392–2401: `prefer-optional-chain`, `no-unnecessary-condition`, `restrict-template-expressions`,
+`no-unnecessary-boolean-literal-compare`, `strict-boolean-expressions`, `consistent-type-assertions`,
+`no-unnecessary-condition`) that exist on `main` at `49a5eed` (verified by reverting the file and
+re-linting). They are in notification / other code unrelated to this feature and were left
+untouched to keep the diff focused. **They will fail the `lint` CI gate**, so the branch cannot
+merge until they are cleaned up separately.
