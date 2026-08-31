@@ -277,6 +277,7 @@ describe("socket stream validation", () => {
       { type: "terminal.exited", terminal: { ...terminalInfoWire(), exited: true, exitCode: 0 } },
       { type: "terminal.closed", terminalId: "terminal-1", cwd: "/repo" },
       { type: "machine.status", status: machineStatusWire() },
+      { type: "workspaces.changed", projectId: "project-1" },
     ];
     for (const frame of validFrames) expect(parseRealtimeSocketEvent(frame)).toEqual(frame);
   });
@@ -304,6 +305,9 @@ describe("socket stream validation", () => {
     expect(parseRealtimeSocketEvent({ type: "terminal.closed", terminalId: "", cwd: "/repo" })).toBeUndefined();
     expect(parseRealtimeSocketEvent({ type: "machine.status", status: { ...machineStatusWire(), epochId: "" } })).toBeUndefined();
     expect(parseRealtimeSocketEvent({ type: "machine.status", status: { ...machineStatusWire(), projects: null } })).toBeUndefined();
+    // Workspace topology changes require a project id.
+    expect(parseRealtimeSocketEvent({ type: "workspaces.changed" })).toBeUndefined();
+    expect(parseRealtimeSocketEvent({ type: "workspaces.changed", projectId: "" })).toBeUndefined();
     // Per-session stream frames are not accepted on the global socket.
     expect(parseRealtimeSocketEvent({ type: "assistant.delta", text: "hi" })).toBeUndefined();
     expect(parseRealtimeSocketEvent({ type: "future.notification", payload: {} })).toBeUndefined();

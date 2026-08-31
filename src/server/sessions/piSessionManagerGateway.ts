@@ -106,6 +106,17 @@ class SettingsAwarePiSessionManagerGateway implements PiSessionManagerGateway {
     this.summaryScanner.invalidate(sessionFile);
   }
 
+  readSessionSummary(sessionFile: string): Promise<PiSessionListEntry | undefined> {
+    return this.summaryScanner.scanSessionSummary(sessionFile);
+  }
+
+  listWatchRoots(): string[] {
+    const roots = [this.resolver.defaultSessionsRoot()];
+    const env = this.resolver.globalEnvSessionDir();
+    if (env !== undefined) roots.push(env);
+    return roots;
+  }
+
   create(cwd: string, options?: { parentSession?: string }): PiSessionManager {
     const resolution = this.resolver.resolve(cwd);
     return SessionManager.create(cwd, resolution.sessionDir, options?.parentSession === undefined ? undefined : { parentSession: options.parentSession });
