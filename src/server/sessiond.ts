@@ -71,6 +71,8 @@ import { registerPairedPluginBackendRoutes } from "./sessiond/pluginBackendRoute
 import { registerWorkspaceRemovalRoutes } from "./sessiond/workspaceRemovalRoutes.js";
 import { createWorkspaceProviderRuntimeSnapshot } from "./workspaces/workspaceCatalog.js";
 import { WorkspaceRemovalService } from "./workspaces/workspaceRemovalService.js";
+import { PendingAskStore } from "./sessions/pendingAskStore.js";
+import { FileSessionPendingAskPersistence, defaultSessionPendingAskFilePath } from "./sessions/pendingAskPersistence.js";
 
 const daemonEnvironment: NodeJS.ProcessEnv = Object.freeze({ ...process.env });
 const serverPluginRecovery = loadServerPluginRecoveryConfig({ env: daemonEnvironment });
@@ -219,6 +221,16 @@ async function createSessionDaemonRuntime() {
       },
     });
     await unreadStore.load();
+    // Open asks are the one piece of session state the browser cannot rebuild:
+    // `ask_user` ends the run, so the questions live only in the daemon. Persist
+    // them so a daemon reload does not make unanswered questions disappear.
+    const pendingAskStore = new PendingAskStore({
+      persistence: new FileSessionPendingAskPersistence(defaultSessionPendingAskFilePath(daemonEnvironment)),
+      onPersistenceError(operation, error) {
+        app.log.error({ err: error, operation }, "session pending ask persistence failed");
+      },
+    });
+    await pendingAskStore.load();
     // Activity and status are mutually dependent by design: the record notifies
     // the projection, the projection reads the record. The notification runs
     // long after both are constructed.
@@ -296,6 +308,7 @@ async function createSessionDaemonRuntime() {
       extensionDialogsTimeoutMs: config.extensionDialogsTimeoutMs,
       notificationStore,
       unreadStore,
+      pendingAskStore,
       onUnreadChanged: () => { machineStatus.notifyChanged(); },
       catalogRefreshStatus: catalogRefresher,
       sessionManager: createPiSessionManagerGateway({

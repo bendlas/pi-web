@@ -1419,7 +1419,10 @@ export class PiSessionService implements SessionRouteService {
     const activeSessions = Array.from(new Set(this.active.values()));
     for (const active of activeSessions) {
       this.forgetUnreadActivity(active.runtime.session);
-      this.pendingAskStore.forgetSession(active.runtime.session.sessionId);
+      // Leave the open ask on disk: the daemon is shutting down, not the session.
+      // The session can be reopened after restart and the answer delivered as a
+      // follow-up, so discarding the ask here would lose questions the user still
+      // owes. Genuine removal goes through closeActive, which does forget it.
       this.endSessionExtensionDialogs(active.runtime.session.sessionId);
     }
     this.active.clear();
@@ -3402,8 +3405,10 @@ export class PiSessionService implements SessionRouteService {
     }
     if (!active) return;
     this.forgetUnreadActivity(active.runtime.session);
-    // An open ask is meaningful only while the runtime that posted it exists: no
-    // one is left to receive the answers, so it is dropped without an outcome.
+    // The session itself is going away (closed, archived, or deleted), so drop its
+    // open ask: with no session to reopen, no one could ever receive the answers.
+    // A plain daemon reload takes the dispose() path instead and keeps the ask,
+    // because the session can be reopened and the answer still wakes it.
     this.pendingAskStore.forgetSession(sessionId);
     // Open dialogs share that stance, but their extension waiters are parked
     // Promises inside the dying runtime: settle them rather than dropping them.
