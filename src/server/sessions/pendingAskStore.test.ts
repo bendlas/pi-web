@@ -1,11 +1,31 @@
-import { describe, expect, it } from "vitest";
-import { ASK_USER_OPTION_LIMIT, ASK_USER_QUESTION_LIMIT, type AskUserQuestion } from "../../shared/apiTypes.js";
+import { afterAll, describe, expect, it } from "vitest";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+  ASK_USER_COMMENT_MAX_LENGTH,
+  ASK_USER_OPTION_LIMIT,
+  ASK_USER_QUESTION_LIMIT,
+  type AskUserQuestion,
+} from "../../shared/apiTypes.js";
 import {
   PendingAskStore,
   PendingAskValidationError,
   renderAskUserAnswersText,
   renderSupersededAskText,
 } from "./pendingAskStore.js";
+import { FileSessionPendingAskPersistence } from "./pendingAskPersistence.js";
+
+const roots: string[] = [];
+afterAll(async () => {
+  await Promise.all(roots.map((root) => rm(root, { recursive: true, force: true })));
+});
+
+async function temporaryRoot(): Promise<string> {
+  const root = await mkdtemp(join(tmpdir(), "pi-web-pending-ask-"));
+  roots.push(root);
+  return root;
+}
 
 const sessionId = "session-1";
 
@@ -198,6 +218,51 @@ describe("PendingAskStore submit", () => {
     expect(result).toMatchObject({ status: "closed", outcome: { questions: [{ answered: true, values: [], otherText: "a note" }] } });
   });
 
+  it("records a comment beside the answer it accompanies", () => {
+    const store = testStore();
+    const { ask } = openTwoQuestions(store);
+
+    const result = store.submit(sessionId, ask.askId, {
+      answers: [{ id: "q1", values: ["yes"], comment: "  as long as staging goes first  " }],
+    });
+
+    if (result.status !== "closed") throw new Error("expected the ask to close");
+    expect(result.outcome.questions[0]).toEqual({
+      question: ask.questions[0],
+      answered: true,
+      values: ["yes"],
+      comment: "as long as staging goes first",
+    });
+    expect(renderAskUserAnswersText(result.outcome))
+      .toContain(`  Answered: selected yes; comment: "as long as staging goes first"`);
+  });
+
+  it("treats a comment without a selection as leaving the question untouched", () => {
+    const store = testStore();
+    const { ask } = openTwoQuestions(store);
+
+    const result = store.submit(sessionId, ask.askId, {
+      answers: [{ id: "q1", values: [], comment: "no preference" }, { id: "q2", values: [], comment: "   " }],
+    });
+
+    expect(result).toMatchObject({ status: "closed", outcome: { answeredCount: 0, unansweredIds: ["q1", "q2"] } });
+    if (result.status !== "closed") throw new Error("expected the ask to close");
+    expect(result.outcome.questions[0]).toEqual({ question: ask.questions[0], answered: false, values: [] });
+  });
+
+  it("rejects a comment longer than its limit and keeps the ask open", () => {
+    const store = testStore();
+    const { ask } = openTwoQuestions(store);
+
+    expect(() => store.submit(sessionId, ask.askId, {
+      answers: [{ id: "q1", values: ["yes"], comment: "c".repeat(ASK_USER_COMMENT_MAX_LENGTH + 1) }],
+    })).toThrow(PendingAskValidationError);
+    expect(() => store.submit(sessionId, ask.askId, {
+      answers: [{ id: "q1", values: ["yes"], comment: "c".repeat(ASK_USER_COMMENT_MAX_LENGTH + 1) }],
+    })).toThrow(/Comment of question q1 exceeds its length limit/);
+    expect(store.pendingAsk(sessionId)?.askId).toBe(ask.askId);
+  });
+
   it("rejects unknown, duplicated, and unoffered answers", () => {
     const store = testStore();
     const { ask } = openTwoQuestions(store);
@@ -345,5 +410,100 @@ describe("ask outcome rendering", () => {
       "This replaced an earlier question set (ask-1) that the user never submitted.",
       "Left unanswered: q1, q2.",
     ].join("\n"));
+  });
+});
+
+describe("PendingAskStore persistence", () => {
+  it("carries an unanswered ask through a daemon reload (new store, same file)", async () => {
+    const root = await temporaryRoot();
+    const persistence = new FileSessionPendingAskPersistence(join(root, "session-pending-asks.json"));
+    let askCount = 0;
+    const first = new PendingAskStore({
+      persistence,
+      createAskId: () => `ask-${(++askCount).toString()}`,
+      now: () => new Date("2026-01-01T00:00:00.000Z"),
+    });
+    await first.load();
+    const { ask } = first.open({ sessionId, questions: [question("q1"), question("q2")] });
+    // The write is serialized and backgrounded; wait for it before the reload.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    // A second store with the same persistence file, as after sessiond restarts.
+    const second = new PendingAskStore({ persistence });
+    await second.load();
+
+    expect(second.pendingAsk(sessionId)).toEqual(ask);
+  });
+
+  it("stops reporting the ask once the user answers it, even after a reload", async () => {
+    const root = await temporaryRoot();
+    const persistence = new FileSessionPendingAskPersistence(join(root, "session-pending-asks.json"));
+    const first = new PendingAskStore({
+      persistence,
+      createAskId: () => "ask-1",
+      now: () => new Date("2026-01-01T00:00:00.000Z"),
+    });
+    await first.load();
+    const { ask } = first.open({ sessionId, questions: [question("q1")] });
+    const closed = first.submit(sessionId, ask.askId, { answers: [{ id: "q1", values: ["yes"] }] });
+    expect(closed.status).toBe("closed");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    const second = new PendingAskStore({ persistence });
+    await second.load();
+
+    expect(second.pendingAsk(sessionId)).toBeUndefined();
+  });
+
+  it("writes a private, atomic state file", async () => {
+    const root = await temporaryRoot();
+    const filePath = join(root, "session-pending-asks.json");
+    const persistence = new FileSessionPendingAskPersistence(filePath);
+    const store = new PendingAskStore({ persistence, createAskId: () => "ask-1" });
+    await store.load();
+    store.open({ sessionId, questions: [question("q1")] });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    const persisted: unknown = JSON.parse(await readFile(filePath, "utf8"));
+    expect(persisted).toMatchObject({
+      version: 1,
+      asks: [{ sessionId, ask: { askId: "ask-1", questions: [expect.objectContaining({ id: "q1" })] } }],
+    });
+    if (process.platform !== "win32") expect((await stat(filePath)).mode & 0o777).toBe(0o600);
+  });
+
+  it("drops a single malformed entry without losing the rest", async () => {
+    const root = await temporaryRoot();
+    const filePath = join(root, "session-pending-asks.json");
+    const persistence = new FileSessionPendingAskPersistence(filePath);
+    const seed = new PendingAskStore({
+      persistence,
+      createAskId: () => "ask-1",
+      now: () => new Date("2026-01-01T00:00:00.000Z"),
+    });
+    await seed.load();
+    seed.open({ sessionId, questions: [question("q1")] });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    // A second session's persisted entry is corrupt (questions not an array). Written
+    // directly so the store never has to validate it; only the reload path does.
+    const corruptState = {
+      version: 1,
+      asks: [
+        { sessionId, ask: { askId: "ask-1", askedAt: "2026-01-01T00:00:00.000Z", questions: [question("q1")] } },
+        { sessionId: "session-2", ask: { askId: "ask-2", askedAt: "2026-01-01T00:00:00.000Z", questions: "nope" } },
+      ],
+    };
+    await writeFile(filePath, `${JSON.stringify(corruptState, null, 2)}\n`, "utf8");
+
+    const reload = new PendingAskStore({ persistence });
+    await reload.load();
+
+    expect(reload.pendingAsk(sessionId)).toEqual({
+      askId: "ask-1",
+      askedAt: "2026-01-01T00:00:00.000Z",
+      questions: [question("q1")],
+    });
+    expect(reload.pendingAsk("session-2")).toBeUndefined();
   });
 });
