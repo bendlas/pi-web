@@ -1883,9 +1883,9 @@ export class PiWebApp extends LitElement {
     else if (event.type === "notices.updated") this.serverNotices.applyEvent(machineId, event);
     else if (event.type === "machine.status") this.machineStatus.apply(machineId, event.status);
     else if (event.type === "workspaces.changed") {
-      if (selectedMachineId(this.state) === machineId && this.state.selectedProject?.id === event.projectId) {
-        void this.workspaces.refreshSelectedProjectTopology();
-      }
+      // Project ids are only unique per machine, so a topology event from another
+      // machine must not refresh the currently selected project of the same id.
+      if (selectedMachineId(this.state) === machineId) this.workspaces.applyGlobalEvent(event);
     } else this.sessions.applyGlobalEvent(event);
   }
 
