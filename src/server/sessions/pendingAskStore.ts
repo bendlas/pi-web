@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import {
+  ASK_USER_COMMENT_MAX_LENGTH,
   ASK_USER_ID_MAX_LENGTH,
   ASK_USER_OPTION_LIMIT,
   ASK_USER_OTHER_TEXT_MAX_LENGTH,
@@ -292,6 +293,7 @@ function questionLines(record: AskUserQuestionRecord): string[] {
   if (!record.answered) return [header, "  Unanswered."];
   const parts = [...record.values.map((value) => `selected ${value}`)];
   if (record.otherText !== undefined) parts.push(`custom: ${JSON.stringify(record.otherText)}`);
+  if (record.comment !== undefined) parts.push(`comment: ${JSON.stringify(record.comment)}`);
   return [header, `  Answered: ${parts.join("; ")}`];
 }
 
@@ -319,11 +321,13 @@ function askUserOutcome(
 function questionRecord(question: AskUserQuestion, answer: AskUserAnswer | undefined): AskUserQuestionRecord {
   const values = answer?.values ?? [];
   const otherText = answer?.otherText;
+  const comment = answer?.comment;
   return {
     question: cloneQuestion(question),
     answered: values.length > 0 || otherText !== undefined,
     values: [...values],
     ...(otherText === undefined ? {} : { otherText }),
+    ...(comment === undefined ? {} : { comment }),
   };
 }
 
@@ -400,12 +404,20 @@ function validateAnswer(question: AskUserQuestion, answer: AskUserAnswer): AskUs
     values.push(value);
   }
   const otherText = normalizeOtherText(question, answer.otherText);
+  const comment = normalizeComment(question, answer.comment);
   const selectionCount = values.length + (otherText === undefined ? 0 : 1);
   if (question.multiple !== true && selectionCount > 1) {
     throw new PendingAskValidationError(`Question ${question.id} accepts a single answer`);
   }
+  // A comment accompanies an answer instead of being one, so it never makes an
+  // otherwise untouched question count as answered.
   if (selectionCount === 0) return undefined;
-  return { id: question.id, values, ...(otherText === undefined ? {} : { otherText }) };
+  return {
+    id: question.id,
+    values,
+    ...(otherText === undefined ? {} : { otherText }),
+    ...(comment === undefined ? {} : { comment }),
+  };
 }
 
 function normalizeOtherText(question: AskUserQuestion, otherText: string | undefined): string | undefined {
@@ -414,6 +426,15 @@ function normalizeOtherText(question: AskUserQuestion, otherText: string | undef
     throw new PendingAskValidationError(`Other text of question ${question.id} exceeds its length limit`);
   }
   const trimmed = otherText.trim();
+  return trimmed === "" ? undefined : trimmed;
+}
+
+function normalizeComment(question: AskUserQuestion, comment: string | undefined): string | undefined {
+  if (comment === undefined) return undefined;
+  if (comment.length > ASK_USER_COMMENT_MAX_LENGTH) {
+    throw new PendingAskValidationError(`Comment of question ${question.id} exceeds its length limit`);
+  }
+  const trimmed = comment.trim();
   return trimmed === "" ? undefined : trimmed;
 }
 

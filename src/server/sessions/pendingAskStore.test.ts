@@ -2,7 +2,12 @@ import { afterAll, describe, expect, it } from "vitest";
 import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ASK_USER_OPTION_LIMIT, ASK_USER_QUESTION_LIMIT, type AskUserQuestion } from "../../shared/apiTypes.js";
+import {
+  ASK_USER_COMMENT_MAX_LENGTH,
+  ASK_USER_OPTION_LIMIT,
+  ASK_USER_QUESTION_LIMIT,
+  type AskUserQuestion,
+} from "../../shared/apiTypes.js";
 import {
   PendingAskStore,
   PendingAskValidationError,
@@ -211,6 +216,51 @@ describe("PendingAskStore submit", () => {
     const result = store.submit(sessionId, ask.askId, { answers: [{ id: "q1", values: [], otherText: "a note" }] });
 
     expect(result).toMatchObject({ status: "closed", outcome: { questions: [{ answered: true, values: [], otherText: "a note" }] } });
+  });
+
+  it("records a comment beside the answer it accompanies", () => {
+    const store = testStore();
+    const { ask } = openTwoQuestions(store);
+
+    const result = store.submit(sessionId, ask.askId, {
+      answers: [{ id: "q1", values: ["yes"], comment: "  as long as staging goes first  " }],
+    });
+
+    if (result.status !== "closed") throw new Error("expected the ask to close");
+    expect(result.outcome.questions[0]).toEqual({
+      question: ask.questions[0],
+      answered: true,
+      values: ["yes"],
+      comment: "as long as staging goes first",
+    });
+    expect(renderAskUserAnswersText(result.outcome))
+      .toContain(`  Answered: selected yes; comment: "as long as staging goes first"`);
+  });
+
+  it("treats a comment without a selection as leaving the question untouched", () => {
+    const store = testStore();
+    const { ask } = openTwoQuestions(store);
+
+    const result = store.submit(sessionId, ask.askId, {
+      answers: [{ id: "q1", values: [], comment: "no preference" }, { id: "q2", values: [], comment: "   " }],
+    });
+
+    expect(result).toMatchObject({ status: "closed", outcome: { answeredCount: 0, unansweredIds: ["q1", "q2"] } });
+    if (result.status !== "closed") throw new Error("expected the ask to close");
+    expect(result.outcome.questions[0]).toEqual({ question: ask.questions[0], answered: false, values: [] });
+  });
+
+  it("rejects a comment longer than its limit and keeps the ask open", () => {
+    const store = testStore();
+    const { ask } = openTwoQuestions(store);
+
+    expect(() => store.submit(sessionId, ask.askId, {
+      answers: [{ id: "q1", values: ["yes"], comment: "c".repeat(ASK_USER_COMMENT_MAX_LENGTH + 1) }],
+    })).toThrow(PendingAskValidationError);
+    expect(() => store.submit(sessionId, ask.askId, {
+      answers: [{ id: "q1", values: ["yes"], comment: "c".repeat(ASK_USER_COMMENT_MAX_LENGTH + 1) }],
+    })).toThrow(/Comment of question q1 exceeds its length limit/);
+    expect(store.pendingAsk(sessionId)?.askId).toBe(ask.askId);
   });
 
   it("rejects unknown, duplicated, and unoffered answers", () => {

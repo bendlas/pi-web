@@ -1,4 +1,10 @@
-import { ASK_USER_OTHER_TEXT_MAX_LENGTH, type AskUserAnswer, type AskUserQuestion, type AskUserSubmission } from "../../shared/apiTypes";
+import {
+  ASK_USER_COMMENT_MAX_LENGTH,
+  ASK_USER_OTHER_TEXT_MAX_LENGTH,
+  type AskUserAnswer,
+  type AskUserQuestion,
+  type AskUserSubmission,
+} from "../../shared/apiTypes";
 
 /**
  * What the user has entered for one question but has not submitted yet. Kept in
@@ -8,6 +14,8 @@ import { ASK_USER_OTHER_TEXT_MAX_LENGTH, type AskUserAnswer, type AskUserQuestio
 export interface AskDraftAnswer {
   values: string[];
   otherText?: string;
+  /** Free text typed alongside the selection rather than instead of it. */
+  comment?: string;
 }
 
 /** Draft answers of one ask, keyed by question id. */
@@ -43,7 +51,9 @@ export function loadAskDraft(sessionId: string, askId: string, storage = browser
 
 export function saveAskDraft(sessionId: string, askId: string, answers: AskDraftAnswers, storage = browserStorage()): void {
   try {
-    const entries = Object.entries(answers).filter(([, answer]) => answer.values.length > 0 || (answer.otherText ?? "") !== "");
+    const entries = Object.entries(answers).filter(
+      ([, answer]) => answer.values.length > 0 || (answer.otherText ?? "") !== "" || (answer.comment ?? "") !== "",
+    );
     if (entries.length === 0) storage?.removeItem(draftStorageKey(sessionId, askId));
     else storage?.setItem(draftStorageKey(sessionId, askId), JSON.stringify(Object.fromEntries(entries)));
   } catch {
@@ -75,9 +85,15 @@ function draftAnswerFromValue(value: unknown): AskDraftAnswer | undefined {
   const record: Record<string, unknown> = { ...value };
   const values = record["values"];
   const otherText = record["otherText"];
+  const comment = record["comment"];
   if (!Array.isArray(values) || !values.every((entry) => typeof entry === "string")) return undefined;
   if (otherText !== undefined && typeof otherText !== "string") return undefined;
-  return { values: [...values], ...(otherText === undefined ? {} : { otherText }) };
+  if (comment !== undefined && typeof comment !== "string") return undefined;
+  return {
+    values: [...values],
+    ...(otherText === undefined ? {} : { otherText }),
+    ...(comment === undefined ? {} : { comment }),
+  };
 }
 
 /**
@@ -115,23 +131,35 @@ export function toSubmission(questions: readonly AskUserQuestion[], answers: Ask
  * longer accepts, so values the question does not offer are dropped and a
  * single-select question keeps only its first selection rather than sending a
  * submission the daemon would reject as a whole.
+ *
+ * A comment rides along with whatever the question was answered with; on its own
+ * it does not make a question answered, so "answered" keeps meaning "the user
+ * chose something".
  */
 function submittableAnswer(question: AskUserQuestion, answer: AskDraftAnswer | undefined): AskUserAnswer | undefined {
   if (answer === undefined) return undefined;
   const offered = new Set(question.options.map((option) => option.value));
   const values = [...new Set(answer.values)].filter((value) => offered.has(value));
   const otherText = normalizedOtherText(answer.otherText);
+  const comment = normalizeComment(answer.comment);
+  const commented = (submittable: AskUserAnswer): AskUserAnswer => (comment === undefined ? submittable : { ...submittable, comment });
   if (question.multiple !== true && values.length + (otherText === undefined ? 0 : 1) > 1) {
     const single = values[0];
-    if (single !== undefined) return { id: question.id, values: [single] };
-    return otherText === undefined ? undefined : { id: question.id, values: [], otherText };
+    if (single !== undefined) return commented({ id: question.id, values: [single] });
+    return otherText === undefined ? undefined : commented({ id: question.id, values: [], otherText });
   }
   if (values.length === 0 && otherText === undefined) return undefined;
-  return { id: question.id, values, ...(otherText === undefined ? {} : { otherText }) };
+  return commented({ id: question.id, values, ...(otherText === undefined ? {} : { otherText }) });
 }
 
 function normalizedOtherText(otherText: string | undefined): string | undefined {
   if (otherText === undefined) return undefined;
   const trimmed = otherText.trim().slice(0, ASK_USER_OTHER_TEXT_MAX_LENGTH);
+  return trimmed === "" ? undefined : trimmed;
+}
+
+function normalizeComment(text: string | undefined): string | undefined {
+  if (text === undefined) return undefined;
+  const trimmed = text.trim().slice(0, ASK_USER_COMMENT_MAX_LENGTH);
   return trimmed === "" ? undefined : trimmed;
 }
