@@ -773,7 +773,7 @@ export function parseSessionStreamEvent(value: unknown): SessionUiEvent {
 }
 
 type RealtimeStreamEvent =
-  | Extract<GlobalSessionEvent, { type: "status.update" | "activity.update" | "session.name" | "session.created" | "models.changed" | "notices.updated" }>
+  | Extract<GlobalSessionEvent, { type: "status.update" | "activity.update" | "session.name" | "session.created" | "models.changed" | "notices.updated" | "workspaces.changed" }>
   | MachineStatusUiEvent;
 
 export function parseRealtimeStreamEvent(value: unknown): RealtimeStreamEvent {
@@ -791,6 +791,8 @@ export function parseRealtimeStreamEvent(value: unknown): RealtimeStreamEvent {
       return { type: "models.changed", revision: requireNonNegativeSafeInteger(record, "revision") };
     case "notices.updated":
       return parseServerNoticeEvent(record);
+    case "workspaces.changed":
+      return { type: "workspaces.changed", projectId: requireNonEmptyString(record, "projectId") };
     case "machine.status":
       return { type: "machine.status", status: requireMachineStatusSnapshot(record["status"]) };
     default:

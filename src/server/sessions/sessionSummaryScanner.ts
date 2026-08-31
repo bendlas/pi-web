@@ -146,6 +146,13 @@ export class SessionSummaryScanner {
     return sortedSessionSummaries(summaries);
   }
 
+  /** Lightweight streaming summary of a single session file (memoized). Used by
+   *  change-scoped session-name watches, which only need the one file that
+   *  changed instead of re-listing every session in a directory. */
+  async scanSessionSummary(sessionFile: string): Promise<PiSessionListEntry | undefined> {
+    return this.scanFileWithMemo(sessionFile, () => Buffer.alloc(this.chunkBytes));
+  }
+
   private pruneEntriesRemovedFrom(sessionDir: string, existingFiles: readonly string[]): void {
     const dirPrefix = sessionDir.endsWith(sep) ? sessionDir : sessionDir + sep;
     const existing = new Set(existingFiles);
