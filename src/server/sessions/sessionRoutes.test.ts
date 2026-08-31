@@ -3,7 +3,7 @@ import { once } from "node:events";
 import Fastify, { type FastifyInstance } from "fastify";
 import fastifyWebsocket from "@fastify/websocket";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { ASK_USER_ID_MAX_LENGTH, ASK_USER_OTHER_TEXT_MAX_LENGTH, ASK_USER_QUESTION_LIMIT, EXTENSION_DIALOG_ID_MAX_LENGTH, EXTENSION_DIALOG_INPUT_MAX_LENGTH, SESSION_TREE_CUSTOM_INSTRUCTIONS_MAX_LENGTH, SESSION_UNREAD_CATALOG_ID_MAX_LENGTH } from "../../shared/apiTypes.js";
+import { ASK_USER_COMMENT_MAX_LENGTH, ASK_USER_ID_MAX_LENGTH, ASK_USER_OTHER_TEXT_MAX_LENGTH, ASK_USER_QUESTION_LIMIT, EXTENSION_DIALOG_ID_MAX_LENGTH, EXTENSION_DIALOG_INPUT_MAX_LENGTH, SESSION_TREE_CUSTOM_INSTRUCTIONS_MAX_LENGTH, SESSION_UNREAD_CATALOG_ID_MAX_LENGTH } from "../../shared/apiTypes.js";
 import type {
   AskUserSubmission,
   ExtensionDialogAnswer,
@@ -528,7 +528,7 @@ describe("session routes", () => {
         payload: {
           cwd: "/repo/./",
           askId: "ask-1",
-          answers: [{ id: "db", values: ["pg"] }, { id: "cache", values: [], otherText: "redis" }],
+          answers: [{ id: "db", values: ["pg"], comment: "behind pgbouncer" }, { id: "cache", values: [], otherText: "redis" }],
         },
       });
       const cancelled = await routeApp.inject({
@@ -542,7 +542,9 @@ describe("session routes", () => {
       expect(routeService.submitAskCalls).toEqual([{
         lookup: { id: "session-1", cwd: resolve("/repo") },
         askId: "ask-1",
-        submission: { answers: [{ id: "db", values: ["pg"] }, { id: "cache", values: [], otherText: "redis" }] },
+        submission: {
+          answers: [{ id: "db", values: ["pg"], comment: "behind pgbouncer" }, { id: "cache", values: [], otherText: "redis" }],
+        },
       }]);
       expect(cancelled.statusCode).toBe(200);
       expect(cancelled.json()).toMatchObject({ sessionId: "session-1" });
@@ -570,6 +572,8 @@ describe("session routes", () => {
       { cwd: "/repo", askId: "ask-1", answers: [{ id: "db", values: [1] }] },
       { cwd: "/repo", askId: "ask-1", answers: [{ id: "db", values: [], otherText: 7 }] },
       { cwd: "/repo", askId: "ask-1", answers: [{ id: "db", values: [], otherText: "x".repeat(ASK_USER_OTHER_TEXT_MAX_LENGTH + 1) }] },
+      { cwd: "/repo", askId: "ask-1", answers: [{ id: "db", values: ["pg"], comment: 7 }] },
+      { cwd: "/repo", askId: "ask-1", answers: [{ id: "db", values: ["pg"], comment: "x".repeat(ASK_USER_COMMENT_MAX_LENGTH + 1) }] },
       { cwd: "/repo", askId: "ask-1", answers: new Array<unknown>(ASK_USER_QUESTION_LIMIT + 1).fill({ id: "db", values: [] }) },
     ];
 

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { ASK_USER_OTHER_TEXT_MAX_LENGTH, type AskUserQuestion } from "../../shared/apiTypes";
+import { ASK_USER_COMMENT_MAX_LENGTH, ASK_USER_OTHER_TEXT_MAX_LENGTH, type AskUserQuestion } from "../../shared/apiTypes";
 import { answeredCount, clearAskDraft, loadAskDraft, saveAskDraft, toSubmission, unansweredQuestions, type AskDraftAnswers } from "./askDrafts";
 
 class MemoryStorage implements Storage {
@@ -94,6 +94,28 @@ describe("ask draft storage", () => {
     expect(loadAskDraft("local:s1", "ask-1", storage)).toEqual({});
   });
 
+  it("keeps a comment in the draft, with or without a selection beside it", () => {
+    const storage = new MemoryStorage();
+    const answers: AskDraftAnswers = {
+      q1: { values: ["pg"], comment: "we already run a cluster" },
+      q2: { values: [], comment: "still deciding" },
+    };
+
+    saveAskDraft("local:s1", "ask-1", answers, storage);
+
+    expect(loadAskDraft("local:s1", "ask-1", storage)).toEqual(answers);
+  });
+
+  it("drops a draft entry whose comment is not text", () => {
+    const storage = new MemoryStorage();
+    storage.setItem(
+      "pi-web:ask-draft:local:s1:ask-1",
+      JSON.stringify({ q1: { values: ["pg"], comment: 7 }, q2: { values: ["metrics"], comment: "only in staging" } }),
+    );
+
+    expect(loadAskDraft("local:s1", "ask-1", storage)).toEqual({ q2: { values: ["metrics"], comment: "only in staging" } });
+  });
+
   it("clears a draft once its ask is closed", () => {
     const storage = new MemoryStorage();
     saveAskDraft("local:s1", "ask-1", { q1: { values: ["pg"] } }, storage);
@@ -186,5 +208,48 @@ describe("ask answer state", () => {
     const answers: AskDraftAnswers = { q3: { values: [], otherText: "a".repeat(ASK_USER_OTHER_TEXT_MAX_LENGTH + 10) } };
 
     expect(toSubmission(questions, answers).answers[0]?.otherText).toHaveLength(ASK_USER_OTHER_TEXT_MAX_LENGTH);
+  });
+
+  it("submits a comment alongside the answer it accompanies", () => {
+    const answers: AskDraftAnswers = {
+      q1: { values: ["pg"], comment: "  the cluster is already provisioned  " },
+      q2: { values: ["metrics"], otherText: "profiling", comment: "staging first" },
+    };
+
+    expect(answeredCount(questions, answers)).toBe(2);
+    expect(toSubmission(questions, answers)).toEqual({
+      answers: [
+        { id: "q1", values: ["pg"], comment: "the cluster is already provisioned" },
+        { id: "q2", values: ["metrics"], otherText: "profiling", comment: "staging first" },
+      ],
+    });
+  });
+
+  it("keeps a comment when a draft entry is narrowed to fit its question", () => {
+    const answers: AskDraftAnswers = { q1: { values: ["mysql", "pg"], otherText: "custom", comment: "whatever ops prefer" } };
+
+    expect(toSubmission(questions, answers)).toEqual({
+      answers: [{ id: "q1", values: ["pg"], comment: "whatever ops prefer" }],
+    });
+  });
+
+  it("leaves a question unanswered when a comment is all the user typed", () => {
+    // "Answered" stays a statement about what the user chose, so a comment on its
+    // own is retained locally for the next reload but never submitted as an answer.
+    const answers: AskDraftAnswers = { q1: { values: [], comment: "no preference" } };
+    const storage = new MemoryStorage();
+
+    expect(answeredCount(questions, answers)).toBe(0);
+    expect(unansweredQuestions(questions, answers).map((question) => question.id)).toEqual(["q1", "q2", "q3"]);
+    expect(toSubmission(questions, answers)).toEqual({ answers: [] });
+
+    saveAskDraft("local:s1", "ask-1", answers, storage);
+    expect(loadAskDraft("local:s1", "ask-1", storage)).toEqual(answers);
+  });
+
+  it("bounds a comment at the shared limit", () => {
+    const answers: AskDraftAnswers = { q1: { values: ["pg"], comment: "c".repeat(ASK_USER_COMMENT_MAX_LENGTH + 10) } };
+
+    expect(toSubmission(questions, answers).answers[0]?.comment).toHaveLength(ASK_USER_COMMENT_MAX_LENGTH);
   });
 });
