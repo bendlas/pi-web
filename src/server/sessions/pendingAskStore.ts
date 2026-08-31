@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import {
+  ASK_USER_COMMENT_MAX_LENGTH,
   ASK_USER_ID_MAX_LENGTH,
   ASK_USER_OPTION_LIMIT,
   ASK_USER_OTHER_TEXT_MAX_LENGTH,
@@ -14,10 +15,25 @@ import {
   type AskUserSubmission,
   type PendingAskUser,
 } from "../../shared/apiTypes.js";
+import {
+  PENDING_ASK_STATE_VERSION,
+  type PendingAskPersistence,
+  type PendingAskPersistedEntry,
+  type PendingAskPersistedState,
+} from "./pendingAskPersistence.js";
 
 export interface PendingAskStoreOptions {
   now?: (() => Date) | undefined;
   createAskId?: (() => string) | undefined;
+  /**
+   * Durable backing for open-ask state. When supplied, every open/close writes
+   * through to disk and {@link PendingAskStore.load} repopulates the map at
+   * daemon startup, so a reload no longer drops questions the user still owes.
+   * Omit for the in-memory store used by tests and single-shot callers.
+   */
+  persistence?: PendingAskPersistence | undefined;
+  /** Reported when a load or save fails; persistence is best-effort, never fatal. */
+  onPersistenceError?: ((operation: "load" | "save", error: unknown) => void) | undefined;
 }
 
 /** A question set an agent wants to post to the user of one session. */
@@ -66,27 +82,105 @@ type RecordedAnswers = ReadonlyMap<string, AskUserAnswer>;
  * model-facing message and the browser record are rendered from. Callers publish
  * the returned asks and outcomes; the store never emits anything itself.
  *
- * State is deliberately daemon-lifetime and in-memory. An open ask is meaningful
- * only while the session runtime that posted it exists, and browsers rehydrate it
- * from `SessionStatus` rather than from disk.
+ * State is daemon-owned and, when the store is given a {@link PendingAskPersistence},
+ * durable across daemon reloads: the open ask is the one piece of session state
+ * the browser cannot rebuild itself, because `ask_user` terminates the run and
+ * the questions exist only here. Without persistence the store is in-memory and
+ * daemon-lifetime. Either way the browser rehydrates the widget from
+ * `SessionStatus`; persistence just keeps that status honest after a reload.
  */
 export class PendingAskStore {
   private readonly now: () => Date;
   private readonly createAskId: () => string;
+  private readonly persistence: PendingAskPersistence | undefined;
+  private readonly onPersistenceError: (operation: "load" | "save", error: unknown) => void;
   private readonly openBySessionId = new Map<string, PendingAskUser>();
+  private loadPromise: Promise<void> | undefined;
+  private loaded: boolean;
+  private persistenceWorker: Promise<void> = Promise.resolve();
 
   constructor(options: PendingAskStoreOptions = {}) {
     this.now = options.now ?? (() => new Date());
     this.createAskId = options.createAskId ?? randomUUID;
+    this.persistence = options.persistence;
+    this.onPersistenceError = options.onPersistenceError ?? (() => undefined);
+    // An in-memory store is ready immediately; a persistent one waits for load().
+    this.loaded = this.persistence === undefined;
+  }
+
+  /**
+   * Populate the in-memory map from the backing store. Called once at daemon
+   * startup; must complete before any session can publish status. No-op for an
+   * in-memory store, and idempotent if called more than once.
+   */
+  load(): Promise<void> {
+    if (this.loaded) return Promise.resolve();
+    if (this.loadPromise !== undefined) return this.loadPromise;
+    this.loadPromise = this.loadPersistedState();
+    return this.loadPromise;
+  }
+
+  private async loadPersistedState(): Promise<void> {
+    if (this.persistence === undefined) {
+      this.loaded = true;
+      return;
+    }
+    try {
+      const value = await this.persistence.load();
+      if (value === undefined) return;
+      // Re-validate each entry against the current schema so a stale or
+      // hand-edited file drops bad asks individually rather than poisoning the
+      // whole map; a skipped entry just means that one question set is lost.
+      for (const entry of parsePersistedEntries(value)) {
+        try {
+          this.openBySessionId.set(entry.sessionId, normalizePersistedAsk(entry.ask));
+        } catch (error) {
+          this.reportPersistenceError("load", error);
+        }
+      }
+    } catch (error) {
+      this.reportPersistenceError("load", error);
+    } finally {
+      this.loaded = true;
+    }
+  }
+
+  private requireLoaded(): void {
+    if (!this.loaded) throw new Error("Pending ask store must be loaded before use");
+  }
+
+  private schedulePersist(): void {
+    if (this.persistence === undefined) return;
+    this.persistenceWorker = this.persistenceWorker.then(() => this.persist()).catch((error: unknown) => {
+      this.reportPersistenceError("save", error);
+    });
+  }
+
+  private async persist(): Promise<void> {
+    if (this.persistence === undefined) return;
+    const asks: PendingAskPersistedEntry[] = [...this.openBySessionId.entries()]
+      .map(([sessionId, ask]) => ({ sessionId, ask: cloneAsk(ask) }));
+    const state: PendingAskPersistedState = { version: PENDING_ASK_STATE_VERSION, asks };
+    await this.persistence.save(state);
+  }
+
+  private reportPersistenceError(operation: "load" | "save", error: unknown): void {
+    try {
+      this.onPersistenceError(operation, error);
+    } catch {
+      // Error reporting must not poison serialized persistence work.
+    }
   }
 
   /** The session's open ask, for {@link SessionStatus} projection. */
   pendingAsk(sessionId: string): PendingAskUser | undefined {
+    this.requireLoaded();
     const ask = this.openBySessionId.get(requireSessionId(sessionId));
     return ask === undefined ? undefined : cloneAsk(ask);
   }
 
   open(input: PendingAskOpenInput): PendingAskOpenResult {
+    this.requireLoaded();
     const sessionId = requireSessionId(input.sessionId);
     const questions = validateQuestions(input.questions);
     const askedAt = this.timestamp();
@@ -97,6 +191,7 @@ export class PendingAskStore {
       questions,
     };
     this.openBySessionId.set(sessionId, ask);
+    this.schedulePersist();
     return {
       ask: cloneAsk(ask),
       ...(superseded === undefined ? {} : { superseded }),
@@ -114,7 +209,9 @@ export class PendingAskStore {
     // Validate before closing so a submission that does not fit its questions
     // leaves the ask open for the browser to correct.
     const answers = validateSubmission(ask, submission);
-    return { status: "closed", outcome: this.requireClose(sessionId, "submitted", answers) };
+    const result = { status: "closed" as const, outcome: this.requireClose(sessionId, "submitted", answers) };
+    this.schedulePersist();
+    return result;
   }
 
   /**
@@ -124,7 +221,9 @@ export class PendingAskStore {
   cancel(sessionId: string, askId: string): PendingAskCloseResult {
     const ask = this.openBySessionId.get(requireSessionId(sessionId));
     if (ask?.askId !== askId) return { status: "stale" };
-    return { status: "closed", outcome: this.requireClose(sessionId, "cancelled", new Map()) };
+    const result = { status: "closed" as const, outcome: this.requireClose(sessionId, "cancelled", new Map()) };
+    this.schedulePersist();
+    return result;
   }
 
   /**
@@ -133,12 +232,15 @@ export class PendingAskStore {
    * or `undefined` when the session has no open ask.
    */
   cancelOpen(sessionId: string): AskUserOutcome | undefined {
-    return this.close(requireSessionId(sessionId), "cancelled", this.timestamp(), new Map());
+    const outcome = this.close(requireSessionId(sessionId), "cancelled", this.timestamp(), new Map());
+    this.schedulePersist();
+    return outcome;
   }
 
   /** Drop the open ask of a session that is going away, without reporting an outcome. */
   forgetSession(sessionId: string): void {
     this.openBySessionId.delete(requireSessionId(sessionId));
+    this.schedulePersist();
   }
 
   private requireClose(sessionId: string, reason: AskUserCloseReason, answers: RecordedAnswers): AskUserOutcome {
@@ -191,6 +293,7 @@ function questionLines(record: AskUserQuestionRecord): string[] {
   if (!record.answered) return [header, "  Unanswered."];
   const parts = [...record.values.map((value) => `selected ${value}`)];
   if (record.otherText !== undefined) parts.push(`custom: ${JSON.stringify(record.otherText)}`);
+  if (record.comment !== undefined) parts.push(`comment: ${JSON.stringify(record.comment)}`);
   return [header, `  Answered: ${parts.join("; ")}`];
 }
 
@@ -218,11 +321,13 @@ function askUserOutcome(
 function questionRecord(question: AskUserQuestion, answer: AskUserAnswer | undefined): AskUserQuestionRecord {
   const values = answer?.values ?? [];
   const otherText = answer?.otherText;
+  const comment = answer?.comment;
   return {
     question: cloneQuestion(question),
     answered: values.length > 0 || otherText !== undefined,
     values: [...values],
     ...(otherText === undefined ? {} : { otherText }),
+    ...(comment === undefined ? {} : { comment }),
   };
 }
 
@@ -299,12 +404,20 @@ function validateAnswer(question: AskUserQuestion, answer: AskUserAnswer): AskUs
     values.push(value);
   }
   const otherText = normalizeOtherText(question, answer.otherText);
+  const comment = normalizeComment(question, answer.comment);
   const selectionCount = values.length + (otherText === undefined ? 0 : 1);
   if (question.multiple !== true && selectionCount > 1) {
     throw new PendingAskValidationError(`Question ${question.id} accepts a single answer`);
   }
+  // A comment accompanies an answer instead of being one, so it never makes an
+  // otherwise untouched question count as answered.
   if (selectionCount === 0) return undefined;
-  return { id: question.id, values, ...(otherText === undefined ? {} : { otherText }) };
+  return {
+    id: question.id,
+    values,
+    ...(otherText === undefined ? {} : { otherText }),
+    ...(comment === undefined ? {} : { comment }),
+  };
 }
 
 function normalizeOtherText(question: AskUserQuestion, otherText: string | undefined): string | undefined {
@@ -313,6 +426,15 @@ function normalizeOtherText(question: AskUserQuestion, otherText: string | undef
     throw new PendingAskValidationError(`Other text of question ${question.id} exceeds its length limit`);
   }
   const trimmed = otherText.trim();
+  return trimmed === "" ? undefined : trimmed;
+}
+
+function normalizeComment(question: AskUserQuestion, comment: string | undefined): string | undefined {
+  if (comment === undefined) return undefined;
+  if (comment.length > ASK_USER_COMMENT_MAX_LENGTH) {
+    throw new PendingAskValidationError(`Comment of question ${question.id} exceeds its length limit`);
+  }
+  const trimmed = comment.trim();
   return trimmed === "" ? undefined : trimmed;
 }
 
@@ -327,6 +449,66 @@ function cloneQuestion(question: AskUserQuestion): AskUserQuestion {
 function requireSessionId(sessionId: string): string {
   if (sessionId === "") throw new Error("sessionId must not be empty");
   return sessionId;
+}
+
+/** Validate a persisted ask against the current schema; throws on a malformed entry. */
+function normalizePersistedAsk(value: unknown): PendingAskUser {
+  if (!isPendingAskUser(value)) throw new PendingAskValidationError("persisted ask has an unexpected shape");
+  return value;
+}
+
+function isPendingAskUser(value: unknown): value is PendingAskUser {
+  if (!isRecord(value)) return false;
+  if (typeof value["askId"] !== "string" || value["askId"].trim() === "") return false;
+  if (typeof value["askedAt"] !== "string" || value["askedAt"].trim() === "") return false;
+  return isAskUserQuestions(value["questions"]);
+}
+
+function isAskUserQuestions(value: unknown): value is AskUserQuestion[] {
+  return Array.isArray(value) && value.every(isAskUserQuestion);
+}
+
+function isAskUserQuestion(value: unknown): value is AskUserQuestion {
+  if (!isRecord(value)) return false;
+  if (typeof value["id"] !== "string" || value["id"].trim() === "") return false;
+  if (typeof value["question"] !== "string" || value["question"].trim() === "") return false;
+  if (!isAskUserOptions(value["options"])) return false;
+  if (value["detail"] !== undefined && typeof value["detail"] !== "string") return false;
+  if (value["multiple"] !== undefined && typeof value["multiple"] !== "boolean") return false;
+  return true;
+}
+
+function isAskUserOptions(value: unknown): value is AskUserQuestionOption[] {
+  return Array.isArray(value) && value.every((option) => {
+    if (!isRecord(option)) return false;
+    if (typeof option["value"] !== "string" || option["value"].trim() === "") return false;
+    if (typeof option["label"] !== "string" || option["label"].trim() === "") return false;
+    if (option["detail"] !== undefined && typeof option["detail"] !== "string") return false;
+    return true;
+  });
+}
+
+/** Validate the file envelope and return its raw entries; per-entry validation happens separately so one bad ask cannot drop the rest. */
+function parsePersistedEntries(value: unknown): { sessionId: string; ask: unknown }[] {
+  const record = requireObject(value, "Session pending ask state must be an object");
+  if (record["version"] !== PENDING_ASK_STATE_VERSION) throw new Error("Unsupported session pending ask state version");
+  const rawAsks = record["asks"];
+  if (!Array.isArray(rawAsks)) throw new Error("Session pending ask entries must be an array");
+  return rawAsks.map((entry) => {
+    const rec = requireObject(entry, "Session pending ask entry must be an object");
+    const sessionId = typeof rec["sessionId"] === "string" ? rec["sessionId"] : "";
+    requireSessionId(sessionId);
+    return { sessionId, ask: rec["ask"] };
+  });
+}
+
+function requireObject(value: unknown, message: string): Record<string, unknown> {
+  if (!isRecord(value)) throw new Error(message);
+  return value;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function requireId(value: string, field: string): string {

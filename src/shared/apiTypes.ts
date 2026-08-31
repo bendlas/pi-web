@@ -733,6 +733,8 @@ export const ASK_USER_ID_MAX_LENGTH = 128;
 export const ASK_USER_TEXT_MAX_LENGTH = 1_000;
 /** Length bound for the free text a user types as a custom answer. */
 export const ASK_USER_OTHER_TEXT_MAX_LENGTH = 4_000;
+/** Length bound for the free text a user types alongside a question's selection. */
+export const ASK_USER_COMMENT_MAX_LENGTH = 4_000;
 
 /** One selectable option of an {@link AskUserQuestion}. */
 export interface AskUserQuestionOption {
@@ -788,6 +790,8 @@ export interface AskUserAnswer {
   values: string[];
   /** Free text typed as the question's custom answer. */
   otherText?: string;
+  /** Free text the user added alongside the selection, without replacing it. */
+  comment?: string;
 }
 
 /** One submit of the open ask: answers for some or all of its questions. */
@@ -805,6 +809,7 @@ export interface AskUserQuestionRecord {
   answered: boolean;
   values: string[];
   otherText?: string;
+  comment?: string;
 }
 
 /**
