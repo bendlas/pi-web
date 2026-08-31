@@ -95,6 +95,7 @@ import { registerWorkspaceRemovalRoutes } from "./sessiond/workspaceRemovalRoute
 import { registerWorkspaceCreationRoutes } from "./sessiond/workspaceCreationRoutes.js";
 import { createWorkspaceProviderRuntimeSnapshot } from "./workspaces/workspaceCatalog.js";
 import { WorkspaceRemovalService } from "./workspaces/workspaceRemovalService.js";
+import { WorkspaceTopologyWatcher } from "./workspaces/workspaceTopologyWatcher.js";
 import { WorkspaceCreateService } from "./workspaces/workspaceCreateService.js";
 import { loadEffectiveWorktreeParentDir } from "./workspaces/projectPiWebConfig.js";
 
@@ -353,8 +354,12 @@ async function createSessionDaemonRuntime() {
       modelRuntime: auth.runtime,
       sessionEvents,
       agentDir: activeAgentProfile.dir,
-      archiveStore: new SessionArchiveStore(defaultSessionArchiveFilePath(daemonEnvironment), sessionArchiveDirectory(daemonEnvironment, config)),
+      watchSessionNames: true,
       sessionPins: pins,
+      archiveStore: new SessionArchiveStore(
+        defaultSessionArchiveFilePath(daemonEnvironment, process.cwd()),
+        sessionArchiveDirectory(daemonEnvironment, config, process.cwd()),
+      ),
       workspaceActivity,
       logger: app.log,
       ...(spawnTargets === undefined ? {} : { spawnTargets }),
@@ -448,6 +453,17 @@ async function createSessionDaemonRuntime() {
       workspaceProviders,
       (project) => loadEffectiveWorktreeParentDir(project.path, config),
     );
+    const workspaceTopologyWatcher = new WorkspaceTopologyWatcher({
+      eventHub,
+      projects,
+      catalog: workspaceProviders,
+      logger: {
+        warn: (details, message) => {
+          app.log.warn(details, message);
+        },
+      },
+    });
+    workspaceTopologyWatcher.start();
     const runtimeComponent = Object.freeze({
       // The deprecated-input report is fixed at startup: it was detected from
       // the captured pre-scrub daemon environment and the config snapshot this
@@ -460,6 +476,7 @@ async function createSessionDaemonRuntime() {
     const shutdown = async (): Promise<void> => {
       if (disposed) return;
       disposed = true;
+      workspaceTopologyWatcher.stop();
       await runSessionDaemonShutdown({
         logger: app.log,
         dependencies: {
