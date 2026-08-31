@@ -17,6 +17,8 @@ export interface SessionServiceDependencyInput {
   logger: NonNullable<PiSessionServiceDependencies["logger"]>;
   notificationStore: NonNullable<PiSessionServiceDependencies["notificationStore"]>;
   unreadStore: NonNullable<PiSessionServiceDependencies["unreadStore"]>;
+  /** Durable open-ask state; when present the open ask survives a daemon reload. */
+  pendingAskStore?: PiSessionServiceDependencies["pendingAskStore"];
   /** Notifies the machine status projection that unread state changed. */
   onUnreadChanged: NonNullable<PiSessionServiceDependencies["onUnreadChanged"]>;
   /** Read-only view of the background refresher; see the assembly below. */
@@ -59,6 +61,7 @@ export function sessionServiceDependencies(input: SessionServiceDependencyInput)
     extensionDialogsTimeoutMs: input.extensionDialogsTimeoutMs,
     notificationStore: input.notificationStore,
     unreadStore: input.unreadStore,
+    ...(input.pendingAskStore === undefined ? {} : { pendingAskStore: input.pendingAskStore }),
     onUnreadChanged: input.onUnreadChanged,
     // Read-only, so session startup can tell a waiting user that provider
     // model lists are refreshing at the same time.
