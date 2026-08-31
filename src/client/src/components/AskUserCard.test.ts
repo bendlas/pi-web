@@ -2,7 +2,7 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AskUserOutcome, AskUserQuestion, PendingAskUser } from "../../../shared/apiTypes";
-import { saveAskDraft } from "../askDrafts";
+import { loadAskDraft, saveAskDraft } from "../askDrafts";
 import { AskUserCard, type AskUserSubmitCallback } from "./AskUserCard";
 
 afterEach(() => {
@@ -117,6 +117,50 @@ describe("ask-user-card live form", () => {
     });
   });
 
+  it("submits a comment together with the selection it was typed beside", async () => {
+    const onSubmit = vi.fn<AskUserSubmitCallback>();
+    const card = await mountOpenAsk(openAsk([
+      question("editor", "Choose an editor", [option("vim", "Vim"), option("code", "VS Code")]),
+    ]), onSubmit);
+    const root = renderRoot(card);
+    const comment = commentTextarea(root, 0);
+
+    expect(requiredElement(comment.closest("label"), "comment label").getAttribute("for")).toBe(comment.id);
+    inputWithValue(root, "vim").click();
+    typeInto(comment, "Only for quick edits.");
+    await card.updateComplete;
+    // Changing the selection afterwards must not discard the comment.
+    inputWithValue(root, "code").click();
+    await card.updateComplete;
+
+    expect(commentTextarea(root, 0).value).toBe("Only for quick edits.");
+    expect(root.querySelector("[aria-live='polite']")?.textContent).toContain("1 of 1 answered");
+    buttonWithText(root, "Send answers").click();
+    await Promise.resolve();
+
+    expect(onSubmit).toHaveBeenCalledWith("ask-1", {
+      answers: [{ id: "editor", values: ["code"], comment: "Only for quick edits." }],
+    });
+  });
+
+  it("offers a comment box per question and keeps a comment alone as an unanswered draft", async () => {
+    const card = await mountOpenAsk(openAsk([
+      question("editor", "Choose an editor", [option("vim", "Vim")]),
+      question("platforms", "Target platforms", [option("web", "Web")], { multiple: true }),
+    ]));
+    const root = renderRoot(card);
+    const comment = commentTextarea(root, 1);
+
+    expect(commentTextareas(root)).toHaveLength(2);
+    expect(requiredElement(comment.closest("label"), "comment label").textContent).toContain("Add a comment (optional)");
+    typeInto(comment, "Desktop later, maybe.");
+    await card.updateComplete;
+
+    expect(root.querySelector("[aria-live='polite']")?.textContent).toContain("0 of 2 answered");
+    expect(commentTextarea(root, 1).value).toBe("Desktop later, maybe.");
+    expect(loadAskDraft("local:session-1", "ask-1")).toEqual({ platforms: { values: [], comment: "Desktop later, maybe." } });
+  });
+
   it("names unanswered questions before allowing a partial submit", async () => {
     const onSubmit = vi.fn<AskUserSubmitCallback>();
     const card = await mountOpenAsk(openAsk([
@@ -183,6 +227,34 @@ describe("ask-user-card record mode", () => {
     expect(root.textContent).toContain("Deployment region");
     expect(root.textContent).toContain("Unanswered");
   });
+
+  it("shows a submitted answer's comment in the record", async () => {
+    const outcome: AskUserOutcome = {
+      askId: "ask-2",
+      reason: "submitted",
+      askedAt: "2026-07-20T10:00:00.000Z",
+      closedAt: "2026-07-20T10:05:00.000Z",
+      questions: [{
+        question: question("speed", "Preferred pace", [option("fast", "Fast")]),
+        answered: true,
+        values: ["fast"],
+        comment: "Ship it once the suite is green.",
+      }],
+      answeredCount: 1,
+      unansweredIds: [],
+      summary: "Answered 1 of 1",
+    };
+    const card = new AskUserCard();
+    card.draftSessionId = "local:session-1";
+    card.outcome = outcome;
+    document.body.append(card);
+    await card.updateComplete;
+    const root = renderRoot(card);
+
+    expect(root.textContent).toContain("Fast");
+    expect(root.textContent).toContain("Comment:");
+    expect(root.textContent).toContain("Ship it once the suite is green.");
+  });
 });
 
 async function mountOpenAsk(ask: PendingAskUser, onSubmit?: AskUserSubmitCallback): Promise<AskUserCard> {
@@ -197,6 +269,21 @@ async function mountOpenAsk(ask: PendingAskUser, onSubmit?: AskUserSubmitCallbac
 
 function renderRoot(card: AskUserCard): ShadowRoot {
   return requiredElement(card.shadowRoot, "ask-user-card shadow root");
+}
+
+function commentTextareas(root: ShadowRoot): HTMLTextAreaElement[] {
+  return [...root.querySelectorAll("label")]
+    .filter((label) => label.textContent.includes("Add a comment"))
+    .map((label) => requiredElement(label.querySelector("textarea"), "comment textarea"));
+}
+
+function commentTextarea(root: ShadowRoot, index: number): HTMLTextAreaElement {
+  return requiredElement(commentTextareas(root)[index], `comment textarea ${String(index)}`);
+}
+
+function typeInto(textarea: HTMLTextAreaElement, text: string): void {
+  textarea.value = text;
+  textarea.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
 }
 
 function inputWithValue(root: ShadowRoot, value: string): HTMLInputElement {
