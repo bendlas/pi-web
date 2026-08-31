@@ -74,6 +74,7 @@ import { registerWorkspaceRemovalRoutes } from "./sessiond/workspaceRemovalRoute
 import { registerWorkspaceCreationRoutes } from "./sessiond/workspaceCreationRoutes.js";
 import { createWorkspaceProviderRuntimeSnapshot } from "./workspaces/workspaceCatalog.js";
 import { WorkspaceRemovalService } from "./workspaces/workspaceRemovalService.js";
+import { WorkspaceTopologyWatcher } from "./workspaces/workspaceTopologyWatcher.js";
 import { PendingAskStore } from "./sessions/pendingAskStore.js";
 import { FileSessionPendingAskPersistence, defaultSessionPendingAskFilePath } from "./sessions/pendingAskPersistence.js";
 import { WorkspaceCreateService } from "./workspaces/workspaceCreateService.js";
@@ -300,6 +301,7 @@ async function createSessionDaemonRuntime() {
     const sessions = new PiSessionService(eventHub, sessionServiceDependencies({
       modelRuntime: auth.runtime,
       agentDir: activeAgentProfile.dir,
+      watchSessionNames: true,
       archiveStore: new SessionArchiveStore(defaultSessionArchiveFilePath(daemonEnvironment, process.cwd(), config)),
       workspaceActivity,
       logger: app.log,
@@ -378,6 +380,13 @@ async function createSessionDaemonRuntime() {
       workspaceProviders,
       (project) => loadEffectiveWorktreeParentDir(project.path, config),
     );
+    const workspaceTopologyWatcher = new WorkspaceTopologyWatcher({
+      eventHub,
+      projects,
+      catalog: workspaceProviders,
+      logger: { warn: (details, message) => app.log.warn(details, message) },
+    });
+    workspaceTopologyWatcher.start();
     const runtimeComponent = Object.freeze({
       // The deprecated-input report is fixed at startup: it was detected from
       // the captured pre-scrub daemon environment and the config snapshot this
@@ -390,6 +399,7 @@ async function createSessionDaemonRuntime() {
     const shutdown = async (): Promise<void> => {
       if (disposed) return;
       disposed = true;
+      workspaceTopologyWatcher.stop();
       await runSessionDaemonShutdown({
         logger: app.log,
         dependencies: {

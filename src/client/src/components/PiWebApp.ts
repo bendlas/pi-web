@@ -1777,6 +1777,7 @@ export class PiWebApp extends LitElement {
     if (event.type === "sessions.unread") this.sessionUnread.applyEvent(machineId, event);
     else if (event.type === "notices.updated") this.serverNotices.applyEvent(machineId, event);
     else if (event.type === "machine.status") this.machineStatus.apply(machineId, event.status);
+    else if (event.type === "workspaces.changed") this.workspaces.applyGlobalEvent(event);
     else this.sessions.applyGlobalEvent(event);
   }
 
