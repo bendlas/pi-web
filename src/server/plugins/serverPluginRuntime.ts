@@ -4,6 +4,7 @@ import type {
   JsonValue,
   PiWebServerPlugin,
   ProjectInput,
+  ProviderCreateContext,
   ProviderRemoveContext,
   ProviderRequestContext,
   ServerPluginActivation,
@@ -436,18 +437,21 @@ function snapshotWorkspaceProvider(value: unknown): WorkspaceProvider {
     list: value["list"],
     request: value["request"],
     prepareRemove: value["prepareRemove"],
+    createWorkspace: value["createWorkspace"],
   };
   if (!isWorkspaceProvider(candidate)) throw new IncompatibleServerPluginError("Server plugin workspaceProvider is invalid");
   const probe = candidate.probe.bind(value);
   const list = candidate.list.bind(value);
   const request = candidate.request?.bind(value);
   const prepareRemove = candidate.prepareRemove?.bind(value);
+  const createWorkspace = candidate.createWorkspace?.bind(value);
   return Object.freeze({
     ...(candidate.fallback === undefined ? {} : { fallback: candidate.fallback }),
     probe: (project: ProjectInput, signal: AbortSignal) => probe(project, signal),
     list: (project: ProjectInput, signal: AbortSignal) => list(project, signal),
     ...(request === undefined ? {} : { request: (context: ProviderRequestContext) => request(context) }),
     ...(prepareRemove === undefined ? {} : { prepareRemove: (context: ProviderRemoveContext) => prepareRemove(context) }),
+    ...(createWorkspace === undefined ? {} : { createWorkspace: (context: ProviderCreateContext) => createWorkspace(context) }),
   });
 }
 
@@ -458,11 +462,13 @@ function isWorkspaceProvider(value: unknown): value is WorkspaceProvider {
   const list = value["list"];
   const request = value["request"];
   const prepareRemove = value["prepareRemove"];
+  const createWorkspace = value["createWorkspace"];
   return (fallback === undefined || typeof fallback === "boolean")
     && typeof probe === "function"
     && typeof list === "function"
     && (request === undefined || typeof request === "function")
-    && (prepareRemove === undefined || typeof prepareRemove === "function");
+    && (prepareRemove === undefined || typeof prepareRemove === "function")
+    && (createWorkspace === undefined || typeof createWorkspace === "function");
 }
 
 function parseHealth(value: unknown): ServerPluginHealth {
