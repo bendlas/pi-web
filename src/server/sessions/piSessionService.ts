@@ -3825,12 +3825,53 @@ export class PiSessionService implements SessionRouteService {
     }
   }
 
+  /** Last session name seen per session id, used to detect external `session_info` renames.
+   *  Populated on the first detection pass; afterwards a divergence emits a global `session.name` event. */
+  private readonly lastKnownSessionNames = new Map<string, string | undefined>();
+  /** Guards against emitting for every session on the very first detection pass (priming only). */
+  private sessionNamesPrimed = false;
+
   private publishSessionName(session: PiAgentSession): void {
     const event = session.sessionName === undefined
       ? { type: "session.name", sessionId: session.sessionId } as const
       : { type: "session.name", sessionId: session.sessionId, name: session.sessionName } as const;
     this.events.publish(session.sessionId, event);
     this.events.publishGlobal(event);
+    // Keep the change-detection cache in sync so the background scan does not re-emit it.
+    this.lastKnownSessionNames.set(session.sessionId, session.sessionName);
+    // The rename appends a session_info entry, so the cached summary is already stale: drop it now.
+    if (session.sessionFile !== undefined && session.sessionFile !== "") this.sessionManager.invalidateSessionFile(session.sessionFile);
+  }
+
+  /**
+   * Detect sessions whose displayed name changed outside the daemon (e.g. an extension's
+   * `setSessionName` or any writer appending a `session_info` entry) and emit a global
+   * `session.name` event so clients live-update the listing without a manual reload.
+   *
+   * The first pass only primes the cache; subsequent passes diff against it and emit for deviations.
+   */
+  private detectSessionNameChanges(): Promise<void> {
+    return this.sessionManager.listAll().then((entries) => {
+      const current = new Map<string, string | undefined>();
+      for (const entry of entries) current.set(entry.id, entry.name);
+      if (!this.sessionNamesPrimed) {
+        this.lastKnownSessionNames.clear();
+        for (const [id, name] of current) this.lastKnownSessionNames.set(id, name);
+        this.sessionNamesPrimed = true;
+        return;
+      }
+      for (const entry of entries) {
+        if (this.lastKnownSessionNames.get(entry.id) !== entry.name) {
+          this.events.publishGlobal({
+            type: "session.name",
+            sessionId: entry.id,
+            ...(entry.name === undefined ? {} : { name: entry.name }),
+          });
+        }
+      }
+      this.lastKnownSessionNames.clear();
+      for (const [id, name] of current) this.lastKnownSessionNames.set(id, name);
+    }).catch(() => undefined);
   }
 
   private publishHeartbeats(): void {
@@ -3850,6 +3891,7 @@ export class PiSessionService implements SessionRouteService {
       if (activity?.phase === "active") this.publishActivity(session, activity.label, "active", activity.detail);
       else this.publishActivity(session, this.activityLabelFromStatus(session), "active");
     }
+    this.detectSessionNameChanges();
   }
 
   /**
