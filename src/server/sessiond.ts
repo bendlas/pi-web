@@ -76,6 +76,7 @@ import { installPluginBackendChannelWebSocketPayloadLimit } from "./webSocketBri
 import { registerPairedPluginBackendRoutes } from "./sessiond/pluginBackendRoutes.js";
 import { registerWorkspaceRemovalRoutes } from "./sessiond/workspaceRemovalRoutes.js";
 import { registerWorkspaceCreationRoutes } from "./sessiond/workspaceCreationRoutes.js";
+import { registerGlobalTasksRoutes } from "./sessiond/globalTasksRoutes.js";
 import { createWorkspaceProviderRuntimeSnapshot } from "./workspaces/workspaceCatalog.js";
 import { WorkspaceRemovalService } from "./workspaces/workspaceRemovalService.js";
 import { WorkspaceTopologyWatcher } from "./workspaces/workspaceTopologyWatcher.js";
@@ -480,6 +481,7 @@ function registerSessionDaemonRoutes({ eventHub, machineStatus, statusAttributio
     creations: workspaceCreations,
     onWorkspacesMutated: () => { statusAttribution.invalidate(); },
   });
+  registerGlobalTasksRoutes(app, { dataDir: piWebDataDir(daemonEnvironment) });
 
   app.get("/health", () => ({
     ok: true,
