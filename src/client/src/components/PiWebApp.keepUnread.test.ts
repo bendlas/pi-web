@@ -1,6 +1,6 @@
 import type { TemplateResult } from "lit";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { SessionInfo, SessionUnreadEvent, SessionUnreadSummary } from "../api";
+import type { Project, SessionInfo, SessionUnreadEvent, SessionUnreadSummary, Workspace } from "../api";
 import { initialAppState, type AppState } from "../appState";
 import { loadKeepUnreadIds } from "../keepUnreadSessions";
 import type { BrowserRealtimeEvent } from "../sessionSocket";
@@ -108,12 +108,48 @@ describe("PiWebApp keep-conversation-unread", () => {
     setAppState(reloadedAgain, appState());
     expect([...navigationKeepUnreadSessionIds(reloadedAgain)]).toEqual([]);
   });
+
+  it("drops a keep-unread pin once its workspace is removed, so the project badge goes dark", () => {
+    stubJsonFetch({ catalogId: "catalog-a", catalogRevision: 2, sessions: [] });
+    const app = createApp();
+    enableUnread(app);
+    const pinned = session("pinned");
+    const workspace: Workspace = { id: "ws-1", projectId: "proj-1", path: "/repo", label: "ws", isMain: false, effectiveConfig: {} };
+    const project: Project = { id: "proj-1", name: "proj", path: "/repo", createdAt: "2026-07-20T00:00:00.000Z" };
+    setAppState(app, {
+      ...initialAppState(),
+      sessions: [pinned],
+      selectedSession: pinned,
+      selectedWorkspace: workspace,
+      workspacesByProjectId: { "proj-1": [workspace] },
+      projects: [project],
+      mainView: "chat",
+    });
+    exposeSelectedChat(app);
+
+    navigationToggleKeepUnread(app)(pinned);
+    expect([...navigationKeepUnreadSessionIds(app)]).toEqual(["pinned"]);
+
+    // The workspace (and so its sessions) is removed from the topology.
+    setAppState(app, { ...initialAppState(), workspacesByProjectId: {}, projects: [], sessions: [] });
+    const reconcile: unknown = Reflect.get(app, "reconcileKeepUnread");
+    if (!isReconcileKeepUnread(reconcile)) throw new Error("Expected PiWebApp.reconcileKeepUnread to be callable");
+    reconcile.call(app, new Set<string>());
+
+    expect([...navigationKeepUnreadSessionIds(app)]).toEqual([]);
+    expect([...loadKeepUnreadIds("local")]).toEqual([]);
+  });
 });
 
 type RenderNavigationPanel = (this: PiWebApp) => TemplateResult;
 type HandleRealtimeEvent = (this: PiWebApp, machineId: string, event: BrowserRealtimeEvent) => void;
 type UpdatedHook = (this: PiWebApp) => void;
 type SessionCallback = (session: SessionInfo) => void;
+type ReconcileKeepUnread = (deletedSessionIds: ReadonlySet<string>) => void;
+
+function isReconcileKeepUnread(value: unknown): value is ReconcileKeepUnread {
+  return typeof value === "function";
+}
 
 function createApp(options: { storedValues?: Map<string, string> } = {}): PiWebApp {
   const values = options.storedValues ?? new Map<string, string>();

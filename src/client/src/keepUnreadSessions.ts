@@ -62,6 +62,77 @@ export function setKeepUnread(machineId: string, entry: KeepUnreadEntry, keep: b
   saveStored(entries, storage);
 }
 
+/**
+ * What the client knows about the current topology, used to drop pins that can
+ * no longer justify a marker.
+ *
+ * - `liveWorkspaceIds`: every workspace id the client currently tracks. A pin
+ *   whose `workspaceId` is missing here points at a removed workspace, so the
+ *   session it pins is gone and the pin must not keep lighting its project.
+ * - `selectedWorkspaceId` / `selectedWorkspaceSessionIds` / `selectedWorkspaceArchivedIds`:
+ *   the workspace the client is currently looking at and the sessions (including
+ *   archived ones) it lists there. A pin attributed to the selected workspace is
+ *   orphaned when its session was archived (it can never show a row marker) or
+ *   has vanished from the list entirely — both leave the parent badges lit with
+ *   no visible session carrying the marker. Pins for *other* (unloaded)
+ *   workspaces are left alone, because the client cannot see their sessions and
+ *   the keep-unread feature is meant to light badges across workspaces.
+ * - `deletedSessionIds`: session ids the user explicitly deleted in this pass.
+ *   Unlike the workspace/list sets, this is authoritative: a deleted session is
+ *   gone everywhere, so any pin for it is an orphan regardless of workspace.
+ */
+export interface KeepUnreadReconcileContext {
+  liveWorkspaceIds: ReadonlySet<string>;
+  selectedWorkspaceId: string;
+  selectedWorkspaceSessionIds: ReadonlySet<string>;
+  selectedWorkspaceArchivedIds: ReadonlySet<string>;
+  deletedSessionIds: ReadonlySet<string>;
+}
+
+/**
+ * Drop keep-unread pins whose referenced session or workspace no longer exists.
+ *
+ * The daemon already sweeps its own unread catalog for vanished cwds/sessions,
+ * but keep-unread pins are browser-local and were never reconciled, so a pinned
+ * session that gets archived or deleted (or whose workspace is removed) kept its
+ * project/workspace/machine badge lit forever — the exact stale-marker condition
+ * the daemon fix had eliminated for daemon-owned unread.
+ *
+ * A pin is orphaned when:
+ * - its `workspaceId` is set but no longer tracked (the workspace was removed),
+ * - its `id` was explicitly deleted, or
+ * - it is attributed to the *selected* workspace and its session was archived
+ *   (it can never show a row marker) or has vanished from that workspace's list.
+ *
+ * Pins for other (unloaded) workspaces survive, because the client cannot see
+ * their sessions and the keep-unread feature intentionally lights badges across
+ * workspaces; visiting that workspace later reconciles them. Legacy id-only pins
+ * (`workspaceId`/`projectId` empty) survive unless their `id` was deleted,
+ * because they carry no workspace to invalidate against and only ever affect
+ * the session row, never the parent badges.
+ */
+export function reconcileKeepUnreadEntries(
+  entries: readonly KeepUnreadEntry[],
+  context: KeepUnreadReconcileContext,
+): KeepUnreadEntry[] {
+  const {
+    liveWorkspaceIds,
+    selectedWorkspaceId,
+    selectedWorkspaceSessionIds,
+    selectedWorkspaceArchivedIds,
+    deletedSessionIds,
+  } = context;
+  return entries.filter((entry) => {
+    if (entry.workspaceId !== "" && !liveWorkspaceIds.has(entry.workspaceId)) return false;
+    if (deletedSessionIds.has(entry.id)) return false;
+    if (entry.workspaceId !== "" && entry.workspaceId === selectedWorkspaceId) {
+      if (selectedWorkspaceArchivedIds.has(entry.id)) return false;
+      if (selectedWorkspaceSessionIds.size > 0 && !selectedWorkspaceSessionIds.has(entry.id)) return false;
+    }
+    return true;
+  });
+}
+
 function normalizeEntry(value: unknown): KeepUnreadEntry | undefined {
   if (typeof value === "string") return { id: value, cwd: "", workspaceId: "", projectId: "" };
   if (!isPlainRecord(value)) return undefined;

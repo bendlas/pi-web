@@ -291,7 +291,7 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
     const canDeleteTransient = isTransientNewSessionInfo(session, status);
     return html`
       <div
-        class="action-row ${this.selected?.id === session.id ? "selected" : ""} ${bulkSelected ? "bulk-selected" : ""} ${session.archived === true ? "archived" : ""} ${selectionActive ? "selecting" : ""} ${unread ? "unread" : ""}"
+        class="action-row ${this.selected?.id === session.id ? "selected" : ""} ${bulkSelected ? "bulk-selected" : ""} ${session.archived === true ? "archived" : ""} ${selectionActive ? "selecting" : ""} ${unread ? "unread" : ""} ${keptUnread ? "keep-unread" : ""}"
         style=${`--depth:${String(cappedDepth)}`}
         tabindex="0"
         title=${session.path}
@@ -301,7 +301,7 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
         <div class="action-main ${selectionActive ? "selecting" : ""}">
           ${showsCheckbox ? html`<input class="session-checkbox" type="checkbox" aria-label=${`Select ${sessionLabel(session)}`} .checked=${bulkSelected} @click=${(event: MouseEvent) => { event.stopPropagation(); }} @change=${() => { this.toggleSelected(session.id); }}>` : null}
           <span class="action-name-line"><span class="action-name" dir="auto">${this.renderRowMarker(row)}${sessionLabel(session)}</span>${this.renderRowBadges(row)}</span><small>${this.renderSessionMetaPrefix(session, status, activity)}${String(session.messageCount)} messages</small>
-          ${this.renderActivity(indicatorKind, unread)}
+          ${this.renderActivity(indicatorKind, unread, keptUnread)}
         </div>
         <div class="action-menu">
           <button class="action-menu-toggle" title="Session actions" @click=${(event: MouseEvent) => { event.stopPropagation(); this.toggleMenu(session.id, event.currentTarget); }}>⋯</button>
@@ -482,9 +482,9 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
     return "";
   }
 
-  private renderActivity(kind: ActivityIndicatorKind | undefined, unread: boolean) {
+  private renderActivity(kind: ActivityIndicatorKind | undefined, unread: boolean, keepUnread: boolean) {
     const label = kind === "sending" ? "Sending message" : "Session active";
-    return renderActionActivityIndicator(kind, label, unread ? "Unread session activity" : undefined);
+    return renderActionActivityIndicator(kind, label, unread ? "Unread session activity" : undefined, keepUnread);
   }
 
   static override styles = [listStyles, css`

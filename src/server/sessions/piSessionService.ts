@@ -3126,6 +3126,15 @@ export class PiSessionService implements SessionRouteService {
     return [...sessionIds];
   }
 
+  /** True when `cwd` still exists as a directory on disk; a missing cwd hosts no session. */
+  private cwdDirectoryExists(cwd: string): boolean {
+    try {
+      return fs.statSync(cwd).isDirectory();
+    } catch {
+      return false;
+    }
+  }
+
   private async archiveInputForSession(session: PiAgentSession): Promise<ArchiveSessionInput> {
     const cwd = session.sessionManager.getCwd();
     const sessionFile = session.sessionFile;
@@ -4074,6 +4083,15 @@ export class PiSessionService implements SessionRouteService {
     const mutations: SessionUnreadMutation[] = [];
     const cwds = [...new Set(snapshot.sessions.map((summary) => summary.cwd))];
     for (const cwd of cwds) {
+      // A working directory that no longer exists on disk cannot host any session,
+      // so any unread attributed to it is an orphan (e.g. a deleted git worktree)
+      // that would otherwise light a workspace/project badge forever with no
+      // session row to justify it. Drop it before the active-cwd skip so a stale
+      // session still considered active cannot keep the orphan alive.
+      if (!this.cwdDirectoryExists(cwd)) {
+        mutations.push(...this.unreadStore.reconcileCwd(canonicalizeStoredCwd(cwd), []));
+        continue;
+      }
       if (activeCwds.has(cwd)) continue;
       const [sessions, archivedRecords] = await Promise.all([
         this.sessionManager.list(cwd),

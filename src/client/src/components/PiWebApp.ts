@@ -24,8 +24,8 @@ import { SessionStorageWorkspaceSelectionMemory } from "../controllers/workspace
 import { KeyboardShortcutDispatcher } from "../keyboardShortcuts";
 import { selectedMachineId } from "../controllers/types";
 import type { SessionNotificationSummaryEvent } from "../../../shared/apiTypes";
-import { loadKeepUnreadEntries, loadKeepUnreadIds, setKeepUnread, type KeepUnreadEntry } from "../keepUnreadSessions";
-import { attributeCwd, augmentStatusSnapshotWithUnread } from "../statusUnreadProjection";
+import { loadKeepUnreadEntries, loadKeepUnreadIds, reconcileKeepUnreadEntries, setKeepUnread, type KeepUnreadEntry } from "../keepUnreadSessions";
+import { attributeCwd, augmentStatusSnapshotWithUnread, reconcileVisibleUnread } from "../statusUnreadProjection";
 import { machineSessionKey } from "../machineKeys";
 import { sessionCleanupRequestKey } from "../sessionCleanupUi";
 import { selectedNotificationView } from "../sessionNotifications";
@@ -57,7 +57,7 @@ import "./ProjectList";
 import "./WorkspaceList";
 import "./WorkspaceCreateDialog";
 type WorkspaceCreateDraft = import("./WorkspaceCreateDialog").WorkspaceCreateDraft;
-import { unreadSessionCount } from "./SessionList";
+import { sessionRowUnread, unreadSessionCount } from "./SessionList";
 import "./SessionCleanupDialog";
 import "./SessionTreeNavigator";
 import "./ChatView";
@@ -377,6 +377,52 @@ export class PiWebApp extends LitElement {
     this.syncUnreadSessionIds();
   }
 
+  /**
+   * Drop keep-unread pins that can no longer justify a marker: a pin whose
+   * workspace was removed, or a pin for a session the user explicitly deleted.
+   *
+   * The daemon already sweeps its own unread catalog for vanished cwds, but
+   * these browser-local pins were never reconciled, so a pinned session that is
+   * archived-then-deleted (or whose workspace is removed) kept its
+   * project/workspace/machine badge lit with no child session — the stale
+   * condition the daemon fix had eliminated for daemon-owned unread.
+   *
+   * Deleted session ids come from the authoritative delete paths; workspace
+   * removal is detected against the workspaces the client still tracks. We never
+   * infer deletion from a session list going empty, because a transient refresh
+   * can momentarily report no sessions and would otherwise prune live pins.
+   */
+  private reconcileKeepUnread(deletedSessionIds: ReadonlySet<string> = new Set()): void {
+    if (this.keepUnreadEntries.length === 0) return;
+    const liveWorkspaceIds = new Set(Object.values(this.state.workspacesByProjectId).flat().map((workspace) => workspace.id));
+    const selectedWorkspaceId = this.state.selectedWorkspace?.id ?? "";
+    const selectedSessions = selectedWorkspaceId === "" ? [] : this.state.sessions;
+    const selectedWorkspaceSessionIds = new Set(selectedSessions.map((session) => session.id));
+    const selectedWorkspaceArchivedIds = new Set(
+      selectedSessions.filter((session) => session.archived === true).map((session) => session.id),
+    );
+    const surviving = reconcileKeepUnreadEntries(this.keepUnreadEntries, {
+      liveWorkspaceIds,
+      selectedWorkspaceId,
+      selectedWorkspaceSessionIds,
+      selectedWorkspaceArchivedIds,
+      deletedSessionIds,
+    });
+    if (surviving.length === this.keepUnreadEntries.length) return;
+    const survivingIds = new Set(surviving.map((entry) => entry.id));
+    const machineId = selectedMachineId(this.state);
+    for (const entry of this.keepUnreadEntries) {
+      if (!survivingIds.has(entry.id)) setKeepUnread(machineId, entry, false);
+    }
+    this.refreshKeepUnreadIds(machineId);
+  }
+
+  /** Prune pins for sessions the user explicitly deleted. */
+  private dropKeepUnreadForSessions(sessionIds: string[]): void {
+    if (sessionIds.length === 0) return;
+    this.reconcileKeepUnread(new Set(sessionIds));
+  }
+
   private async commitReadyChatAfterRender(machineId: string, session: SessionInfo): Promise<void> {
     const identity = unreadChatIdentity(machineId, session);
     await this.updateComplete;
@@ -544,6 +590,12 @@ export class PiWebApp extends LitElement {
     this.handleWorkspaceChange(previous, this.state);
     this.handleMachineChange(previous, this.state);
     if (machineActivitySubscriptionInputsChanged(previous, this.state)) this.syncMachineActivitySubscriptions();
+    // A removed workspace/project orphans pins pointing at it, and a pinned
+    // session that was archived or deleted in the selected workspace can no
+    // longer show a row marker, so its parent badges must not stay lit. Prune
+    // such pins whenever the tracked topology or the selected session list
+    // changes.
+    if (keepUnreadReconcileInputsChanged(previous, this.state)) this.reconcileKeepUnread(new Set());
     this.notifications.syncEnvironment(previous, this.state);
   }
 
@@ -1340,6 +1392,20 @@ export class PiWebApp extends LitElement {
     return this.state.machineRuntimes[selectedMachineId(this.state)];
   }
 
+  /**
+   * Workspace and project node ids that carry a keep-unread pin, so the
+   * navigation badges can render those unread markers in the distinct
+   * keep-unread color rather than the daemon-completion accent.
+   */
+  private get keepUnreadNodeIds(): ReadonlySet<string> {
+    const ids = new Set<string>();
+    for (const entry of this.keepUnreadEntries) {
+      if (entry.workspaceId !== "") ids.add(entry.workspaceId);
+      if (entry.projectId !== "") ids.add(entry.projectId);
+    }
+    return ids;
+  }
+
   private openSessionCleanupDialog(): void {
     this.sessionCleanupDialog = { error: "" };
   }
@@ -1373,6 +1439,7 @@ export class PiWebApp extends LitElement {
       if (selectedMachineId(this.state) !== machineId) return;
       this.sessionCleanupDialog = { ...this.sessionCleanupDialog, preview: result, previewRequest: request, result, running: false, error: "" };
       await this.sessions.applySessionCleanupResult(result, machineId);
+      this.dropKeepUnreadForSessions(result.deletedSessionIds);
     } catch (error) {
       if (selectedMachineId(this.state) === machineId) this.sessionCleanupDialog = { ...this.sessionCleanupDialog, running: false, error: `Failed to run cleanup: ${errorMessage(error)}` };
     }
@@ -1394,7 +1461,17 @@ export class PiWebApp extends LitElement {
       this.keepUnreadEntries,
     );
     if (augmented === undefined || augmented === this.state.machineStatusSnapshots[machineId]) return this.state.machineStatusSnapshots;
-    return { ...this.state.machineStatusSnapshots, [machineId]: augmented };
+    // A workspace/project can be lit by the daemon for an unread session the client
+    // no longer shows (an orphaned record for a deleted worktree, or a session that
+    // is not a member of the workspace it was attributed to). When the selected
+    // workspace can be validated here, suppress its unread unless a visible session
+    // or a keep-unread pin actually justifies it, and cascade to its project/machine.
+    const selectedWorkspaceId = this.state.selectedWorkspace?.id ?? "";
+    const selectedWorkspaceJustified = this.keepUnreadNodeIds.has(selectedWorkspaceId)
+      || (selectedWorkspaceId !== "" && this.state.sessions.some((session) => sessionRowUnread(session, this.unreadSessionIds)));
+    const reconciled = reconcileVisibleUnread(augmented, selectedWorkspaceId, this.state.workspacesByProjectId, selectedWorkspaceJustified);
+    if (reconciled === undefined || reconciled === augmented) return this.state.machineStatusSnapshots;
+    return { ...this.state.machineStatusSnapshots, [machineId]: reconciled };
   }
 
   private renderNavigationPanel() {
@@ -1421,6 +1498,7 @@ export class PiWebApp extends LitElement {
         .sendingPrompts=${this.state.sendingPrompts}
         .unreadSessionIds=${this.unreadSessionIds}
         .keepUnreadSessionIds=${this.keepUnreadSessionIds}
+        .keepUnreadNodeIds=${this.keepUnreadNodeIds}
         .selectedSession=${this.state.selectedSession}
         .startingSessionCount=${this.state.startingSessionCount}
         .canStartSession=${!!this.state.selectedWorkspace}
@@ -1449,9 +1527,9 @@ export class PiWebApp extends LitElement {
         .onArchiveSessionWithDescendants=${(session: SessionInfo) => this.sessions.archiveSessionWithDescendants(session)}
         .onArchiveSessions=${(sessions: SessionInfo[]) => this.sessions.archiveSessions(sessions)}
         .onRestoreSession=${(session: SessionInfo) => this.selectNavigationItem("sessions", "chat", () => this.sessions.restoreSession(session))}
-        .onDeleteCachedNewSession=${(session: SessionInfo) => this.sessions.deleteCachedNewSession(session)}
-        .onDeleteArchivedSession=${(session: SessionInfo) => this.sessions.deleteArchivedSessions([session])}
-        .onDeleteArchivedSessions=${(sessions: SessionInfo[]) => this.sessions.deleteArchivedSessions(sessions)}
+        .onDeleteCachedNewSession=${(session: SessionInfo) => { this.dropKeepUnreadForSessions([session.id]); void this.sessions.deleteCachedNewSession(session); }}
+        .onDeleteArchivedSession=${(session: SessionInfo) => { this.dropKeepUnreadForSessions([session.id]); void this.sessions.deleteArchivedSessions([session]); }}
+        .onDeleteArchivedSessions=${(sessions: SessionInfo[]) => { this.dropKeepUnreadForSessions(sessions.map((candidate) => candidate.id)); void this.sessions.deleteArchivedSessions(sessions); }}
         .onDetachParentSession=${(session: SessionInfo) => this.sessions.detachParent(session)}
         .onReloadSession=${(session: SessionInfo) => this.sessions.reloadSession(session)}
         .onCleanupSessions=${() => { this.openSessionCleanupDialog(); }}
@@ -2551,6 +2629,14 @@ function selectedChatIdentity(state: Pick<AppState, "selectedMachine" | "selecte
 
 function machineUnreadInputsChanged(previous: AppState, next: AppState): boolean {
   return previous.machines !== next.machines;
+}
+
+/** True when a change can orphan keep-unread pins: topology, or the selected workspace's session list. */
+function keepUnreadReconcileInputsChanged(previous: AppState, next: AppState): boolean {
+  return previous.workspacesByProjectId !== next.workspacesByProjectId
+    || previous.projects !== next.projects
+    || previous.sessions !== next.sessions
+    || previous.selectedWorkspace !== next.selectedWorkspace;
 }
 
 function machineActivitySubscriptionInputsChanged(previous: AppState, next: AppState): boolean {

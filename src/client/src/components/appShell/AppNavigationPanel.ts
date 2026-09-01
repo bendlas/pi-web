@@ -32,6 +32,8 @@ export class AppNavigationPanel extends LitElement {
   @property({ attribute: false }) sendingPrompts: Record<string, true> = {};
   @property({ attribute: false }) unreadSessionIds: ReadonlySet<string> = new Set();
   @property({ attribute: false }) keepUnreadSessionIds: ReadonlySet<string> = new Set();
+  /** Workspace/project node ids that carry a keep-unread pin, so their unread badge uses the keep-unread color. */
+  @property({ attribute: false }) keepUnreadNodeIds: ReadonlySet<string> = new Set();
   @property({ attribute: false }) deletingWorkspaceIds: string[] = [];
   @property({ attribute: false }) workspaceLabelItems: (workspace: Workspace) => WorkspaceLabelItem[] = () => [];
   @property({ attribute: false }) refreshControl: unknown;
@@ -131,6 +133,7 @@ export class AppNavigationPanel extends LitElement {
         .projects=${this.projects}
         .selected=${this.selectedProject}
         .statusSnapshot=${this.selectedMachineStatusSnapshot()}
+        .keepUnreadNodeIds=${this.keepUnreadNodeIds}
         .collapsible=${this.collapsible}
         .collapsed=${this.projectsCollapsed}
         .onToggleCollapsed=${() => { this.onToggleProjects?.(); }}
@@ -145,6 +148,7 @@ export class AppNavigationPanel extends LitElement {
         .selected=${this.selectedWorkspace}
         .machineId=${this.selectedMachine?.id ?? "local"}
         .statusSnapshot=${this.selectedMachineStatusSnapshot()}
+        .keepUnreadNodeIds=${this.keepUnreadNodeIds}
         .deletingWorkspaceIds=${this.deletingWorkspaceIds}
         .collapsible=${this.collapsible}
         .collapsed=${this.workspacesCollapsed}

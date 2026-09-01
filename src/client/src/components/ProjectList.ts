@@ -14,6 +14,8 @@ export class ProjectList extends LitElement implements KeyboardNavigableSection 
   @property({ attribute: false }) selected?: Project;
   /** Status tree of the machine these projects belong to; absent means no indicators. */
   @property({ attribute: false }) statusSnapshot: MachineStatusSnapshot | undefined;
+  /** Project node ids that carry a keep-unread pin, so their unread badge uses the keep-unread color. */
+  @property({ attribute: false }) keepUnreadNodeIds: ReadonlySet<string> = new Set();
   @property({ type: Boolean, reflect: true }) collapsible = false;
   @property({ type: Boolean, reflect: true }) collapsed = false;
   @property({ attribute: false }) onSelect?: (project: Project) => void;
@@ -103,7 +105,8 @@ export class ProjectList extends LitElement implements KeyboardNavigableSection 
     const flags = this.statusSnapshot?.projects[project.id];
     const kind = statusActivityKind(flags);
     const unreadLabel = hasStatusUnread(flags) ? "Unread sessions in this project" : undefined;
-    return renderActionActivityIndicator(kind, kind === "terminal" ? "Project terminal active" : "Project active", unreadLabel);
+    const keepUnread = unreadLabel !== undefined && this.keepUnreadNodeIds.has(project.id);
+    return renderActionActivityIndicator(kind, kind === "terminal" ? "Project terminal active" : "Project active", unreadLabel, keepUnread);
   }
 
   private toggleMenu(projectId: string, target: EventTarget | null) {
