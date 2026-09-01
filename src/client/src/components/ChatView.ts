@@ -1052,8 +1052,11 @@ export class ChatView extends LitElement {
       return;
     }
     const delta = chat.scrollTop - this.lastChromeScrollTop;
-    if (delta <= -CHAT_CHROME_HIDE_SCROLL_DELTA) this.setChromeHidden(true);
-    else if (delta >= CHAT_CHROME_HIDE_SCROLL_DELTA) this.setChromeHidden(false);
+    // Scrolling down hides the chrome to free up reading space, unless the
+    // conversation is already pinned to the bottom (handled above). Scrolling
+    // up reveals it again so the header and composer stay reachable.
+    if (delta >= CHAT_CHROME_HIDE_SCROLL_DELTA) this.setChromeHidden(true);
+    else if (delta <= -CHAT_CHROME_HIDE_SCROLL_DELTA) this.setChromeHidden(false);
     this.lastChromeScrollTop = chat.scrollTop;
   }
 

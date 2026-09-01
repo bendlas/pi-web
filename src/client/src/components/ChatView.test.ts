@@ -267,33 +267,35 @@ describe("ChatView chrome auto-hide on scroll", () => {
     (view as unknown as { updateChromeVisibilityFromScroll(): void }).updateChromeVisibilityFromScroll();
   }
 
-  it("dispatches a composed, bubbling hide event when scrolling up past the threshold", () => {
+  it("reveals the chrome when scrolling up past the threshold", () => {
     const view = new ChatView();
     installFakeChat(view, { scrollTop: 500, scrollHeight: 1000, clientHeight: 100 });
-    (view as unknown as { lastChromeScrollTop: number }).lastChromeScrollTop = 520;
-    const events = captureChromeVisibility(view);
-
-    trigger(view);
-
-    expect(events).toHaveLength(1);
-    const event = events[0]!;
-    expect(event.detail).toEqual({ hidden: true });
-    expect(event.bubbles).toBe(true);
-    expect(event.composed).toBe(true);
-  });
-
-  it("reveals the chrome when scrolling back down past the threshold", () => {
-    const view = new ChatView();
-    installFakeChat(view, { scrollTop: 520, scrollHeight: 1000, clientHeight: 100 });
     const inner = view as unknown as { lastChromeScrollTop: number; chromeHidden: boolean };
-    inner.lastChromeScrollTop = 500;
+    inner.lastChromeScrollTop = 520;
     inner.chromeHidden = true;
     const events = captureChromeVisibility(view);
 
     trigger(view);
 
     expect(events).toHaveLength(1);
-    expect(events[0]!.detail).toEqual({ hidden: false });
+    const event = events[0]!;
+    expect(event.detail).toEqual({ hidden: false });
+    expect(event.bubbles).toBe(true);
+    expect(event.composed).toBe(true);
+  });
+
+  it("hides the chrome when scrolling down past the threshold", () => {
+    const view = new ChatView();
+    installFakeChat(view, { scrollTop: 520, scrollHeight: 1000, clientHeight: 100 });
+    const inner = view as unknown as { lastChromeScrollTop: number; chromeHidden: boolean };
+    inner.lastChromeScrollTop = 500;
+    inner.chromeHidden = false;
+    const events = captureChromeVisibility(view);
+
+    trigger(view);
+
+    expect(events).toHaveLength(1);
+    expect(events[0]!.detail).toEqual({ hidden: true });
   });
 
   it("always reveals the chrome when pinned to the bottom", () => {
