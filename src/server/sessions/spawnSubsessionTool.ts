@@ -27,8 +27,10 @@ export interface SpawnSubsessionInvocation {
   parentSessionFile: string | undefined;
   prompt: string;
   /**
-   * Requested target workspace. The tool never sets it; other callers may, and
-   * anything other than {@link spawningCwd} is refused rather than retargeted.
+   * Requested target workspace for the tracked child. May be any workspace
+   * (worktree, or root) of the same project as the spawning session; the server
+   * resolves and validates it, so the child stays visible in the web UI. When
+   * omitted, the child runs in the spawning session's own working directory.
    */
   cwd?: string;
   /** Current model from the dispatching session, used as the spawned session's default. */
@@ -83,6 +85,9 @@ const SpawnSubsessionParams = Type.Object({
   prompt: Type.String({
     description: "Initial instruction for the tracked child.",
   }),
+  cwd: Type.Optional(Type.String({
+    description: "Working directory for the child session. Must be a workspace (worktree, or root) of the same project as this session. Defaults to this session's working directory.",
+  })),
   model: Type.Optional(Type.String({
     description: 'Model override for the child session, as an exact "provider/model-id". Set this field only when instructed to use a specific model or to choose an appropriate one. Otherwise omit it to inherit this session\'s model. An unknown value is rejected.',
   })),
@@ -198,8 +203,8 @@ export function createSubsessionToolDefinitions(spawningCwd: string, deps: Subse
   const spawnTool = defineTool<typeof SpawnSubsessionParams, SpawnSubsessionResult>({
     name: "spawn_subsession",
     label: "Spawn subsession",
-    description: "Start a tracked child session in this session's working directory to carry out part of the current task and return immediately. Its transcript and result are available here after it finishes.",
-    promptSnippet: "spawn_subsession: tracked child work in this workspace; result available after completion",
+    description: "To delegate part of the current task, start a tracked child session and return immediately. Pass `cwd` to run the child in any workspace of this project (another worktree included); the child stays nested under this session here, where its transcript and result become available after it finishes. This is the preferred way to delegate work within the project — use `spawn_session` only when a fully independent, untracked session is explicitly wanted.",
+    promptSnippet: "spawn_subsession: tracked child; pass cwd to run in any workspace of the project; result available here after completion",
     parameters: SpawnSubsessionParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const parentSessionId = ctx.sessionManager.getSessionId();
@@ -209,6 +214,7 @@ export function createSubsessionToolDefinitions(spawningCwd: string, deps: Subse
         parentSessionId,
         parentSessionFile,
         prompt: params.prompt,
+        ...(params.cwd === undefined ? {} : { cwd: params.cwd }),
         ...(ctx.model === undefined ? {} : { model: ctx.model }),
         ...(params.model === undefined ? {} : { modelSpec: params.model }),
         ...(ctx.thinkingLevel === undefined ? {} : { thinkingLevel: ctx.thinkingLevel }),

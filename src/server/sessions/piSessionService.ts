@@ -147,14 +147,6 @@ function spawnTargetError(decision: Extract<SpawnTargetDecision, { allowed: fals
   return new Error(`cwd must be a workspace of this project. Allowed: ${decision.allowedCwds.join(", ")}`);
 }
 
-/**
- * Tracked subsessions are worktree-scoped, so a requested target other than the
- * parent's own cwd fails closed instead of being silently retargeted. The
- * message names the rule and both supported ways to get work done elsewhere.
- */
-function subsessionCwdError(spawningCwd: string, requestedCwd: string): Error {
-  return new Error(`A tracked subsession runs in this session's working directory (${spawningCwd}); ${requestedCwd} was requested. Instruct the child to work elsewhere from this workspace, or use spawn_session for an independent session in another workspace.`);
-}
 
 function modelSpecOf(model: { provider: string; id: string }): string {
   return `${model.provider}/${model.id}`;
@@ -1500,14 +1492,18 @@ export class PiSessionService implements SessionRouteService {
 
   async list(cwd: string): Promise<ClientSession[]> {
     const [sessions, archivedRecords] = await Promise.all([this.sessionManager.list(cwd), this.archiveStore.list()]);
-    const sessionsById = new Map(sessions.map((session) => [session.id, session]));
+    // A tracked subsession may run in another workspace of the project. Its own
+    // cwd already places it in that workspace's list; also surface it here so it
+    // still appears nested under its parent in this workspace's list.
+    const allSessions = await this.includeCrossWorktreeSubsessionChildren(cwd, sessions);
+    const sessionsById = new Map(allSessions.map((session) => [session.id, session]));
     const archivedForCwd = archivedRecords.filter((record) => record.cwd === cwd);
     const archivedById = new Map(archivedForCwd.map((record) => [record.sessionId, record]));
     for (const record of archivedForCwd) {
       this.publishNotificationMutations(this.notificationStore.clearSession(record.sessionId, "archive-reconcile"));
     }
-    const unarchivedSessions = sessions.filter((session) => !archivedById.has(session.id)).map(clientSessionFromListEntry);
-    const reconcilableSessionIds = this.reconcilableSessionIds(cwd, unarchivedSessions.map((session) => session.id), archivedById);
+    const unarchivedSessions = allSessions.filter((session) => !archivedById.has(session.id)).map(clientSessionFromListEntry);
+    const reconcilableSessionIds = this.reconcilableSessionIds(cwd, sessions.map((session) => session.id), archivedById);
     this.workspaceActivity?.reconcileSessionActivity(cwd, reconcilableSessionIds);
     await this.publishUnreadMutations(this.unreadStore.reconcileCwd(canonicalizeStoredCwd(cwd), reconcilableSessionIds));
     const archivedSessions = archivedForCwd
@@ -1515,6 +1511,43 @@ export class PiSessionService implements SessionRouteService {
       .filter(isDefined)
       .sort((a, b) => Date.parse(b.modified) - Date.parse(a.modified));
     return [...unarchivedSessions, ...archivedSessions];
+  }
+
+  /**
+   * Append the tracked subsession children that live in a different workspace of
+   * the project to a workspace listing, so they still render nested under their
+   * parent there. Children in the same workspace are already part of `sessions`
+   * (via their own cwd); this only adds the cross-workspace ones whose parent
+   * session is in this listing, and only when not already present.
+   *
+   * Reads the child entry from its own workspace listing, which already carries
+   * `parentSessionPath`, so the client groups it under the parent. Relies on
+   * in-memory tracked-subsession links (populated when a parent or child session
+   * is opened/hydrated in this session daemon); a workspace whose parent
+   * sessions have never been opened here will list its cross-workspace children
+   * only in their own workspace, not nested under the parent.
+   */
+  private async includeCrossWorktreeSubsessionChildren(cwd: string, sessions: PiSessionListEntry[]): Promise<PiSessionListEntry[]> {
+    if (this.subsessionLinks.size === 0) return sessions;
+    const inWorktreeIds = new Set(sessions.map((session) => session.id));
+    const entriesByChildCwd = new Map<string, Map<string, PiSessionListEntry>>();
+    const extra: PiSessionListEntry[] = [];
+    for (const link of this.subsessionLinks.values()) {
+      if (link.parentSessionId === undefined || !inWorktreeIds.has(link.parentSessionId)) continue;
+      if (link.cwd === undefined || cwdPathsEqual(link.cwd, cwd)) continue;
+      if (inWorktreeIds.has(link.childSessionId)) continue;
+      let byId = entriesByChildCwd.get(link.cwd);
+      if (byId === undefined) {
+        const childList = await this.sessionManager.list(link.cwd);
+        byId = new Map(childList.map((entry) => [entry.id, entry]));
+        entriesByChildCwd.set(link.cwd, byId);
+      }
+      const entry = byId.get(link.childSessionId);
+      if (entry === undefined) continue;
+      extra.push(entry);
+      inWorktreeIds.add(entry.id);
+    }
+    return extra.length === 0 ? sessions : [...sessions, ...extra];
   }
 
   async start(cwd: string, options: StartSessionOptions = {}): Promise<ClientSession> {
@@ -1644,20 +1677,21 @@ export class PiSessionService implements SessionRouteService {
 
   /**
    * Start a *tracked* child session on behalf of a LLM. Unlike
-   * {@link spawnSession}, a tracked child always runs in the parent's own
-   * workspace: parent/child trees are worktree-scoped, so a child elsewhere
-   * would be invisible to the parent's listing. The child records its parent
-   * (so it shows in the session tree) and is registered so the parent is
-   * notified when it stops working and can inspect it later.
+   * {@link spawnSession}, a tracked child records its parent and is registered
+   * so the parent is notified when it stops working and can inspect it later.
+   * The child may run in any workspace of the parent's project (including the
+   * parent's own); the resolver rejects out-of-project cwds so the child stays
+   * visible in the web UI. Because listings are worktree-scoped by cwd, a child
+   * in another workspace appears there as a top-level session (with a dimmed
+   * "child of another workspace" marker) rather than nested under the parent.
    */
   async spawnSubsession(input: SpawnSubsessionInvocation): Promise<SpawnSubsessionResult> {
     if (this.spawnTargets === undefined) throw new Error("Spawning sessions is disabled");
-    if (input.cwd !== undefined && input.cwd !== "" && !cwdPathsEqual(input.cwd, input.spawningCwd)) {
-      throw subsessionCwdError(input.spawningCwd, input.cwd);
-    }
-    // Resolved against the parent's own cwd only: this still refuses spawning
-    // from an unregistered directory, which keeps the child visible in the UI.
-    const decision = await this.spawnTargets.resolveSpawnTarget(input.spawningCwd, undefined);
+    // A tracked child may run in any workspace of the parent's project (the
+    // parent keeps monitoring it across worktrees). The resolver still refuses
+    // spawning from an unregistered directory and rejects out-of-project cwds,
+    // naming the allowed workspaces so the child stays visible in the web UI.
+    const decision = await this.spawnTargets.resolveSpawnTarget(input.spawningCwd, input.cwd);
     if (!decision.allowed) throw spawnTargetError(decision);
     // A model spec overrides the inherited model and is resolved against the
     // parent's model runtime; only a spec resolves against the parent.
