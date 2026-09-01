@@ -853,11 +853,11 @@ PI_CODING_AGENT_SESSION_DIR=/opt/pi-profiles/lab-sessions</code></pre>
                 join belongs in the fire-and-forget <code>spawn_session</code> tool instead.
               </p>
               <p>
-                A tracked subsession always runs in the spawning session's working directory, so it stays in that
-                workspace's session tree next to its parent. <code>spawn_subsession</code> takes no <code>cwd</code>. To
-                get work done elsewhere, instruct the child to work there from this workspace, or use
-                <code>spawn_session</code>, which still targets any workspace of the project, for an independent session
-                there.
+                A tracked subsession can run in any workspace of the project: pass <code>cwd</code> to
+                <code>spawn_subsession</code> to target another worktree, and the child still stays nested under this
+                session in the web UI while appearing in that workspace's session tree. This is the preferred way to
+                delegate work across the project's workspaces while staying attached. <code>spawn_session</code> is the
+                escape hatch for work that should be a fully independent, untracked session.
               </p>
               <p>
                 At a join point, after finishing its independent work, the parent calls
