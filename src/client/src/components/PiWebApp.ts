@@ -1140,7 +1140,8 @@ export class PiWebApp extends LitElement {
     else if (isTerminalEvent(event)) {
       this.applyTerminalEvent(event);
       if (event.type === "terminal.exited") void this.refreshWorkspaceDeletionRuns();
-    } else this.sessions.applyGlobalEvent(event);
+    } else if (event.type === "workspaces.changed") this.workspaces.applyGlobalEvent(event);
+    else this.sessions.applyGlobalEvent(event);
   }
 
   private handleNotificationSummary(machineId: string, event: SessionNotificationSummaryEvent): void {

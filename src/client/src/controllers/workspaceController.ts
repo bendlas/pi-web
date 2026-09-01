@@ -1,4 +1,5 @@
 import { api as defaultApi, type Project, type Workspace } from "../api";
+import type { GlobalSessionEvent } from "../sessionSocket";
 import { resetWorkspaceScopedState, type AppState } from "../appState";
 import { mergeCachedNewSessions } from "../cachedNewSessions";
 import { machineProjectKey } from "../machineKeys";
@@ -131,6 +132,19 @@ export class WorkspaceController {
     const fallback = selectFallbackWorkspace(workspaces);
     if (fallback !== undefined) await this.selectWorkspace(fallback);
     else this.clearSelection();
+  }
+
+  /**
+   * Reacts to daemon-pushed topology changes: when the project the user is
+   * currently viewing gains or loses a workspace (or a branch switches), re-read
+   * its workspace list. `refreshSelectedProjectTopology` preserves the current
+   * selection and never tears down the session socket, so the change is reflected
+   * in the sidebar without disturbing the open session.
+   */
+  applyGlobalEvent(event: GlobalSessionEvent): void {
+    if (event.type === "workspaces.changed" && this.getState().selectedProject?.id === event.projectId) {
+      void this.refreshSelectedProjectTopology();
+    }
   }
 
   private applyProjectWorkspaces(projectId: string, workspaces: Workspace[]): void {

@@ -1358,10 +1358,17 @@ export interface ModelScopeChangedEvent {
   revision: number;
 }
 
+/** Informs the browser that a project's workspace topology changed (a worktree was created or removed, or a branch switched) and the workspace list should be re-read. */
+export interface WorkspaceTopologyChangedEvent {
+  type: "workspaces.changed";
+  projectId: string;
+}
+
 export type GlobalSessionEvent =
   | Extract<SessionUiEventBody, { type: "status.update" | "activity.update" | "session.name" | "session.created" }>
   | SessionNotificationSummaryEvent
   | SessionUnreadEvent
   | SessionStartupProgressEvent
-  | ModelScopeChangedEvent;
+  | ModelScopeChangedEvent
+  | WorkspaceTopologyChangedEvent;
 export type RealtimeEvent = GlobalSessionEvent | TerminalUiEvent | MachineStatusUiEvent;

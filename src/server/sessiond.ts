@@ -53,6 +53,7 @@ import { registerWorkspaceCreationRoutes } from "./sessiond/workspaceCreationRou
 import { createWorkspaceProviderRuntimeSnapshot } from "./workspaces/workspaceCatalog.js";
 import { WorkspaceRemovalService } from "./workspaces/workspaceRemovalService.js";
 import { WorkspaceCreateService } from "./workspaces/workspaceCreateService.js";
+import { WorkspaceTopologyWatcher } from "./workspaces/workspaceTopologyWatcher.js";
 import { loadEffectiveWorktreeParentDir } from "./workspaces/projectPiWebConfig.js";
 import { PendingAskStore } from "./sessions/pendingAskStore.js";
 import { FileSessionPendingAskPersistence, defaultSessionPendingAskFilePath } from "./sessions/pendingAskPersistence.js";
@@ -301,6 +302,13 @@ async function createSessionDaemonRuntime() {
       workspaceProviders,
       (project) => loadEffectiveWorktreeParentDir(project.path, config),
     );
+    const workspaceTopologyWatcher = new WorkspaceTopologyWatcher({
+      eventHub,
+      projects,
+      catalog: workspaceProviders,
+      logger: { warn: (details, message) => app.log.warn(details, message) },
+    });
+    workspaceTopologyWatcher.start();
     const runtimeComponent = Object.freeze({
       // The deprecated-input report is fixed at startup: it was detected from
       // the captured pre-scrub daemon environment and the config snapshot this
@@ -313,6 +321,7 @@ async function createSessionDaemonRuntime() {
     const shutdown = async (): Promise<void> => {
       if (disposed) return;
       disposed = true;
+      workspaceTopologyWatcher.stop();
       await runSessionDaemonShutdown({
         logger: app.log,
         dependencies: {
