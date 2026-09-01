@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { SessionEventHub } from "../realtime/sessionEventHub.js";
 import type { ProjectService } from "../projects/projectService.js";
+import type { Project } from "../types.js";
 import type { WorkspaceProviderAuthorityResolution } from "../../shared/apiTypes.js";
 import type { WorkspaceProviderRegistry } from "./workspaceProviderRegistry.js";
 import { WorkspaceTopologyWatcher } from "./workspaceTopologyWatcher.js";
@@ -136,6 +137,36 @@ describe("WorkspaceTopologyWatcher", () => {
     // A resolution pass that outlasts the poll interval must not let setInterval
     // stack more passes on top of it: at most one scan (and thus one resolve)
     // may be in flight at any moment.
+    expect(maxInFlight).toBe(1);
+    // The interval is now a cheap, resolve-free project-set reconcile; the only
+    // resolves are the initial prime (one per known project), not a periodic sweep.
+    expect(catalog.resolve).toHaveBeenCalledTimes(3);
+  });
+
+  it("coalesces overlapping per-project rescans triggered by file-watch events", async () => {
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const catalog = {
+      resolve: vi.fn(async (_project: { id: string }) => {
+        inFlight += 1;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        inFlight -= 1;
+        return resolution([fakeWorkspace("main"), fakeWorkspace("feature")]);
+      }),
+    };
+    const projects = vi.fn(() => Promise.resolve([{ id: "p1" }]));
+    const eventHub = { publishGlobal: () => undefined } as unknown as SessionEventHub;
+    const watcher = new WorkspaceTopologyWatcher({
+      eventHub,
+      projects: { list: projects } as unknown as ProjectService,
+      catalog: catalog as unknown as WorkspaceProviderRegistry,
+      intervalMs: 100000,
+    });
+    await watcher.scan();
+    // A burst of git fs events for the same project must not stack rescans on top
+    // of each other: the per-project guard makes all but the first a no-op.
+    await Promise.all(Array.from({ length: 20 }, () => watcher.scanProject({ id: "p1" } as unknown as Project)));
     expect(maxInFlight).toBe(1);
   });
 });
