@@ -68,4 +68,4 @@ Follow [the configuration architecture](docs/config-architecture.md) when implem
 - Global user/machine config lives at `$PI_WEB_CONFIG` or `~/.config/pi-web/config.json`.
 - Project-local PI WEB core config should use one commit-able file: `<project>/.pi-web/config.json`.
 - Core features should add keys to these config files, not create one project file per feature.
-- Plugins may own separate project config files, such as `.pi-web/tasks.json`.
+- Plugins may own separate project config files, such as `.pi-web/scripts.json`.

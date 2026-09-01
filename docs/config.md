@@ -214,7 +214,7 @@ Unless environment-enforced, project-local `uploads.defaultFolder` overrides the
 
 Project-local `plugins.<id>.settings` supplies overrides for server plugins that support project settings, including Git. Only settings are allowed here: `plugins.<id>.enabled` is not supported; plugin enablement stays global. See [Project plugin settings](#project-plugin-settings) for merge and restart rules.
 
-Plugins may also own separate project files, such as `.pi-web/tasks.json` for the built-in Workspace Tasks plugin.
+Plugins may also own separate project files, such as `.pi-web/scripts.json` for the built-in Workspace Scripts plugin (an earlier `.pi-web/tasks.json` is still read).
 
 PI WEB also honors one optional project hook; see [Worktree pre-remove hook](#worktree-pre-remove-hook).
 
