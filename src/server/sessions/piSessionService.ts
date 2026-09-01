@@ -1,4 +1,4 @@
-import { statSync } from "node:fs";
+import * as fs from "node:fs";
 import { join } from "node:path";
 import { readFile, writeFile } from "node:fs/promises";
 import type { ImageContent } from "@earendil-works/pi-ai";
@@ -382,6 +382,17 @@ export interface PiSessionManagerGateway {
    * `resolveSessionFile`.
    */
   listAll(): Promise<PiSessionListEntry[]>;
+  /**
+   * Lightweight streaming summary of a single session file (memoized). The
+   * session-name file watch uses this to re-read only the file that changed
+   * instead of re-listing every session.
+   */
+  readSessionSummary?(sessionFile: string): Promise<PiSessionListEntry | undefined>;
+  /**
+   * Root directories whose session files should be watched for external renames:
+   * the default pi store plus any env-configured session dir.
+   */
+  listWatchRoots?(): string[];
   open(path: string): PiSessionManager;
 }
 
@@ -1029,6 +1040,11 @@ export interface PiSessionServiceDependencies {
   createAgentRuntime?: CreateAgentRuntime;
   modelRuntime: ModelRuntime;
   heartbeatIntervalMs?: number;
+  /** When true, watch the session-store directories for external renames and
+   *  re-read only the changed file instead of re-enumerating every session on a
+   *  timer. Production (sessiond) enables this; tests leave it off so they can
+   *  drive name detection manually. */
+  watchSessionNames?: boolean;
   /**
    * How often to sweep the unread catalog for cwds that no longer host any
    * live session (e.g. a deleted git worktree) and drop their stale records.
@@ -1097,7 +1113,8 @@ export interface PiSessionServiceDependencies {
 /** How often the background session-name scan re-enumerates every session. Names change rarely, so
  * this is decoupled from the 2s heartbeat: the scan only needs to catch renames written outside the
  * daemon, not track active work. */
-const SESSION_NAME_SCAN_INTERVAL_MS = 10_000;
+/** Collapse the burst of fs events a single session rename emits into one rescan. */
+const SESSION_FILE_WATCH_DEBOUNCE_MS = 100;
 
 export class PiSessionService implements SessionRouteService {
   private readonly active = new Map<string, ActiveSession<PiSessionRuntime>>();
@@ -1251,6 +1268,7 @@ export class PiSessionService implements SessionRouteService {
       },
       { listSessionNames: (cwd) => this.listSessionNames(cwd) },
     );
+    if (deps.watchSessionNames === true) void this.startSessionNameWatching();
   }
 
   activeCount(): number {
@@ -1359,6 +1377,19 @@ export class PiSessionService implements SessionRouteService {
     this.unreadPublicationStopped = true;
     this.clearUnreadPublicationRetry();
     clearInterval(this.heartbeat);
+    if (this.sessionWatchTimer !== undefined) {
+      clearTimeout(this.sessionWatchTimer);
+      this.sessionWatchTimer = undefined;
+    }
+    for (const watcher of this.sessionWatches) {
+      try {
+        watcher.close();
+      } catch {
+        // already closed
+      }
+    }
+    this.sessionWatches.length = 0;
+    this.sessionWatchPaths.clear();
     this.clearCompactionDrainTimers();
     // Same startup-park hazard as closeActive(): settle `session_start` dialogs
     // of sessions still binding extensions before awaiting their pending opens.
@@ -3869,13 +3900,17 @@ export class PiSessionService implements SessionRouteService {
   private readonly lastKnownSessionNames = new Map<string, string | undefined>();
   /** Guards against emitting for every session on the very first detection pass (priming only). */
   private sessionNamesPrimed = false;
-  /** Coalesces the background name scan. `publishHeartbeats` fire-and-forgets `detectSessionNameChanges`
-   * on every 2s heartbeat, and `listAll` can outlast that interval, so without this guard scans pile up
-   * and re-enumerate every session concurrently — the same unbounded pile-up the workspace topology
-   * watcher had. At most one scan is ever in flight, and the throttle below keeps the steady-state cost
-   * low because session names change far less often than the heartbeat ticks. */
+  /** Coalesces the background name scan. `listAll` can outlast a trigger, so without this guard
+   *  scans pile up and re-enumerate every session concurrently — the same unbounded pile-up the
+   *  workspace topology watcher had. At most one scan is ever in flight. The periodic 2s heartbeat no
+   *  longer drives this scan (it is now file-watch-triggered, see `startSessionNameWatching`), so the
+   *  only full pass is the startup prime; the file-watch path re-reads only the changed file. */
   private nameScanRunning = false;
-  private nameScanLastAt = 0;
+  /** File-watch state for external session renames: the changed paths seen since
+   *  the last debounced flush, the flush timer, and the open store watches. */
+  private readonly sessionWatchPaths = new Set<string>();
+  private sessionWatchTimer: ReturnType<typeof setTimeout> | undefined;
+  private readonly sessionWatches: fs.FSWatcher[] = [];
 
   private publishSessionName(session: PiAgentSession): void {
     const event = session.sessionName === undefined
@@ -3897,11 +3932,8 @@ export class PiSessionService implements SessionRouteService {
    * The first pass only primes the cache; subsequent passes diff against it and emit for deviations.
    */
   private detectSessionNameChanges(): Promise<void> {
-    const now = Date.now();
     if (this.nameScanRunning) return Promise.resolve();
-    if (now - this.nameScanLastAt < SESSION_NAME_SCAN_INTERVAL_MS) return Promise.resolve();
     this.nameScanRunning = true;
-    this.nameScanLastAt = now;
     return this.sessionManager.listAll()
       .then((entries) => {
         const current = new Map<string, string | undefined>();
@@ -3928,6 +3960,80 @@ export class PiSessionService implements SessionRouteService {
       .finally(() => { this.nameScanRunning = false; });
   }
 
+  /** Begin file-watch-driven session-name detection: prime the known-name cache
+   *  against the current store, then watch the session-store roots so an external
+   *  rename (a `session_info` append) re-reads only the file that changed. Replaces
+   *  the old interval poll that re-enumerated every session on every heartbeat. */
+  private startSessionNameWatching(): void {
+    void this.detectSessionNameChanges().catch(() => undefined);
+    for (const root of this.sessionManager.listWatchRoots?.() ?? []) {
+      let watcher: fs.FSWatcher;
+      try {
+        watcher = fs.watch(root, { recursive: true }, (event, filename) => this.onSessionFileEvent(root, filename));
+      } catch (error) {
+        this.logger.info({ err: String(error), root }, "session name watch: failed to watch session store");
+        continue;
+      }
+      watcher.on("error", () => undefined);
+      this.sessionWatches.push(watcher);
+    }
+  }
+
+  private onSessionFileEvent(root: string, filename: string | Buffer | null): void {
+    if (filename === null) return;
+    const name = typeof filename === "string" ? filename : filename.toString("utf8");
+    if (!name.endsWith(".jsonl")) return;
+    this.sessionWatchPaths.add(join(root, name));
+    if (this.sessionWatchTimer !== undefined) clearTimeout(this.sessionWatchTimer);
+    this.sessionWatchTimer = setTimeout(() => {
+      this.sessionWatchTimer = undefined;
+      const paths = [...this.sessionWatchPaths];
+      this.sessionWatchPaths.clear();
+      void this.detectSessionNameChangesForFiles(paths);
+    }, SESSION_FILE_WATCH_DEBOUNCE_MS);
+  }
+
+  /** Process a burst of changed session files, coalesced by the watch debounce. */
+  private async detectSessionNameChangesForFiles(paths: string[]): Promise<void> {
+    if (this.nameScanRunning) return;
+    this.nameScanRunning = true;
+    try {
+      for (const path of paths) {
+        await this.detectSessionNameChangeForFile(path);
+      }
+    } finally {
+      this.nameScanRunning = false;
+    }
+  }
+
+  /** Re-read one changed session file and emit a `session.name` event if its name
+   *  diverged from the last seen name. Reads only the changed file (the scanner
+   *  memoizes it), so a single rename costs one file read rather than a full
+   *  store re-enumeration. */
+  private async detectSessionNameChangeForFile(path: string): Promise<void> {
+    let summary: PiSessionListEntry | undefined;
+    try {
+      summary = await this.sessionManager.readSessionSummary?.(path);
+    } catch {
+      return;
+    }
+    if (summary === undefined) return;
+    const previous = this.lastKnownSessionNames.get(summary.id);
+    if (previous === undefined) {
+      this.lastKnownSessionNames.set(summary.id, summary.name);
+      return;
+    }
+    if (previous !== summary.name) {
+      this.lastKnownSessionNames.set(summary.id, summary.name);
+      const event = summary.name === undefined
+        ? { type: "session.name", sessionId: summary.id } as const
+        : { type: "session.name", sessionId: summary.id, name: summary.name } as const;
+      this.events.publish(summary.id, event);
+      this.events.publishGlobal(event);
+      this.sessionManager.invalidateSessionFile(path);
+    }
+  }
+
   private publishHeartbeats(): void {
     this.maybeReconcileUnreadCatalog();
     for (const active of this.active.values()) {
@@ -3945,9 +4051,7 @@ export class PiSessionService implements SessionRouteService {
       if (activity?.phase === "active") this.publishActivity(session, activity.label, "active", activity.detail);
       else this.publishActivity(session, this.activityLabelFromStatus(session), "active");
     }
-    this.detectSessionNameChanges();
   }
-
   /**
    * Drop unread records for cwds the web UI will never list again.
    *
@@ -4639,7 +4743,7 @@ function sessionPathsEqual(a: string, b: string): boolean {
 function sessionFileExists(sessionFile: string | undefined): sessionFile is string {
   if (sessionFile === undefined || sessionFile === "") return false;
   try {
-    return statSync(sessionFile).isFile();
+    return fs.statSync(sessionFile).isFile();
   } catch {
     return false;
   }

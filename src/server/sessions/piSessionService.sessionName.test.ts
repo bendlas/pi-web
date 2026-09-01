@@ -1,10 +1,10 @@
 import { appendFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createPiSessionManagerGateway, defaultPiSessionDir } from "./piSessionManagerGateway.js";
 import { PiSessionService } from "./piSessionService.js";
-import type { PiSessionManager } from "./piSessionService.js";
+import type { PiSessionManager, PiSessionManagerGateway } from "./piSessionService.js";
 import { CapturingSessionEventHub, testModelRuntime } from "./piSessionService.testSupport.js";
 
 let tempDir: string;
@@ -132,7 +132,7 @@ describe("PiSessionService session.name detection", () => {
         inflight -= 1;
         return baseGateway.listAll();
       },
-    } as unknown as PiSessionManager;
+    } as unknown as PiSessionManagerGateway;
     const hub = new CapturingSessionEventHub();
     const service = new PiSessionService(hub, {
       agentDir,
@@ -147,5 +147,32 @@ describe("PiSessionService session.name detection", () => {
     expect(maxInflight).toBe(1);
     expect(listAllCalls).toBe(1);
     await service.dispose();
+  });
+
+  it("re-reads only the changed file (not the whole store) on a watch-detected rename", async () => {
+    const sessionDir = defaultPiSessionDir(cwd, agentDir);
+    const filePath = await writeNamedSession(sessionDir, "session-watch", cwd, "Original");
+    const gateway = createPiSessionManagerGateway({ agentDir, env: {} });
+    const listAllSpy = vi.spyOn(gateway, "listAll");
+    const hub = new CapturingSessionEventHub();
+    const service = new PiSessionService(hub, {
+      agentDir,
+      modelRuntime: testModelRuntime,
+      sessionManager: gateway,
+      heartbeatIntervalMs: 600_000,
+    });
+
+    // Prime via the full scan (the startup path), then simulate a watch event
+    // for the one file that changed.
+    await (service as unknown as { detectSessionNameChanges(): Promise<void> }).detectSessionNameChanges();
+    expect(nameEvents(hub)).toHaveLength(0);
+    listAllSpy.mockClear();
+
+    await appendSessionInfo(filePath, "Renamed by watch");
+    await (service as unknown as { detectSessionNameChangeForFile(path: string): Promise<void> }).detectSessionNameChangeForFile(filePath);
+
+    expect(nameEvents(hub)).toEqual([{ sessionId: "session-watch", name: "Renamed by watch" }]);
+    // The efficient path re-reads only the changed file; it must not re-enumerate the store.
+    expect(listAllSpy).not.toHaveBeenCalled();
   });
 });

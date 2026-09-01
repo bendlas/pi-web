@@ -33,6 +33,9 @@ export interface SessionServiceDependencyInput {
   appendSystemPromptSections: readonly string[];
   /** Auto-cancel delay for extension dialogs whose extension set no timeout; `0` waits forever. */
   extensionDialogsTimeoutMs: number;
+  /** When true, watch the session-store directories and re-read only the changed file on an
+   *  external rename, instead of re-enumerating every session on a timer. Production enables it. */
+  watchSessionNames?: PiSessionServiceDependencies["watchSessionNames"];
 }
 
 /**
@@ -66,6 +69,7 @@ export function sessionServiceDependencies(input: SessionServiceDependencyInput)
     // Read-only, so session startup can tell a waiting user that provider
     // model lists are refreshing at the same time.
     catalogRefreshStatus: input.catalogRefreshStatus,
+    ...(input.watchSessionNames === undefined ? {} : { watchSessionNames: input.watchSessionNames }),
     sessionManager: input.sessionManager,
   };
 }

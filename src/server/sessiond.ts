@@ -263,6 +263,7 @@ async function createSessionDaemonRuntime() {
     const sessions = new PiSessionService(eventHub, sessionServiceDependencies({
       modelRuntime: auth.runtime,
       agentDir: activeAgentProfile.dir,
+      watchSessionNames: true,
       archiveStore: new SessionArchiveStore(defaultSessionArchiveFilePath(daemonEnvironment, process.cwd(), config)),
       workspaceActivity,
       logger: app.log,
