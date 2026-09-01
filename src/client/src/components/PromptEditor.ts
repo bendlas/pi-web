@@ -605,6 +605,14 @@ export class PromptEditor extends LitElement {
     }
   }
 
+  /** Clear the composer exactly like a normal send does: empty the draft, drop
+   *  attachments and completions, and remove the persisted draft. Used by the
+   *  keyboard steer path, which dispatches a steer through the app without going
+   *  through {@link send}. */
+  clearComposer() {
+    this.resetComposer();
+  }
+
   private resetComposer() {
     this.draft = "";
     this.currentInputMode = { kind: "normal" };

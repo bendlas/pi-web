@@ -145,6 +145,15 @@ export function createCoreActions(): PluginAction[] {
       run: (context) => context.startSession(),
     },
     {
+      id: "prompt.steer",
+      title: "Steer Response",
+      description: "Inject the composer text as a steer before the next model call (while streaming)",
+      shortcut: "mod+shift+enter",
+      group: "Session",
+      enabled: hasStreamingSession,
+      run: (context) => context.steerPrompt(),
+    },
+    {
       id: "model.select",
       title: "Select Model",
       description: "Choose the model for the selected session",
@@ -157,6 +166,7 @@ export function createCoreActions(): PluginAction[] {
       title: "Select Thinking Level",
       description: "Choose the thinking level for the selected session",
       group: "Session",
+      shortcut: "mod+shift+t",
       enabled: hasSelectableSession,
       run: (context) => context.openThinkingLevelPicker(),
     },
@@ -211,6 +221,11 @@ function hasCreatableWorkspace(context: { state: AppState }): boolean {
 function hasSelectableSession(context: { state: AppState }): boolean {
   const session = context.state.selectedSession;
   return session !== undefined && session.archived !== true;
+}
+
+function hasStreamingSession(context: { state: AppState }): boolean {
+  const session = context.state.selectedSession;
+  return session !== undefined && session.archived !== true && context.state.status?.isStreaming === true && context.state.status?.isCompacting !== true;
 }
 
 function hasArchivableSession(context: { state: AppState }): boolean {
