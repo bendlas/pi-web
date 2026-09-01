@@ -203,8 +203,8 @@ export function createSubsessionToolDefinitions(spawningCwd: string, deps: Subse
   const spawnTool = defineTool<typeof SpawnSubsessionParams, SpawnSubsessionResult>({
     name: "spawn_subsession",
     label: "Spawn subsession",
-    description: "Start a tracked child session in this session's working directory (or another workspace of this project) to carry out part of the current task and return immediately. Its transcript and result are available here after it finishes.",
-    promptSnippet: "spawn_subsession: tracked child work in a workspace of this project; result available after completion",
+    description: "To delegate part of the current task, start a tracked child session and return immediately. Pass `cwd` to run the child in any workspace of this project (another worktree included); the child stays nested under this session here, where its transcript and result become available after it finishes. This is the preferred way to delegate work within the project — use `spawn_session` only when a fully independent, untracked session is explicitly wanted.",
+    promptSnippet: "spawn_subsession: tracked child; pass cwd to run in any workspace of the project; result available here after completion",
     parameters: SpawnSubsessionParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const parentSessionId = ctx.sessionManager.getSessionId();
