@@ -40,6 +40,7 @@ export class WorkspaceTopologyWatcher {
   private readonly lastSignatures = new Map<string, string>();
   private timer: ReturnType<typeof setInterval> | undefined;
   private running = false;
+  private scanning = false;
 
   constructor(options: WorkspaceTopologyWatcherOptions) {
     this.eventHub = options.eventHub;
@@ -67,8 +68,26 @@ export class WorkspaceTopologyWatcher {
     }
   }
 
-  /** One diff pass over every known project. Public so callers/tests can trigger a pass without the interval. */
+  /** One diff pass over every known project. Public so callers/tests can trigger a pass without the interval.
+   *
+   *  A single pass can take longer than the poll interval: each project is resolved through the
+   *  workspace catalog, and a resolution runs a probe plus a list as bounded provider operations that
+   *  may each take seconds. `setInterval` fires regardless of whether the previous pass finished, so
+   *  without the `scanning` guard passes would start on top of one another. Each in-flight pass holds a
+   *  full workspace listing and spawns provider work, so overlapped passes pile up and the daemon's
+   *  memory and CPU grow without bound. The guard coalesces: a pass that is still running makes the
+   *  next tick (or manual call) a no-op, so at most one pass is ever in flight. */
   async scan(): Promise<void> {
+    if (this.scanning) return;
+    this.scanning = true;
+    try {
+      await this.runScan();
+    } finally {
+      this.scanning = false;
+    }
+  }
+
+  private async runScan(): Promise<void> {
     let projects: Project[];
     try {
       projects = await this.projects.list();

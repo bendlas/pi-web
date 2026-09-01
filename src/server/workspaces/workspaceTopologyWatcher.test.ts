@@ -107,4 +107,35 @@ describe("WorkspaceTopologyWatcher", () => {
 
     expect(emitted).toEqual(["p1"]);
   });
+
+  it("never runs overlapping scans when the interval is shorter than a single scan", async () => {
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const catalog = {
+      resolve: vi.fn(async (_project: { id: string }) => {
+        inFlight += 1;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        inFlight -= 1;
+        return resolution([fakeWorkspace("main"), fakeWorkspace("feature")]);
+      }),
+    };
+    const projects = vi.fn(() => Promise.resolve([{ id: "p1" }, { id: "p2" }, { id: "p3" }]));
+    const eventHub = { publishGlobal: () => undefined } as unknown as SessionEventHub;
+    const watcher = new WorkspaceTopologyWatcher({
+      eventHub,
+      projects: { list: projects } as unknown as ProjectService,
+      catalog: catalog as unknown as WorkspaceProviderRegistry,
+      intervalMs: 5,
+    });
+
+    watcher.start();
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    watcher.stop();
+
+    // A resolution pass that outlasts the poll interval must not let setInterval
+    // stack more passes on top of it: at most one scan (and thus one resolve)
+    // may be in flight at any moment.
+    expect(maxInFlight).toBe(1);
+  });
 });
