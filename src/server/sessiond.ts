@@ -30,7 +30,7 @@ import { TerminalService } from "./terminals/terminalService.js";
 import { registerTerminalRoutes } from "./terminals/terminalRoutes.js";
 import { getPiWebRuntimeComponent } from "./piWebStatus.js";
 import { SESSIOND_RUNTIME_CAPABILITIES } from "../shared/capabilities.js";
-import { agentSessionDirEnvOverride, effectivePiWebConfig, maxUploadBytes, offlineModeEnabled, PI_CODING_AGENT_DIR_ENV, PI_CODING_AGENT_SESSION_DIR_ENV } from "../config.js";
+import { agentSessionDirEnvOverride, effectivePiWebConfig, maxUploadBytes, offlineModeEnabled, piWebDataDir, PI_CODING_AGENT_DIR_ENV, PI_CODING_AGENT_SESSION_DIR_ENV } from "../config.js";
 import { createActiveAgentProfileDescriptor } from "../sessiond/activeAgentProfile.js";
 import { loadServerPluginRecoveryConfig } from "../serverPluginRecovery.js";
 import { DefaultPiPackageProvider, PiWebPluginCatalog } from "./piWebPluginCatalog.js";
@@ -50,6 +50,7 @@ import { registerWorkspaceCatalogRoutes } from "./sessiond/workspaceCatalogRoute
 import { registerPluginBackendRoutes } from "./sessiond/pluginBackendRoutes.js";
 import { registerWorkspaceRemovalRoutes } from "./sessiond/workspaceRemovalRoutes.js";
 import { registerWorkspaceCreationRoutes } from "./sessiond/workspaceCreationRoutes.js";
+import { registerGlobalTasksRoutes } from "./sessiond/globalTasksRoutes.js";
 import { createWorkspaceProviderRuntimeSnapshot } from "./workspaces/workspaceCatalog.js";
 import { WorkspaceRemovalService } from "./workspaces/workspaceRemovalService.js";
 import { WorkspaceTopologyWatcher } from "./workspaces/workspaceTopologyWatcher.js";
@@ -378,6 +379,7 @@ function registerSessionDaemonRoutes({ eventHub, machineStatus, statusAttributio
     creations: workspaceCreations,
     onWorkspacesMutated: () => { statusAttribution.invalidate(); },
   });
+  registerGlobalTasksRoutes(app, { dataDir: piWebDataDir(daemonEnvironment) });
 
   app.get("/health", () => ({
     ok: true,

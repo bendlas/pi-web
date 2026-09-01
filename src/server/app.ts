@@ -14,6 +14,8 @@ import { loadEffectiveProjectUploadsConfig } from "./workspaces/projectPiWebConf
 import { listDirectorySuggestions } from "./projects/directorySuggestions.js";
 import { SessionDaemonClient } from "../sessiond/sessionDaemonClient.js";
 import { loadServerPluginRecoveryConfig } from "../serverPluginRecovery.js";
+import { registerGlobalTasksRoutes } from "./sessiond/globalTasksRoutes.js";
+import { piWebDataDir } from "../config.js";
 import { registerSessionProxyRoutes, type SessionProxyDaemon } from "./sessiond/sessionProxyRoutes.js";
 import { registerWorkspaceExplorerRoutes } from "./workspaceExplorerRoutes.js";
 import { registerProjectTrustRoutes } from "./projectTrustRoutes.js";
@@ -234,6 +236,10 @@ export async function buildApp(deps: AppDependencies = {}): Promise<FastifyInsta
 
   registerSessionProxyRoutes(app, sessionDaemon);
   registerSessionProxyRoutes(app, sessionDaemon, "/api/machines/local");
+  // Global tasks live in the data dir (outside any workspace root), so they are
+  // served from this browser-facing API edge rather than the workspace-scoped
+  // `request` channel. The session daemon proxies here for session-owned state.
+  registerGlobalTasksRoutes(app, { dataDir: piWebDataDir(process.env) });
   registerPluginBackendProxyRoutes(app, sessionDaemon);
   registerWorkspaceExplorerRoutes(app, projects, workspaces, "/api", { config: configService });
   registerWorkspaceExplorerRoutes(app, projects, workspaces, "/api/machines/local", { config: configService });
