@@ -608,6 +608,8 @@ To allow messaging across all projects on a machine, add `"crossProjectSessionMe
 
 Agent-created tracked subsessions are collapsed under their parent. Use **Agent subsessions** to expand them. User-created forks and clones, unknown-origin sessions, children without an available parent, and independent sessions remain visible.
 
+A tracked subsession can run in any workspace of the project: pass `cwd` to `spawn_subsession` to target another worktree, and the child still stays nested under this session in the web UI while appearing in that workspace's session tree. This is the preferred way to delegate work across the project's workspaces while staying attached. `spawn_session` is the escape hatch for work that should be a fully independent, untracked session.
+
 New sessions inherit the parent's model and thinking level unless another model is requested, for example with a `#provider/model-id` prompt reference. Thinking levels are limited to what the chosen model supports.
 
 In **Settings → Session daemon**, the spawning, subsession, messaging, and question-form toggles are saved on the selected machine. Configure cross-project messaging through the global config file or environment. Restart the session daemon on that machine after changing these settings.

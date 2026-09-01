@@ -29,8 +29,10 @@ export interface SpawnSubsessionInvocation {
   parentSessionFile: string | undefined;
   prompt: string;
   /**
-   * Requested target workspace. The tool never sets it; other callers may, and
-   * anything other than {@link spawningCwd} is refused rather than retargeted.
+   * Requested target workspace for the tracked child. May be any workspace
+   * (worktree, or root) of the same project as the spawning session; the server
+   * resolves and validates it, so the child stays visible in the web UI. When
+   * omitted, the child runs in the spawning session's own working directory.
    */
   cwd?: string;
   /** Current model from the dispatching session, used as the spawned session's default. */
@@ -106,6 +108,9 @@ const SpawnSubsessionParams = Type.Object({
   prompt: Type.String({
     description: "Initial instruction for the tracked child.",
   }),
+  cwd: Type.Optional(Type.String({
+    description: "Working directory for the child session. Must be a workspace (worktree, or root) of the same project as this session. Defaults to this session's working directory.",
+  })),
   model: Type.Optional(Type.String({
     description: 'Model override for the child session, as an exact "provider/model-id". Set this field only when instructed to use a specific model or to choose an appropriate one. Otherwise omit it to inherit this session\'s model. An unknown value is rejected.',
   })),
@@ -235,8 +240,8 @@ export function createSubsessionToolDefinitions(spawningCwd: string, deps: Subse
   const spawnTool = defineTool<typeof SpawnSubsessionParams, SpawnSubsessionResult>({
     name: "spawn_subsession",
     label: "Spawn subsession",
-    description: "Start a tracked child session in this session's working directory to carry out part of the current task and return immediately. Automatic notices report only that it became idle or errored, not task completion or output. Inspect output with check_subsession or read_subsession; use send_session_message for communication with children or independent sessions.",
-    promptSnippet: "spawn_subsession: tracked child work in this workspace; automatic lifecycle notices, explicit output inspection",
+    description: "Start a tracked child session in this session's working directory (or another workspace of this project) to carry out part of the current task and return immediately. Automatic notices report only that it became idle or errored, not task completion or output. Inspect output with check_subsession or read_subsession; use send_session_message for communication with children or independent sessions.",
+    promptSnippet: "spawn_subsession: tracked child work in a workspace of this project; automatic lifecycle notices, explicit output inspection",
     parameters: SpawnSubsessionParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const parentSessionId = ctx.sessionManager.getSessionId();
@@ -247,6 +252,7 @@ export function createSubsessionToolDefinitions(spawningCwd: string, deps: Subse
         parentSessionId,
         parentSessionFile,
         prompt: params.prompt,
+        ...(params.cwd === undefined ? {} : { cwd: params.cwd }),
         ...(ctx.model === undefined ? {} : { model: ctx.model }),
         ...(params.model === undefined ? {} : { modelSpec: params.model }),
         ...(thinkingLevel === undefined ? {} : { thinkingLevel }),
