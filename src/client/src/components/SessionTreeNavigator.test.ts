@@ -295,6 +295,32 @@ describe("session-tree-navigator action step", () => {
     expect(selectedEntryText(navigator)).toContain("new session draft");
   });
 
+  it("submits the selected operation when Enter is pressed on the action step", async () => {
+    const onNavigate = vi.fn<NavigateCallback>().mockResolvedValue({ cancelled: false });
+    const navigator = await mountNavigator({ onNavigate });
+    await advanceToAction(navigator);
+
+    pressKey(navigator, "Enter");
+    await settleRenderedDialog(navigator);
+
+    expect(onNavigate).toHaveBeenCalledWith("active", { mode: "none" });
+    expect(footerButton(navigator, "Continue from here").disabled).toBe(false);
+  });
+
+  it("keeps Enter typed in the custom summary textarea from submitting", async () => {
+    const onNavigate = vi.fn<NavigateCallback>().mockResolvedValue({ cancelled: false });
+    const navigator = await mountNavigator({ onNavigate });
+    await advanceToAction(navigator);
+    summaryRadio(navigator, "custom").click();
+    await settleRenderedDialog(navigator);
+
+    customFocus(navigator).dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true, composed: true }));
+    await settleRenderedDialog(navigator);
+
+    expect(onNavigate).not.toHaveBeenCalled();
+    expect(navigator.renderRoot.querySelector("h2")?.textContent).toBe("Choose how to continue");
+  });
+
   it("dispatches the final action to the selected callback and retains location after cancellation", async () => {
     const onNavigate = vi.fn<NavigateCallback>().mockResolvedValue({ cancelled: true });
     const onFork = vi.fn<ForkCallback>().mockResolvedValue({ cancelled: true });
