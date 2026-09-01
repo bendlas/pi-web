@@ -3195,6 +3195,7 @@ export class PiWebApp extends LitElement {
       openThemePicker: () => { this.openThemeDialog(); },
       openModelPicker: () => this.openModelDialog(),
       openThinkingLevelPicker: () => this.openThinkingDialog(),
+      steerPrompt: () => { this.steerCurrentPrompt(); },
       selectMainView: (view) => { this.selectMainView(view); },
       navigate: (destination, options) => this.navigate(destination, options),
       selectWorkspaceTool: (tool) => { this.openWorkspaceTool(tool); },
@@ -3752,6 +3753,10 @@ export class PiWebApp extends LitElement {
   private readonly handleRemovePromptChip = (chip: StagedPromptChip): void => {
     this.plugins.promptChips.removeByUser(chip);
   };
+
+  private steerCurrentPrompt(): void {
+    this.handleSendPrompt(this.promptEditor?.view?.state.doc.toString() ?? "", "steer");
+  }
 
   private readonly handleStopActiveWork = (): void => {
     void this.sessions.stopActiveWork();
