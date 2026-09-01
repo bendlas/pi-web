@@ -2978,6 +2978,7 @@ export class PiWebApp extends LitElement {
       openThemePicker: () => { this.openThemeDialog(); },
       openModelPicker: () => this.openModelDialog(),
       openThinkingLevelPicker: () => this.openThinkingDialog(),
+      steerPrompt: () => { this.steerCurrentPrompt(); },
       selectMainView: (view) => { this.selectMainView(view); },
       navigate: (destination) => this.navigate(destination),
       selectWorkspaceTool: (tool) => { this.openWorkspaceTool(tool); },
@@ -3558,6 +3559,10 @@ export class PiWebApp extends LitElement {
   private readonly handleSendPrompt = (text: string, streamingBehavior?: "steer" | "followUp", attachments?: import("../api").PromptAttachment[], delivery?: import("../../../shared/apiTypes").PromptAttachmentDelivery, folder?: string): void => {
     this.sendPrompt(text, streamingBehavior, attachments, delivery, folder);
   };
+
+  private steerCurrentPrompt(): void {
+    this.handleSendPrompt(this.promptEditor?.view?.state.doc.toString() ?? "", "steer");
+  }
 
   private readonly handleStopActiveWork = (): void => {
     void this.sessions.stopActiveWork();
