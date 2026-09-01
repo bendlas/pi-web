@@ -40,6 +40,8 @@ export default {
   groupWorkspace: message("Workspace", "Command palette action group: Workspace"),
   session_start_title: message("Start Session", "Core action session.start: title"),
   groupSession: message("Session", "Command palette action group: Session"),
+  prompt_steer_title: message("Steer Response", "Core action prompt.steer: title"),
+  prompt_steer_description: message("Inject the composer text as a steer before the next model call (while streaming)", "Core action prompt.steer: description"),
   model_select_title: message("Select Model", "Core action model.select: title"),
   model_select_description: message("Choose the model for the selected session", "Core action model.select: description"),
   thinking_select_title: message("Select Thinking Level", "Core action thinking.select: title"),

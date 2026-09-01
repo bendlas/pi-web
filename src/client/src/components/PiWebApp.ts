@@ -3219,6 +3219,7 @@ export class PiWebApp extends LitElement {
       openThemePicker: () => { this.openThemeDialog(); },
       openModelPicker: () => this.openModelDialog(),
       openThinkingLevelPicker: () => this.openThinkingDialog(),
+      steerPrompt: () => { this.steerCurrentPrompt(); },
       selectMainView: (view) => { this.selectMainView(view); },
       navigate: (destination, options) => this.navigate(destination, options),
       selectWorkspaceTool: (tool) => { this.openWorkspaceTool(tool); },
@@ -3761,6 +3762,15 @@ export class PiWebApp extends LitElement {
   private readonly handleRemovePromptChip = (chip: StagedPromptChip): void => {
     this.plugins.promptChips.removeByUser(chip);
   };
+
+  private steerCurrentPrompt(): void {
+    const text = this.promptEditor?.view?.state.doc.toString() ?? "";
+    void this.handleSendPrompt(text, "steer");
+    // Mirror a normal send: clear the composer once the steer is dispatched,
+    // so the typed text does not linger in the input. Steer is only enabled
+    // while the session is streaming (see the prompt.steer action gating).
+    this.promptEditor?.clearComposer();
+  }
 
   private readonly handleStopActiveWork = (): void => {
     void this.sessions.stopActiveWork();
