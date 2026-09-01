@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "tasks": [
+    {
+      "id": "git.rebase-autostash-main",
+      "title": "git rebase --autostash main",
+      "group": "git",
+      "command": "git rebase --autostash main",
+      "description": "Rebase the current branch onto main, autostashing any uncommitted changes first.",
+      "confirm": false
+    },
+    {
+      "id": "suggest.pi-web-build",
+      "title": "BUILD pi-web",
+      "group": "pi-web",
+      "description": "Build the pi-web sessiond and server",
+      "command": "rm -r dist; npm run build",
+      "confirm": false
+    },
+    {
+      "id": "suggest.pi-web-sessiond",
+      "title": "DEV pi-web-sessiond",
+      "group": "pi-web",
+      "description": "Start the pi-web session daemon in the current work tree, using state dir /tmp/pi-web (PI_WEB_DATA_DIR). Long-lived, non-autoreload process that owns the session runtime and sessiond.sock.",
+      "command": "PI_WEB_DATA_DIR=~/.pi-web-dev node ./dist/server/sessiond.js",
+      "confirm": false
+    },
+    {
+      "id": "suggest.pi-web-server",
+      "title": "DEV pi-web-server",
+      "group": "pi-web",
+      "description": "Start the pi-web web/API server in the current work tree on port 8192 (PI_WEB_PORT) with state dir /tmp/pi-web (PI_WEB_DATA_DIR). Shares state with the session daemon started by the pi-web-sessiond script.",
+      "command": "PI_WEB_PORT=8192 PI_WEB_DATA_DIR=~/.pi-web-dev node ./dist/server/index.js",
+      "confirm": false
+    }
+  ]
+}
