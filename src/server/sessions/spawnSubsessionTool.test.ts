@@ -91,12 +91,12 @@ describe("createSubsessionToolDefinitions", () => {
     expect(firstText(result.content)).toContain("Started tracked subsession child-1");
   });
 
-  it("spawn_subsession offers no way to target another workspace", () => {
+  it("spawn_subsession can target another workspace of the project via cwd", () => {
     const { spawn: spawnTool } = tools({});
 
-    expect(spawnTool.parameters).toMatchObject({ type: "object", properties: { prompt: {}, model: {} } });
-    expect(spawnTool.parameters).not.toHaveProperty(["properties", "cwd"]);
-    expect(spawnTool.description).toContain("in this session's working directory");
+    expect(spawnTool.parameters).toMatchObject({ type: "object", properties: { prompt: {}, cwd: {}, model: {} } });
+    expect(spawnTool.parameters).toHaveProperty(["properties", "cwd"]);
+    expect(spawnTool.description).toContain("another workspace of this project");
   });
 
   it("describes tracked child work whose result remains available to the parent", async () => {
@@ -104,9 +104,11 @@ describe("createSubsessionToolDefinitions", () => {
       spawn: vi.fn(() => Promise.resolve({ sessionId: "child-1", cwd: "/repos/a" })),
     });
 
+    expect(spawnTool.description).toContain("or another workspace of this project");
     expect(spawnTool.description).toContain("Automatic notices report only that it became idle or errored");
     expect(spawnTool.description).toContain("check_subsession or read_subsession");
     expect(spawnTool.description).toContain("send_session_message");
+    expect(spawnTool.promptSnippet).toContain("in a workspace of this project");
     expect(spawnTool.description).not.toMatch(/spawn_session|fully independent/i);
 
     const result = await spawnTool.execute("call-contract", { prompt: "do it" }, undefined, undefined, ctxFor("parent-1", undefined));
