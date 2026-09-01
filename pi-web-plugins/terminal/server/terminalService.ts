@@ -384,7 +384,10 @@ export class TerminalService {
     terminal.events.emit("closed");
     terminal.events.removeAllListeners();
     this.activitySink?.removeTerminal(terminal.id, terminal.cwd);
-    if (!terminal.exited) terminal.pty.kill();
+    // Kill the whole process group, not just the shell: node-pty only reparents
+    // the running command to the shell, so signalling the shell alone leaves the
+    // command orphaned and running until the session daemon is torn down.
+    if (!terminal.exited) killProcessTree(terminal.pty.pid, "SIGKILL");
   }
 
   private requireAvailable(): void {
@@ -489,4 +492,26 @@ function copyCommandRun(run: TerminalCommandRun): TerminalCommandRun {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Best-effort termination of a process and, on POSIX systems, its entire process
+ * group. The terminal plugin is distributed as a self-contained package, so it
+ * cannot import the core `killProcessTree` helper; this mirrors that logic.
+ */
+function killProcessTree(pid: number | undefined, signal: NodeJS.Signals = "SIGKILL"): void {
+  if (pid === undefined) return;
+  if (process.platform !== "win32") {
+    try {
+      process.kill(-pid, signal);
+      return;
+    } catch {
+      // The group leader already exited; fall through to a direct signal.
+    }
+  }
+  try {
+    process.kill(pid, signal);
+  } catch {
+    // Termination is best-effort once the process is gone.
+  }
 }
