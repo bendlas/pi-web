@@ -61,6 +61,7 @@ function createContext(statePatch: Partial<AppState> = {}) {
     openThemePicker: vi.fn(() => { calls.push("openThemePicker"); }),
     openModelPicker: vi.fn(() => { calls.push("openModelPicker"); }),
     openThinkingLevelPicker: vi.fn(() => { calls.push("openThinkingLevelPicker"); }),
+    steerPrompt: vi.fn(() => { calls.push("steerPrompt"); }),
     selectMainView: vi.fn((view: AppState["mainView"]) => { calls.push(`selectMainView:${view}`); }),
     selectWorkspaceTool: vi.fn((tool: QualifiedContributionId) => { calls.push(`selectWorkspaceTool:${tool}`); }),
     openTerminal: vi.fn((options?: { terminalId?: string | undefined }) => { calls.push(`openTerminal:${options?.terminalId ?? ""}`); }),
@@ -1276,12 +1277,42 @@ describe("PluginRegistry", () => {
     expect(modelAction).toMatchObject({ title: "Select Model", enabled: true });
     expect(modelAction?.shortcut).toBeUndefined();
     expect(thinkingAction).toMatchObject({ title: "Select Thinking Level", enabled: true });
-    expect(thinkingAction?.shortcut).toBeUndefined();
+    expect(thinkingAction?.shortcut).toBe("mod+shift+t");
 
     if (modelAction !== undefined) void modelAction.run();
     if (thinkingAction !== undefined) void thinkingAction.run();
 
     expect(calls).toEqual(["openModelPicker", "openThinkingLevelPicker"]);
+  });
+
+  it("exposes a steer action enabled only while streaming and routes it through steerPrompt", () => {
+    const registry = new PluginRegistry();
+    registry.register({ id: "core", plugin: corePlugin });
+
+    // Disabled with no streaming session.
+    const idle = registry.getActions(createContext({ selectedSession: testSession() }).context);
+    const steerWhenIdle = idle.find((action) => action.id === "core:prompt.steer");
+    expect(steerWhenIdle?.enabled).toBe(false);
+    expect(steerWhenIdle?.shortcut).toBe("mod+shift+enter");
+
+    // Disabled even while streaming when the session is archived.
+    const archived = registry.getActions(createContext({ selectedSession: { ...testSession({ persisted: true }), archived: true, archivedAt: "2026-05-20T00:00:00.000Z" }, status: testStatus({ isStreaming: true }) }).context);
+    expect(archived.find((action) => action.id === "core:prompt.steer")?.enabled).toBe(false);
+
+    // Disabled while compacting, even though streaming appears true.
+    const compacting = registry.getActions(createContext({ selectedSession: testSession(), status: testStatus({ isStreaming: true, isCompacting: true }) }).context);
+    expect(compacting.find((action) => action.id === "core:prompt.steer")?.enabled).toBe(false);
+
+    // Enabled while streaming and not archived/compacting.
+    const streaming = registry.getActions(createContext({ selectedSession: testSession(), status: testStatus({ isStreaming: true }) }).context);
+    const steerAction = streaming.find((action) => action.id === "core:prompt.steer");
+    expect(steerAction).toMatchObject({ title: "Steer Response", enabled: true, shortcut: "mod+shift+enter" });
+
+    // Running the action delegates to the runtime steer hook.
+    const { context, calls } = createContext({ selectedSession: testSession(), status: testStatus({ isStreaming: true }) });
+    void registry.getActions(context).find((action) => action.id === "core:prompt.steer")?.run();
+
+    expect(calls).toEqual(["steerPrompt"]);
   });
 
   it("routes app reload and settings actions through the runtime context", async () => {
@@ -1310,6 +1341,8 @@ describe("PluginRegistry", () => {
       ["core:settings.open", "mod+,"],
       ["core:view.chat", "mod+1"],
       ["core:session.start", "mod+enter"],
+      ["core:prompt.steer", "mod+shift+enter"],
+      ["core:thinking.select", "mod+shift+t"],
       ["core:session.stop", "mod+."],
     ]);
     expect(new Set(shortcuts.map(([, shortcut]) => shortcut)).size).toBe(shortcuts.length);
