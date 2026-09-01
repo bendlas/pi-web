@@ -74,6 +74,34 @@ export class SessionTreeNavigator extends LitElement {
     else this.renderRoot.querySelector<HTMLInputElement>("input[name='session-tree-summary']:checked")?.focus();
   }
 
+  override connectedCallback(): void {
+    super.connectedCallback();
+    this.addEventListener("keydown", this.handleDialogKeyDown);
+  }
+
+  override disconnectedCallback(): void {
+    this.removeEventListener("keydown", this.handleDialogKeyDown);
+    super.disconnectedCallback();
+  }
+
+  /**
+   * Dialog-level Enter handling for the action step ("Choose how to continue"):
+   * pressing Enter submits the selected operation, exactly like the primary
+   * button. The tree step keeps its own per-row Enter handling, and typing in
+   * the custom-summary textarea or a text input keeps its newline/character,
+   * so Enter there never submits.
+   */
+  private readonly handleDialogKeyDown = (event: KeyboardEvent): void => {
+    if (event.key !== "Enter") return;
+    if (this.step !== "action" || this.busy) return;
+    const target = event.target;
+    if (target instanceof HTMLTextAreaElement) return;
+    if (target instanceof HTMLInputElement && target.type !== "radio") return;
+    if (target instanceof HTMLButtonElement) return;
+    event.preventDefault();
+    void this.submitSelectedOperation();
+  };
+
   override render(): TemplateResult {
     return html`
       <modal-surface
