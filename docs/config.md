@@ -384,6 +384,8 @@ Independent sessions run in a workspace of the same project without returning ou
 
 Agent-created tracked subsessions are collapsed under their parent. Use **Agent subsessions** to expand them. User-created forks and clones, unknown-origin sessions, children without an available parent, and independent sessions remain visible.
 
+A tracked subsession can run in any workspace of the project: pass `cwd` to `spawn_subsession` to target another worktree, and the child still stays nested under this session in the web UI while appearing in that workspace's session tree. This is the preferred way to delegate work across the project's workspaces while staying attached. `spawn_session` is the escape hatch for work that should be a fully independent, untracked session.
+
 New sessions inherit the parent's model and thinking level unless another model is requested, for example with a `#provider/model-id` prompt reference. Thinking levels are limited to what the chosen model supports.
 
 In **Settings → Session daemon**, these keys are saved on the selected machine. Restart the session daemon on that machine after changing them.
