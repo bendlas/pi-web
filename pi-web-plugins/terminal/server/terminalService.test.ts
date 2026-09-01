@@ -1,4 +1,4 @@
-import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -322,6 +322,38 @@ describe.skipIf(process.platform === "win32")("TerminalService command runs", ()
       service.dispose();
     }
   });
+
+  it("terminates the running command's process group when closed", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "pi-web-term-tree-"));
+    const descendantPath = join(dir, "descendant.pid");
+    const service = new TerminalService();
+    let descendantPid: number | undefined;
+    try {
+      const run = service.runCommand({
+        origin: "core",
+        projectId: "p1",
+        workspaceId: "w1",
+        cwd: process.cwd(),
+        title: "Long-running command",
+        // Background a long-lived process and `wait` for it so the shell (the pty's
+        // process-group leader) stays alive. The descendant shares the group because
+        // the non-interactive shell runs without job control.
+        command: `node -e 'require("fs").writeFileSync(${JSON.stringify(descendantPath)}, String(process.pid)); setInterval(() => {}, 1000)' & wait`,
+      });
+      descendantPid = await readDescendantPid(descendantPath);
+      expect(processIsAlive(descendantPid)).toBe(true);
+
+      service.close(scope(), run.terminalId);
+
+      await expectProcessExit(descendantPid);
+    } finally {
+      if (descendantPid !== undefined && processIsAlive(descendantPid)) {
+        process.kill(descendantPid, "SIGKILL");
+      }
+      service.dispose();
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 interface WorkspaceActivityRecorder extends TerminalActivitySink {
@@ -405,6 +437,34 @@ function firstLiveTerminalOutput(service: TerminalService, terminalId: string): 
       reject(error instanceof Error ? error : new Error(String(error)));
     }
   });
+}
+
+function processIsAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function readDescendantPid(pidPath: string): Promise<number> {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    try {
+      return Number(await readFile(pidPath, "utf8"));
+    } catch {
+      await new Promise((resolvePromise) => { setTimeout(resolvePromise, 10); });
+    }
+  }
+  throw new Error(`Descendant pid file ${pidPath} never appeared`);
+}
+
+async function expectProcessExit(pid: number): Promise<void> {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    if (!processIsAlive(pid)) return;
+    await new Promise((resolvePromise) => { setTimeout(resolvePromise, 10); });
+  }
+  throw new Error(`Descendant process ${String(pid)} survived terminal close`);
 }
 
 function terminalExit(service: TerminalService, terminalId: string): Promise<string> {

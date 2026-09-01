@@ -3,6 +3,7 @@ import type {
   ServerPluginExecFileRequest,
   ServerPluginExecFileResult,
 } from "../../server-plugin-api.js";
+import { killProcessTree } from "../killProcessTree.js";
 
 const DEFAULT_EXEC_TIMEOUT_MS = 30_000;
 // Git changes historically bounded command stdout at 2 MiB; keep that ceiling
@@ -77,9 +78,9 @@ function runExecFile(
     };
     const abortChild = (error: unknown): void => {
       if (settled) return;
-      killChildTree(child, "SIGTERM");
+      killProcessTree(child.pid, "SIGTERM");
       setTimeout(() => {
-        killChildTree(child, "SIGKILL");
+        killProcessTree(child.pid, "SIGKILL");
       }, FORCE_KILL_GRACE_MS);
       reject(error);
     };
@@ -166,27 +167,6 @@ function commandEnvironment(baseEnv: NodeJS.ProcessEnv, request: ServerPluginExe
 
 function isEnvironmentKey(value: unknown): value is string {
   return typeof value === "string" && value !== "" && !value.includes("=") && !value.includes("\0");
-}
-
-interface KillableChild {
-  pid?: number | undefined;
-  kill(signal: NodeJS.Signals): boolean;
-}
-
-function killChildTree(child: KillableChild, signal: NodeJS.Signals): void {
-  if (process.platform !== "win32" && child.pid !== undefined) {
-    try {
-      process.kill(-child.pid, signal);
-      return;
-    } catch {
-      // The process group may already be gone; fall back to the direct child.
-    }
-  }
-  try {
-    child.kill(signal);
-  } catch {
-    // Termination is best-effort after the bounded operation has failed.
-  }
 }
 
 function isAbortSignal(value: unknown): value is AbortSignal {
