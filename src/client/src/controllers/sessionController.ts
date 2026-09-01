@@ -1370,9 +1370,14 @@ export class SessionController {
 
   private applyCreatedSession(session: SessionInfo) {
     const state = this.getState();
-    // Session trees are worktree-scoped, so a session created elsewhere has no
-    // bearing on this listing.
-    if (state.selectedWorkspace?.path !== session.cwd) return;
+    // Session trees are worktree-scoped, so a session created in another
+    // workspace with no parent in this listing has no bearing on it. A tracked
+    // subsession spawned into another workspace of the project still belongs
+    // under its parent here, so include it when its parent is in this listing.
+    const isForThisWorkspace = state.selectedWorkspace?.path === session.cwd;
+    const isChildOfThisWorkspaceSession = session.parentSessionPath !== undefined
+      && state.sessions.some((candidate) => candidate.path === session.parentSessionPath);
+    if (!isForThisWorkspace && !isChildOfThisWorkspaceSession) return;
     if (state.sessions.some((candidate) => candidate.id === session.id)) return;
     const machineId = selectedMachineId(state);
     if (this.hasPendingStartFor(session.cwd, machineId)) {

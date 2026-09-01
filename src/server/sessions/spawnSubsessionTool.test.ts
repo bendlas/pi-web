@@ -62,12 +62,12 @@ describe("createSubsessionToolDefinitions", () => {
     expect(firstText(result.content)).toContain("Started tracked subsession child-1");
   });
 
-  it("spawn_subsession offers no way to target another workspace", () => {
+  it("spawn_subsession can target another workspace of the project via cwd", () => {
     const { spawn: spawnTool } = tools({});
 
-    expect(spawnTool.parameters).toMatchObject({ type: "object", properties: { prompt: {}, model: {} } });
-    expect(spawnTool.parameters).not.toHaveProperty(["properties", "cwd"]);
-    expect(spawnTool.description).toContain("in this session's working directory");
+    expect(spawnTool.parameters).toMatchObject({ type: "object", properties: { prompt: {}, cwd: {}, model: {} } });
+    expect(spawnTool.parameters).toHaveProperty(["properties", "cwd"]);
+    expect(spawnTool.description).toContain("another workspace of this project");
   });
 
   it("describes tracked child work whose result remains available to the parent", async () => {
@@ -75,8 +75,8 @@ describe("createSubsessionToolDefinitions", () => {
       spawn: vi.fn(() => Promise.resolve({ sessionId: "child-1", cwd: "/repos/a" })),
     });
 
-    expect(spawnTool.description).toBe("Start a tracked child session in this session's working directory to carry out part of the current task and return immediately. Its transcript and result are available here after it finishes.");
-    expect(spawnTool.promptSnippet).toBe("spawn_subsession: tracked child work in this workspace; result available after completion");
+    expect(spawnTool.description).toBe("Start a tracked child session in this session's working directory (or another workspace of this project) to carry out part of the current task and return immediately. Its transcript and result are available here after it finishes.");
+    expect(spawnTool.promptSnippet).toBe("spawn_subsession: tracked child work in a workspace of this project; result available after completion");
     expect(spawnTool.description).not.toMatch(/spawn_session|fully independent/i);
 
     const result = await spawnTool.execute("call-contract", { prompt: "do it" }, undefined, undefined, ctxFor("parent-1", undefined));
