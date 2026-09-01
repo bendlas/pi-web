@@ -2,6 +2,7 @@ import { EventEmitter } from "node:events";
 import { randomUUID } from "node:crypto";
 import * as pty from "node-pty";
 import type { TerminalCommandRun, TerminalCommandRunFilter, TerminalCommandRunStatus, TerminalUiEvent } from "../../shared/apiTypes.js";
+import { killProcessTree } from "../killProcessTree.js";
 import type { SessionEventHub } from "../realtime/sessionEventHub.js";
 import type { WorkspaceActivityService } from "../activity/workspaceActivityService.js";
 
@@ -179,7 +180,10 @@ export class TerminalService {
     this.terminals.delete(id);
     terminal.events.removeAllListeners();
     this.workspaceActivity?.removeTerminal(id, terminal.cwd);
-    if (!terminal.exited) terminal.pty.kill();
+    // Kill the whole process group, not just the shell: node-pty only reparents
+    // the running command to the shell, so signalling the shell alone leaves the
+    // command orphaned and running until the session daemon is torn down.
+    if (!terminal.exited) killProcessTree(terminal.pty.pid, "SIGKILL");
     this.publish({ type: "terminal.closed", terminalId: id, cwd: terminal.cwd });
   }
 
