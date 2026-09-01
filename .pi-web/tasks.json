@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "tasks": [
+    {
+      "id": "git.rebase-autostash-main",
+      "title": "git rebase --autostash main",
+      "group": "git",
+      "command": "git rebase --autostash main",
+      "description": "Rebase the current branch onto main, autostashing any uncommitted changes first.",
+      "confirm": true
+    }
+  ]
+}
