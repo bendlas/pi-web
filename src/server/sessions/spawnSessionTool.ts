@@ -57,7 +57,7 @@ export function createSpawnSessionToolDefinition(spawningCwd: string, deps: Spaw
   return defineTool<typeof SpawnSessionParams, SpawnSessionToolDetails>({
     name: "spawn_session",
     label: "Spawn session",
-    description: "Start a fully independent session; its transcript and results are unavailable here. Use only when the user or active workflow explicitly requests a separate session.",
+    description: "Start a fully independent session whose transcript and results are unavailable to this session. Use only when the user or active workflow explicitly requests a separate, untracked session — not for ordinary delegation within the project's workspaces (use `spawn_subsession` with `cwd` for that).",
     promptSnippet: "spawn_session: independent session; results unavailable here; explicit requests only",
     parameters: SpawnSessionParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
