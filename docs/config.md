@@ -295,7 +295,7 @@ Project-local `plugins.<id>.settings` supplies overrides for server plugins that
 
 The MCP manager package uses its own `.pi/mcp-manager.json`, not the project PI WEB config; see [managed MCP servers](#managed-mcp).
 
-Plugins may also own separate project files, such as `.pi-web/tasks.json` for the built-in Workspace Tasks plugin.
+Plugins may also own separate project files, such as `.pi-web/scripts.json` for the built-in Workspace Scripts plugin (an earlier `.pi-web/tasks.json` is still read).
 
 PI WEB also honors one optional project hook; see [Worktree pre-remove hook](#worktree-pre-remove-hook).
 
