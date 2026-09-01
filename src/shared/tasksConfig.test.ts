@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseTasksConfigText } from "./config";
+import { parseTasksConfigText } from "./tasksConfig";
 
 describe("workspace tasks config", () => {
   it("parses a minimal version 1 config", () => {

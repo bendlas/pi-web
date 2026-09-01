@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { TASKS_CONFIG_PATH } from "./config";
+import { TASKS_CONFIG_PATH } from "./workspaceTasksClient";
 import { loadWorkspaceTasksConfig, type WorkspaceTasksFileReader } from "./workspaceTasksClient";
 
 describe("workspace tasks client", () => {
