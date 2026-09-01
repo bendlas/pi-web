@@ -4,7 +4,7 @@ import type { PluginCapability, WorkspacePanelContext } from "@jmfederico/pi-web
 import { html, render, svg } from "lit";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import plugin from "./pi-web-plugin.js";
-import { defineTasksPanelElement, PiWebTasksPanel, tasksPanelTagName } from "./tasksPanelElement.js";
+import { defineTasksPanelElement, TasksPanelElement, workspaceTasksPanelTagName } from "./tasksPanelElement.js";
 
 let workspaceSequence = 0;
 
@@ -48,10 +48,10 @@ function workspaceContext() {
   } satisfies WorkspacePanelContext;
 }
 
-function createPanel(): PiWebTasksPanel {
+function createPanel(): TasksPanelElement {
   defineTasksPanelElement();
-  const panel = document.createElement(tasksPanelTagName);
-  if (!(panel instanceof PiWebTasksPanel)) throw new Error("Expected Tasks panel");
+  const panel = document.createElement(workspaceTasksPanelTagName);
+  if (!(panel instanceof TasksPanelElement)) throw new Error("Expected Tasks panel");
   return panel;
 }
 
@@ -85,7 +85,7 @@ describe("Workspace Tasks stylesheet integration", () => {
     const container = document.createElement("div");
     document.body.append(container);
     render(required(instance.contributions.workspacePanels[0]).render(workspaceContext()), container);
-    const panel = required(container.querySelector(tasksPanelTagName));
+    const panel = required(container.querySelector(workspaceTasksPanelTagName));
     expect(integration.registerRoot).toHaveBeenCalledExactlyOnceWith(root(panel), { sharedUi: true });
     // Another activation must not inherit the first instance's integration.
     render(required(activate().contributions.workspacePanels[0]).render(workspaceContext()), container);
@@ -156,7 +156,7 @@ describe("Workspace Tasks stylesheet integration", () => {
     expect(root(panel).textContent).toContain("Terminal unavailable");
     button(panel, "[data-refresh-config]").click();
     expect(button(panel, "[data-refresh-config]").disabled).toBe(true);
-    await vi.waitFor(() => { expect(root(panel).textContent).toContain("Loaded 1 task."); });
+    await vi.waitFor(() => { expect(root(panel).textContent).toContain("Loaded 1 script(s)."); });
     expect(context.files.readFile).toHaveBeenCalledTimes(2);
     button(panel, "[data-open-terminal]").click();
     expect(context.terminal.open).toHaveBeenCalledOnce();

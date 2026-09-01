@@ -1,5 +1,5 @@
 import type { StylesheetIntegrationCapabilityV1, PiWebPlugin, PluginCapability } from "@jmfederico/pi-web/plugin-api";
-import { TASKS_CONFIG_PATH } from "./config.js";
+import { SCRIPTS_CONFIG_PATH } from "./workspaceTasksClient.js";
 import { defineTasksPanelElement, tasksPanelBadge } from "./tasksPanelElement.js";
 
 const stylesheetIntegrationCapability: PluginCapability<StylesheetIntegrationCapabilityV1, 1> = {
@@ -19,9 +19,21 @@ function isStylesheetIntegration(value: unknown): value is StylesheetIntegration
     && "subscribe" in value && typeof value.subscribe === "function";
 }
 
+// Historical name: the package directory and plugin id stay `workspace-tasks`
+// for upstream compatibility, but this plugin now provides the Scripts panel
+// (`workspace.scripts`) backed by `.pi-web/scripts.json`. Legacy
+// `.pi-web/tasks.json` is still read and migrated on first load. The Pi agent's
+// own task list is a separate panel from the `tintinweb-pi-tasks` plugin.
+//
+// Note on incoming upstream work: a machine-wide scripts manifest is
+// intentionally not read here. Upstream is adding host-managed
+// cross-machine plugin-backend requests for exactly this kind of machine-local
+// data, so that behavior belongs on that transport rather than on a direct PI
+// WEB API call from the browser plugin. Revisit this when the stack rebases
+// onto it.
 const plugin = {
   apiVersion: 4,
-  name: "Workspace Tasks",
+  name: "Workspace Scripts",
   requires: [stylesheetIntegrationCapability],
   activate: ({ runtimePluginId, html, svg }) => {
     defineTasksPanelElement();
@@ -34,21 +46,21 @@ const plugin = {
       contributions: {
         actions: [
           {
-            id: "workspace.open-tasks",
-            title: "Open Workspace Tasks",
-            description: `Open the workspace Tasks tab. Configure tasks in ${TASKS_CONFIG_PATH}.`,
+            id: "workspace.open-scripts",
+            title: "Open Scripts",
+            description: `Open the Scripts tab. Configure scripts in ${SCRIPTS_CONFIG_PATH}. Legacy .pi-web/tasks.json is still read.`,
             group: "Workspace",
             enabled: (context) => context.state.selectedWorkspace !== undefined,
             run: (context) => {
               if (context.state.selectedWorkspace === undefined) return;
-              context.selectWorkspaceTool(`${runtimePluginId}:workspace.tasks`);
+              context.selectWorkspaceTool(`${runtimePluginId}:workspace.scripts`);
             },
           },
         ],
         workspacePanels: [
           {
-            id: "workspace.tasks",
-            title: "Tasks",
+            id: "workspace.scripts",
+            title: "Scripts",
             icon: svg`
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M9 6h11"></path>
