@@ -42,11 +42,16 @@ async function panelFor(pinned: string[]): Promise<AppNavigationPanel> {
   const m = machine("m1");
   const workspaces = [workspace("ws-a", "p-a", "/repo/ws-a"), workspace("ws-b", "p-b", "/repo/ws-b")];
   const sessions = [session("sa", "/repo/ws-a"), session("sb", "/repo/ws-b")];
-  const unread = new Set(pinned);
-  // PiWebApp rolls the single unread set up into the status tree before handing
-  // it to the panel; reproduce that here so the test exercises the pass-through.
+  const ownersBySession: Record<string, { workspaceId: string; projectId: string }> = {
+    sa: { workspaceId: "ws-a", projectId: "p-a" },
+    sb: { workspaceId: "ws-b", projectId: "p-b" },
+  };
+  const entries = pinned.map((id) => ownersBySession[id] ?? { workspaceId: "", projectId: "" });
+  // PiWebApp rolls the keep-unread pins up into the status tree before handing it
+  // to the panel; reproduce that here so the test exercises the pass-through.
   const raw = machineStatusSnapshot();
-  const augmented = augmentStatusSnapshotWithUnread(raw, unread, sessions, workspaces) ?? raw;
+  const augmented = augmentStatusSnapshotWithUnread(raw, entries) ?? raw;
+  const pinnedSet = new Set(pinned);
   const panel = new AppNavigationPanel();
   panel.machines = [m];
   panel.selectedMachine = m;
@@ -54,8 +59,8 @@ async function panelFor(pinned: string[]): Promise<AppNavigationPanel> {
   panel.workspaces = workspaces;
   panel.projects = [project("p-a"), project("p-b")];
   panel.sessions = sessions;
-  panel.keepUnreadSessionIds = unread;
-  panel.unreadSessionIds = unread;
+  panel.keepUnreadSessionIds = pinnedSet;
+  panel.unreadSessionIds = pinnedSet;
   await mount(panel);
   return panel;
 }

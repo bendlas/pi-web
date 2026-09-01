@@ -24,8 +24,8 @@ import { SessionStorageWorkspaceSelectionMemory } from "../controllers/workspace
 import { KeyboardShortcutDispatcher } from "../keyboardShortcuts";
 import { selectedMachineId } from "../controllers/types";
 import type { SessionNotificationSummaryEvent } from "../../../shared/apiTypes";
-import { loadKeepUnreadIds, setKeepUnread } from "../keepUnreadSessions";
-import { augmentStatusSnapshotWithUnread } from "../statusUnreadProjection";
+import { loadKeepUnreadEntries, loadKeepUnreadIds, setKeepUnread, type KeepUnreadEntry } from "../keepUnreadSessions";
+import { attributeCwd, augmentStatusSnapshotWithUnread } from "../statusUnreadProjection";
 import { machineSessionKey } from "../machineKeys";
 import { sessionCleanupRequestKey } from "../sessionCleanupUi";
 import { selectedNotificationView } from "../sessionNotifications";
@@ -139,6 +139,8 @@ export class PiWebApp extends LitElement {
   private keepUnreadMachineId: string = selectedMachineId(this.state);
   /** Sessions the user pinned as unread on {@link keepUnreadMachineId}. */
   @state() private keepUnreadSessionIds: ReadonlySet<string> = loadKeepUnreadIds(selectedMachineId(this.state));
+  /** Keep-unread pins on {@link keepUnreadMachineId}, carrying the ownership the nav needs to roll the marker up. */
+  @state() private keepUnreadEntries: readonly KeepUnreadEntry[] = loadKeepUnreadEntries(selectedMachineId(this.state));
   @state() private unreadSessionIds: ReadonlySet<string> = unionStringSets(
     this.sessionUnread.unreadSessionIds(selectedMachineId(this.state), this.state.sessions),
     this.keepUnreadSessionIds,
@@ -328,7 +330,10 @@ export class PiWebApp extends LitElement {
     const keepUnread = this.keepUnreadIds(machineId);
     const pinned = sessions.filter((session) => keepUnread.has(session.id));
     if (pinned.length > 0) {
-      for (const session of pinned) setKeepUnread(machineId, session.id, false);
+      for (const session of pinned) {
+        const owner = attributeCwd(session.cwd, this.allWorkspaces());
+        setKeepUnread(machineId, { id: session.id, cwd: session.cwd, workspaceId: owner?.workspaceId ?? "", projectId: owner?.projectId ?? "" }, false);
+      }
       this.refreshKeepUnreadIds(machineId);
     }
     for (const session of sessions) void this.sessionUnread.acknowledge(machineId, session);
@@ -338,12 +343,20 @@ export class PiWebApp extends LitElement {
   private toggleKeepUnread(session: SessionInfo): void {
     const machineId = selectedMachineId(this.state);
     const keep = !this.keepUnreadIds(machineId).has(session.id);
-    setKeepUnread(machineId, session.id, keep);
+    const owner = attributeCwd(session.cwd, this.allWorkspaces());
+    // Even without a resolvable owner we still record the pin so the session row
+    // stays unread; only the workspace/project/machine roll-up needs ownership.
+    setKeepUnread(machineId, { id: session.id, cwd: session.cwd, workspaceId: owner?.workspaceId ?? "", projectId: owner?.projectId ?? "" }, keep);
     this.refreshKeepUnreadIds(machineId);
     // Stop keeping unread must clear the marker now, exactly like Mark as read,
     // so the two are the same action: ending up read and not pinned. Reading the
     // conversation no longer does it, because the pin is gone.
     if (!keep) void this.sessionUnread.acknowledge(machineId, session);
+  }
+
+  /** Every workspace of every project on the selected machine, not just the selected project's. */
+  private allWorkspaces(): Workspace[] {
+    return Object.values(this.state.workspacesByProjectId).flat();
   }
 
   /**
@@ -357,8 +370,10 @@ export class PiWebApp extends LitElement {
 
   private refreshKeepUnreadIds(machineId: string): void {
     this.keepUnreadMachineId = machineId;
-    const next = loadKeepUnreadIds(machineId);
-    if (!sameStringSet(next, this.keepUnreadSessionIds)) this.keepUnreadSessionIds = next;
+    const nextIds = loadKeepUnreadIds(machineId);
+    if (!sameStringSet(nextIds, this.keepUnreadSessionIds)) this.keepUnreadSessionIds = nextIds;
+    const nextEntries = loadKeepUnreadEntries(machineId);
+    if (!sameKeepUnreadEntries(nextEntries, this.keepUnreadEntries)) this.keepUnreadEntries = nextEntries;
     this.syncUnreadSessionIds();
   }
 
@@ -1363,19 +1378,19 @@ export class PiWebApp extends LitElement {
   }
 
   /**
-   * `machineStatusSnapshots` with the client's unread set rolled up, so the
-   * workspace, project, and machine badges track the session rows. The unread
-   * flag is the one piece of the tree the client owns (daemon completions
-   * unioned with keep-unread pins), so it is derived here from `unreadSessionIds`
-   * rather than maintained as a separate model in the navigation panel.
+   * `machineStatusSnapshots` with the keep-unread pins rolled up, so the
+   * workspace, project, and machine badges track the session rows even when the
+   * pinned session's workspace or project is not the one currently open. The
+   * daemon already rolls its own completions up into these nodes server-side, so
+   * the client only has to add the browser-local keep-unread ownership captured
+   * at pin time — which it can do without the selected-scoped session/workspace
+   * lists that would otherwise miss pins in other workspaces.
    */
   private get augmentedMachineStatusSnapshots(): Record<string, MachineStatusSnapshot> {
     const machineId = selectedMachineId(this.state);
     const augmented = augmentStatusSnapshotWithUnread(
       this.state.machineStatusSnapshots[machineId],
-      this.unreadSessionIds,
-      this.state.sessions,
-      this.state.workspaces,
+      this.keepUnreadEntries,
     );
     if (augmented === undefined || augmented === this.state.machineStatusSnapshots[machineId]) return this.state.machineStatusSnapshots;
     return { ...this.state.machineStatusSnapshots, [machineId]: augmented };
@@ -2559,6 +2574,14 @@ function patchChangesState(state: AppState, patch: Partial<AppState>): boolean {
 
 function sameStringSet(left: ReadonlySet<string>, right: ReadonlySet<string>): boolean {
   return left.size === right.size && [...left].every((value) => right.has(value));
+}
+
+function sameKeepUnreadEntries(left: readonly KeepUnreadEntry[], right: readonly KeepUnreadEntry[]): boolean {
+  if (left.length !== right.length) return false;
+  const key = (entry: KeepUnreadEntry): string => `${entry.id}|${entry.workspaceId}|${entry.projectId}|${entry.cwd}`;
+  const leftKeys = left.map(key).sort();
+  const rightKeys = right.map(key).sort();
+  return leftKeys.every((value, index) => value === rightKeys[index]);
 }
 
 function unionStringSets(left: ReadonlySet<string>, right: ReadonlySet<string>): ReadonlySet<string> {
