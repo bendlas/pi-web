@@ -175,6 +175,22 @@ describe("SessionController live events", () => {
     expect(state.sessions.map((session) => session.id)).toEqual(["old-session"]);
   });
 
+  it("adds a created cross-workspace tracked child when its parent is in the listing", () => {
+    let state: AppState = { ...initialAppState(), selectedWorkspace: workspace, sessions: [oldSession] };
+    const controller = new SessionController(
+      () => state,
+      (patch) => { state = { ...state, ...patch }; },
+      () => undefined,
+      undefined,
+      { socket: new FakeSocket() },
+    );
+    const spawned: SessionInfo = { ...oldSession, id: "spawned-session", cwd: "/feature-repo", path: "/tmp/spawned-session.jsonl", parentSessionPath: oldSession.path };
+
+    controller.applyGlobalEvent({ type: "session.created", session: spawned });
+
+    expect(state.sessions.map((session) => session.id)).toEqual(["spawned-session", "old-session"]);
+  });
+
   it("live-updates the listed session name on a global session.name event", () => {
     let state: AppState = { ...initialAppState(), selectedSession: oldSession, sessions: [oldSession] };
     const controller = new SessionController(

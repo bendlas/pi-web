@@ -373,7 +373,7 @@ This mirrors the Pi CLI: with `defaultProjectTrust: "never"`, an opened workspac
 
 Tracked subsessions are join-oriented. Calling `spawn_subsession` returns immediately, so the parent can continue independent work while the child runs. Work whose result the parent does not need to join belongs in the fire-and-forget `spawn_session` tool instead.
 
-A tracked subsession always runs in the spawning session's working directory, so it stays in that workspace's session tree next to its parent. `spawn_subsession` takes no `cwd`. To get work done elsewhere, instruct the child to work there from this workspace, or use `spawn_session`, which still targets any workspace of the project, for an independent session there.
+A tracked subsession can run in any workspace of the project: pass `cwd` to `spawn_subsession` to target another worktree, and the child still stays nested under this session in the web UI while appearing in that workspace's session tree. This is the preferred way to delegate work across the project's workspaces while staying attached. `spawn_session` is the escape hatch for work that should be a fully independent, untracked session.
 
 At a join point, after finishing its independent work, the parent calls `yield_to_subsessions` alone as the final action in its tool batch. Pi ends a tool batch early only when every result in that batch is terminating. If any tracked child is still working, the action ends the current agent run so the parent becomes idle. If none are working, it does not end the run and clearly reports that there is nothing to wait for.
 
