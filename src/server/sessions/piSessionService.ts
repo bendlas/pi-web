@@ -1102,6 +1102,11 @@ export interface PiSessionServiceDependencies {
   catalogRefreshStatus?: CatalogRefreshStatus;
 }
 
+/** How often the background session-name scan re-enumerates every session. Names change rarely, so
+ * this is decoupled from the 2s heartbeat: the scan only needs to catch renames written outside the
+ * daemon, not track active work. */
+const SESSION_NAME_SCAN_INTERVAL_MS = 10_000;
+
 export class PiSessionService implements SessionRouteService {
   private readonly active = new Map<string, ActiveSession<PiSessionRuntime>>();
   private readonly pendingSessionOpens = new Map<string, PendingSessionOpen>();
@@ -3830,6 +3835,13 @@ export class PiSessionService implements SessionRouteService {
   private readonly lastKnownSessionNames = new Map<string, string | undefined>();
   /** Guards against emitting for every session on the very first detection pass (priming only). */
   private sessionNamesPrimed = false;
+  /** Coalesces the background name scan. `publishHeartbeats` fire-and-forgets `detectSessionNameChanges`
+   * on every 2s heartbeat, and `listAll` can outlast that interval, so without this guard scans pile up
+   * and re-enumerate every session concurrently — the same unbounded pile-up the workspace topology
+   * watcher had. At most one scan is ever in flight, and the throttle below keeps the steady-state cost
+   * low because session names change far less often than the heartbeat ticks. */
+  private nameScanRunning = false;
+  private nameScanLastAt = 0;
 
   private publishSessionName(session: PiAgentSession): void {
     const event = session.sessionName === undefined
@@ -3851,27 +3863,35 @@ export class PiSessionService implements SessionRouteService {
    * The first pass only primes the cache; subsequent passes diff against it and emit for deviations.
    */
   private detectSessionNameChanges(): Promise<void> {
-    return this.sessionManager.listAll().then((entries) => {
-      const current = new Map<string, string | undefined>();
-      for (const entry of entries) current.set(entry.id, entry.name);
-      if (!this.sessionNamesPrimed) {
+    const now = Date.now();
+    if (this.nameScanRunning) return Promise.resolve();
+    if (now - this.nameScanLastAt < SESSION_NAME_SCAN_INTERVAL_MS) return Promise.resolve();
+    this.nameScanRunning = true;
+    this.nameScanLastAt = now;
+    return this.sessionManager.listAll()
+      .then((entries) => {
+        const current = new Map<string, string | undefined>();
+        for (const entry of entries) current.set(entry.id, entry.name);
+        if (!this.sessionNamesPrimed) {
+          this.lastKnownSessionNames.clear();
+          for (const [id, name] of current) this.lastKnownSessionNames.set(id, name);
+          this.sessionNamesPrimed = true;
+          return;
+        }
+        for (const entry of entries) {
+          if (this.lastKnownSessionNames.get(entry.id) !== entry.name) {
+            this.events.publishGlobal({
+              type: "session.name",
+              sessionId: entry.id,
+              ...(entry.name === undefined ? {} : { name: entry.name }),
+            });
+          }
+        }
         this.lastKnownSessionNames.clear();
         for (const [id, name] of current) this.lastKnownSessionNames.set(id, name);
-        this.sessionNamesPrimed = true;
-        return;
-      }
-      for (const entry of entries) {
-        if (this.lastKnownSessionNames.get(entry.id) !== entry.name) {
-          this.events.publishGlobal({
-            type: "session.name",
-            sessionId: entry.id,
-            ...(entry.name === undefined ? {} : { name: entry.name }),
-          });
-        }
-      }
-      this.lastKnownSessionNames.clear();
-      for (const [id, name] of current) this.lastKnownSessionNames.set(id, name);
-    }).catch(() => undefined);
+      })
+      .catch(() => undefined)
+      .finally(() => { this.nameScanRunning = false; });
   }
 
   private publishHeartbeats(): void {

@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createPiSessionManagerGateway, defaultPiSessionDir } from "./piSessionManagerGateway.js";
 import { PiSessionService } from "./piSessionService.js";
+import type { PiSessionManager } from "./piSessionService.js";
 import { CapturingSessionEventHub, testModelRuntime } from "./piSessionService.testSupport.js";
 
 let tempDir: string;
@@ -113,6 +114,38 @@ describe("PiSessionService session.name detection", () => {
 
     expect(nameEvents(hub)).toHaveLength(0);
 
+    await service.dispose();
+  });
+
+  it("coalesces overlapping name scans so listAll is not re-enumerated concurrently", async () => {
+    let listAllCalls = 0;
+    let inflight = 0;
+    let maxInflight = 0;
+    const baseGateway = createPiSessionManagerGateway({ agentDir, env: {} });
+    const sessionManager = {
+      ...baseGateway,
+      listAll: async () => {
+        listAllCalls += 1;
+        inflight += 1;
+        maxInflight = Math.max(maxInflight, inflight);
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        inflight -= 1;
+        return baseGateway.listAll();
+      },
+    } as unknown as PiSessionManager;
+    const hub = new CapturingSessionEventHub();
+    const service = new PiSessionService(hub, {
+      agentDir,
+      modelRuntime: testModelRuntime,
+      sessionManager,
+      heartbeatIntervalMs: 600_000,
+    });
+    const detect = () => (service as unknown as { detectSessionNameChanges(): Promise<void> }).detectSessionNameChanges();
+    // The 2s heartbeat fire-and-forgets detectSessionNameChanges; if listAll is slow, ticks would
+    // otherwise overlap and re-enumerate every session concurrently. Fire several at once.
+    await Promise.all([detect(), detect(), detect(), detect(), detect()]);
+    expect(maxInflight).toBe(1);
+    expect(listAllCalls).toBe(1);
     await service.dispose();
   });
 });
