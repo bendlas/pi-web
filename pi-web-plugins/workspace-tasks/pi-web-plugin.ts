@@ -1,5 +1,5 @@
 import type { PiWebPlugin } from "@jmfederico/pi-web/plugin-api";
-import { TASKS_CONFIG_PATH } from "./config.js";
+import { TASKS_CONFIG_PATH } from "./workspaceTasksClient.js";
 import { defineTasksPanelElement, tasksPanelBadge } from "./tasksPanelElement.js";
 
 const plugin = {
@@ -13,8 +13,8 @@ const plugin = {
         actions: [
           {
             id: "workspace.open-tasks",
-            title: "Open Workspace Tasks",
-            description: `Open the workspace Tasks tab. Configure tasks in ${TASKS_CONFIG_PATH}.`,
+            title: "Open Tasks",
+            description: `Open the Tasks tab. Configure tasks in ${TASKS_CONFIG_PATH} (workspace) or the pi-web data dir's tasks.json (global).`,
             group: "Workspace",
             enabled: (context) => context.state.selectedWorkspace !== undefined,
             run: (context) => {
