@@ -1,4 +1,6 @@
-import { TASKS_CONFIG_PATH, parseTasksConfigText, type WorkspaceTasksConfig } from "./config.js";
+import { parseTasksConfigText, type WorkspaceTasksConfig } from "./config.js";
+
+export const TASKS_CONFIG_PATH = ".pi-web/tasks.json";
 
 export const tasksConfigMissingMessage = "No workspace tasks configured here.";
 export const tasksConfigMissingHint = `${TASKS_CONFIG_PATH} is optional. Create it in this workspace if you want custom tasks.`;

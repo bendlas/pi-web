@@ -1,11 +1,27 @@
 import type { WorkspacePanelContext } from "@jmfederico/pi-web/plugin-api";
-import { TASKS_CONFIG_PATH, type WorkspaceTask } from "./config.js";
+import type { WorkspaceTask } from "./config.js";
+import { TASKS_CONFIG_PATH } from "./workspaceTasksClient.js";
 import { runWorkspaceTaskInTerminal } from "./taskRunner.js";
-import { loadWorkspaceTasksConfig, tasksConfigRefreshHint, tasksConfigUnavailableMessage, type WorkspaceTasksConfigLoadResult } from "./workspaceTasksClient.js";
+import {
+  loadWorkspaceTasksConfig,
+  tasksConfigMissingHint,
+  tasksConfigMissingMessage,
+  tasksConfigRefreshHint,
+  tasksConfigUnavailableMessage,
+  type WorkspaceTasksConfigLoadResult,
+} from "./workspaceTasksClient.js";
+import {
+  globalTasksConfigPathLabel,
+  globalTasksMissingHint,
+  globalTasksMissingMessage,
+  globalTasksRefreshHint,
+  globalTasksUnavailableMessage,
+  loadGlobalTasksConfig,
+} from "./globalTasksClient.js";
 
-export const tasksPanelTagName = "pi-web-workspace-tasks-panel";
+export const workspaceTasksPanelTagName = "pi-web-workspace-tasks-panel";
 
-const configChangedEvent = "pi-web-workspace-tasks-config-changed";
+const configChangedEvent = "pi-web-tasks-config-changed";
 
 type ConfigState =
   | { kind: "loading" }
@@ -17,20 +33,68 @@ interface TaskStatus {
   detail?: string;
 }
 
+/**
+ * A panel "source" describes where a task list comes from and how it is loaded.
+ * The Tasks panel combines every source into a single tab, each rendered as its
+ * own section: the Workspace Tasks source reads the per-workspace
+ * `.pi-web/tasks.json`, and the Global Tasks source reads the machine-wide
+ * `<dataDir>/tasks.json`. Global tasks are never merged with the workspace list.
+ */
+interface TasksPanelSource {
+  readonly id: string;
+  readonly panelTitle: string;
+  readonly configPathLabel: string;
+  readonly missingMessage: string;
+  readonly missingHint: string;
+  cacheKey(context: WorkspacePanelContext): string;
+  load(context: WorkspacePanelContext): Promise<WorkspaceTasksConfigLoadResult>;
+}
+
+const workspaceTasksSource: TasksPanelSource = {
+  id: "workspace",
+  panelTitle: "Workspace Tasks",
+  configPathLabel: TASKS_CONFIG_PATH,
+  missingMessage: tasksConfigMissingMessage,
+  missingHint: tasksConfigMissingHint,
+  cacheKey: (context) => cacheKeyForContext(context),
+  load: (context) => loadWorkspaceTasksConfig(context.files),
+};
+
+const globalTasksSource: TasksPanelSource = {
+  id: "global",
+  panelTitle: "Global Tasks",
+  configPathLabel: globalTasksConfigPathLabel,
+  missingMessage: globalTasksMissingMessage,
+  missingHint: globalTasksMissingHint,
+  cacheKey: (context) => `global:${context.machine.id}`,
+  load: () => loadGlobalTasksConfig(),
+};
+
+const taskSources: readonly TasksPanelSource[] = [workspaceTasksSource, globalTasksSource];
+
 const configCache = new Map<string, ConfigState>();
 
+function cacheKeyForSource(source: TasksPanelSource, context: WorkspacePanelContext): string {
+  return `${source.id}:${source.cacheKey(context)}`;
+}
+
 export function defineTasksPanelElement(): void {
-  if (!customElements.get(tasksPanelTagName)) customElements.define(tasksPanelTagName, PiWebTasksPanel);
+  if (!customElements.get(workspaceTasksPanelTagName)) {
+    customElements.define(workspaceTasksPanelTagName, TasksPanelElement);
+  }
 }
 
 export function tasksPanelBadge(context: WorkspacePanelContext): string | undefined {
-  const state = getCachedWorkspaceConfig(context);
-  return state?.kind === "unavailable" ? "!" : undefined;
+  for (const source of taskSources) {
+    const state = configCache.get(cacheKeyForSource(source, context));
+    if (state?.kind === "unavailable") return "!";
+  }
+  return undefined;
 }
 
-class PiWebTasksPanel extends HTMLElement {
+class TasksPanelElement extends HTMLElement {
   private contextValue: WorkspacePanelContext | undefined;
-  private runningTaskId: string | undefined;
+  private runningKey: string | undefined;
   private status: TaskStatus | undefined;
   private readonly root: ShadowRoot;
   private readonly onConfigChanged = () => {
@@ -43,13 +107,13 @@ class PiWebTasksPanel extends HTMLElement {
   }
 
   set context(value: WorkspacePanelContext | undefined) {
-    const previousKey = this.contextValue === undefined ? undefined : cacheKeyForContext(this.contextValue);
-    const nextKey = value === undefined ? undefined : cacheKeyForContext(value);
+    const previousKey = this.contextValue === undefined ? undefined : this.contextKey(this.contextValue);
+    const nextKey = value === undefined ? undefined : this.contextKey(value);
     this.contextValue = value;
     // Parent app updates should not rebuild this shadow DOM for the same workspace:
     // doing so resets the mobile scroll position and can replace buttons mid-click.
     if (previousKey === nextKey) return;
-    this.runningTaskId = undefined;
+    this.runningKey = undefined;
     this.status = undefined;
     this.render();
   }
@@ -63,6 +127,10 @@ class PiWebTasksPanel extends HTMLElement {
     window.removeEventListener(configChangedEvent, this.onConfigChanged);
   }
 
+  private contextKey(context: WorkspacePanelContext): string {
+    return taskSources.map((source) => cacheKeyForSource(source, context)).join("|");
+  }
+
   private render(): void {
     const context = this.contextValue;
     if (context === undefined) {
@@ -70,29 +138,35 @@ class PiWebTasksPanel extends HTMLElement {
       return;
     }
 
-    const state = getOrLoadWorkspaceConfig(context);
+    const sections = taskSources
+      .map((source) => ({ source, state: getOrLoadConfig(source, context) }))
+      .map(({ source, state }) => this.renderSourceSection(source, state))
+      .join("");
+
     this.root.innerHTML = `
       ${taskStyles()}
       <section class="toolbar">
-        <strong>Workspace Tasks</strong>
+        <strong>Tasks</strong>
         <span class="toolbar-tasks">
-          <button class="secondary" data-refresh-config ${state.kind === "loading" ? "disabled" : ""}>Refresh</button>
+          <button class="secondary" data-refresh-config ${this.isAnyLoading(context) ? "disabled" : ""}>Refresh</button>
           <button class="secondary" data-open-terminal>Open Terminal</button>
         </span>
       </section>
       ${this.renderStatus()}
       <section class="viewer tasks-viewer">
-        ${this.renderConfigState(state)}
+        ${sections}
       </section>
     `;
 
     this.root.querySelector("button[data-refresh-config]")?.addEventListener("click", () => {
-      void this.refreshConfig(context);
+      void this.refreshAll(context);
     });
 
-    for (const button of this.root.querySelectorAll("button[data-task-id]")) {
+    for (const button of this.root.querySelectorAll<HTMLButtonElement>("button[data-task-id]")) {
       button.addEventListener("click", () => {
-        void this.dispatchTaskById(context, button.getAttribute("data-task-id"));
+        const sourceId = button.getAttribute("data-source-id");
+        const taskId = button.getAttribute("data-task-id");
+        if (sourceId !== null && taskId !== null) void this.dispatchTaskById(context, sourceId, taskId);
       });
     }
 
@@ -101,30 +175,31 @@ class PiWebTasksPanel extends HTMLElement {
     });
   }
 
-  private dispatchTaskById(context: WorkspacePanelContext, taskId: string | null): Promise<void> {
-    if (!this.isCurrentContext(context)) return Promise.resolve();
-    const task = taskFromConfigState(getCachedWorkspaceConfig(context), taskId);
-    if (task === undefined) {
-      this.status = { kind: "error", message: "That task is no longer available. Click Refresh, then try again." };
-      this.render();
-      return Promise.resolve();
-    }
-    return this.dispatchTask(context, task);
+  private isAnyLoading(context: WorkspacePanelContext): boolean {
+    return taskSources.some((source) => getCachedConfig(source, context)?.kind === "loading");
   }
 
-  private isCurrentContext(context: WorkspacePanelContext): boolean {
-    return this.contextValue !== undefined && cacheKeyForContext(this.contextValue) === cacheKeyForContext(context);
+  private renderSourceSection(source: TasksPanelSource, state: ConfigState): string {
+    return `
+      <section class="task-source">
+        <h2>${escapeHtml(source.panelTitle)}</h2>
+        <p class="muted source-path">${escapeHtml(source.configPathLabel)}</p>
+        ${this.renderConfigState(source, state)}
+      </section>
+    `;
   }
 
-  private renderConfigState(state: ConfigState): string {
-    if (state.kind === "loading") return `<p class="muted">Loading ${escapeHtml(TASKS_CONFIG_PATH)}…</p>`;
+  private renderConfigState(source: TasksPanelSource, state: ConfigState): string {
+    if (state.kind === "loading") return `<p class="muted">Loading ${escapeHtml(source.configPathLabel)}…</p>`;
     if (state.kind === "missing") return renderMissingState(state);
     if (state.kind === "unavailable") return renderUnavailableState(state);
 
-    if (state.config.tasks.length === 0) return `<p class="muted">No tasks are defined in ${escapeHtml(state.path)}. Add tasks to the file, then click Refresh.</p>`;
+    if (state.config.tasks.length === 0) {
+      return `<p class="muted">No tasks are defined in ${escapeHtml(state.path)}. Add tasks to the file, then click Refresh.</p>`;
+    }
     return `
       <p class="muted">Tasks run in a dedicated workspace terminal, then switch to that terminal. Edit ${escapeHtml(state.path)} and click Refresh to reload.</p>
-      ${renderTaskGroups(state.config.tasks, this.runningTaskId)}
+      ${renderTaskGroups(source, state.config.tasks, this.runningKey)}
     `;
   }
 
@@ -134,21 +209,42 @@ class PiWebTasksPanel extends HTMLElement {
     return `<div class="status panel-status ${escapeAttr(this.status.kind)}">${escapeHtml(this.status.message)}${detail}</div>`;
   }
 
-  private async refreshConfig(context: WorkspacePanelContext): Promise<void> {
-    this.status = { kind: "info", message: `Refreshing ${TASKS_CONFIG_PATH}…` };
-    configCache.set(cacheKeyForContext(context), { kind: "loading" });
+  private async refreshAll(context: WorkspacePanelContext): Promise<void> {
+    this.status = { kind: "info", message: "Refreshing task lists…" };
+    for (const source of taskSources) {
+      configCache.set(cacheKeyForSource(source, context), { kind: "loading" });
+    }
     this.render();
 
-    const state = await refreshWorkspaceConfig(context);
+    const results = await Promise.all(taskSources.map((source) => refreshConfig(source, context)));
     if (!this.isCurrentContext(context)) return;
-    this.status = state.kind === "loaded"
-      ? { kind: "success", message: `Loaded ${String(state.config.tasks.length)} task${state.config.tasks.length === 1 ? "" : "s"}.` }
+    const loaded = results.filter((result): result is Extract<ConfigState, { kind: "loaded" }> => result.kind === "loaded");
+    this.status = loaded.length > 0
+      ? { kind: "success", message: `Loaded ${String(loaded.reduce((total, result) => total + result.config.tasks.length, 0))} task(s).` }
       : undefined;
     this.render();
   }
 
-  private async dispatchTask(context: WorkspacePanelContext, task: WorkspaceTask): Promise<void> {
-    if (this.runningTaskId !== undefined) {
+  private dispatchTaskById(context: WorkspacePanelContext, sourceId: string, taskId: string): Promise<void> {
+    if (!this.isCurrentContext(context)) return Promise.resolve();
+    const source = taskSources.find((candidate) => candidate.id === sourceId);
+    if (source === undefined) return Promise.resolve();
+    const task = taskFromConfigState(getCachedConfig(source, context), taskId);
+    if (task === undefined) {
+      this.status = { kind: "error", message: "That task is no longer available. Click Refresh, then try again." };
+      this.render();
+      return Promise.resolve();
+    }
+    return this.dispatchTask(context, source, task);
+  }
+
+  private isCurrentContext(context: WorkspacePanelContext): boolean {
+    return this.contextValue !== undefined && this.contextKey(this.contextValue) === this.contextKey(context);
+  }
+
+  private async dispatchTask(context: WorkspacePanelContext, source: TasksPanelSource, task: WorkspaceTask): Promise<void> {
+    const key = `${source.id}:${task.id}`;
+    if (this.runningKey !== undefined) {
       this.status = { kind: "info", message: "Another task is already starting. Wait for it to finish dispatching, then try again." };
       this.render();
       return;
@@ -159,7 +255,7 @@ class PiWebTasksPanel extends HTMLElement {
       return;
     }
 
-    this.runningTaskId = task.id;
+    this.runningKey = key;
     this.status = { kind: "info", message: `Starting ${task.title}…` };
     this.render();
 
@@ -171,11 +267,11 @@ class PiWebTasksPanel extends HTMLElement {
         message: `Started terminal command “${handle.run.title}”.`,
         detail: task.command,
       };
-      this.runningTaskId = undefined;
+      this.runningKey = undefined;
       this.render();
     } catch (error) {
       if (!this.isCurrentContext(context)) return;
-      this.runningTaskId = undefined;
+      this.runningKey = undefined;
       this.status = { kind: "error", message: error instanceof Error ? error.message : String(error) };
       this.render();
     }
@@ -193,26 +289,26 @@ class PiWebTasksPanel extends HTMLElement {
   }
 }
 
-function getCachedWorkspaceConfig(context: WorkspacePanelContext): ConfigState | undefined {
-  return configCache.get(cacheKeyForContext(context));
+function getCachedConfig(source: TasksPanelSource, context: WorkspacePanelContext): ConfigState | undefined {
+  return configCache.get(cacheKeyForSource(source, context));
 }
 
-function getOrLoadWorkspaceConfig(context: WorkspacePanelContext): ConfigState {
-  const cached = getCachedWorkspaceConfig(context);
+function getOrLoadConfig(source: TasksPanelSource, context: WorkspacePanelContext): ConfigState {
+  const cached = getCachedConfig(source, context);
   if (cached !== undefined) return cached;
 
   const loading: ConfigState = { kind: "loading" };
-  configCache.set(cacheKeyForContext(context), loading);
-  void refreshWorkspaceConfig(context);
+  configCache.set(cacheKeyForSource(source, context), loading);
+  void refreshConfig(source, context);
   return loading;
 }
 
-async function refreshWorkspaceConfig(context: WorkspacePanelContext): Promise<ConfigState> {
-  const key = cacheKeyForContext(context);
-  const state = await loadWorkspaceTasksConfig(context.files).catch((error: unknown): ConfigState => ({
+async function refreshConfig(source: TasksPanelSource, context: WorkspacePanelContext): Promise<ConfigState> {
+  const key = cacheKeyForSource(source, context);
+  const state = await source.load(context).catch((error: unknown): ConfigState => ({
     kind: "unavailable",
-    message: tasksConfigUnavailableMessage,
-    hint: tasksConfigRefreshHint,
+    message: source.id === "global" ? globalTasksUnavailableMessage : tasksConfigUnavailableMessage,
+    hint: source.id === "global" ? globalTasksRefreshHint : tasksConfigRefreshHint,
     detail: error instanceof Error ? error.message : String(error),
   }));
   configCache.set(key, state);
@@ -234,8 +330,8 @@ function renderUnavailableState(state: Extract<ConfigState, { kind: "unavailable
   return `<div class="status error"><strong>${escapeHtml(state.message)}</strong><p>${escapeHtml(state.hint)}</p>${detail}</div>`;
 }
 
-function renderTaskGroups(tasks: WorkspaceTask[], runningTaskId: string | undefined): string {
-  return `<div class="tasks">${groupTasks(tasks).map((group) => renderTaskGroup(group, runningTaskId)).join("")}</div>`;
+function renderTaskGroups(source: TasksPanelSource, tasks: WorkspaceTask[], runningKey: string | undefined): string {
+  return `<div class="tasks">${groupTasks(tasks).map((group) => renderTaskGroup(source, group, runningKey)).join("")}</div>`;
 }
 
 function groupTasks(tasks: WorkspaceTask[]): { title: string | undefined; tasks: WorkspaceTask[] }[] {
@@ -252,14 +348,14 @@ function groupTasks(tasks: WorkspaceTask[]): { title: string | undefined; tasks:
   return groups;
 }
 
-function renderTaskGroup(group: { title: string | undefined; tasks: WorkspaceTask[] }, runningTaskId: string | undefined): string {
+function renderTaskGroup(source: TasksPanelSource, group: { title: string | undefined; tasks: WorkspaceTask[] }, runningKey: string | undefined): string {
   const title = group.title === undefined ? "" : `<h3>${escapeHtml(group.title)}</h3>`;
-  return `<section class="task-group">${title}${group.tasks.map((task) => renderTask(task, runningTaskId)).join("")}</section>`;
+  return `<section class="task-group">${title}${group.tasks.map((task) => renderTask(source, task, runningKey)).join("")}</section>`;
 }
 
-function renderTask(task: WorkspaceTask, runningTaskId: string | undefined): string {
-  const running = runningTaskId === task.id;
-  const disabled = runningTaskId !== undefined;
+function renderTask(source: TasksPanelSource, task: WorkspaceTask, runningKey: string | undefined): string {
+  const running = runningKey === `${source.id}:${task.id}`;
+  const disabled = runningKey !== undefined;
   const description = task.description === undefined ? "" : `<span>${escapeHtml(task.description)}</span>`;
   return `
     <article class="task-card">
@@ -268,7 +364,7 @@ function renderTask(task: WorkspaceTask, runningTaskId: string | undefined): str
         ${description}
         <code>${escapeHtml(task.command)}</code>
       </div>
-      <button data-task-id="${escapeAttr(task.id)}" ${disabled ? "disabled" : ""}>${running ? "Dispatching…" : "Run"}</button>
+      <button data-source-id="${escapeAttr(source.id)}" data-task-id="${escapeAttr(task.id)}" ${disabled ? "disabled" : ""}>${running ? "Dispatching…" : "Run"}</button>
     </article>
   `;
 }
@@ -285,7 +381,10 @@ function taskStyles(): string {
       .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--pi-border-muted); }
       .toolbar-tasks { display: inline-flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
       .viewer { box-sizing: border-box; min-height: 0; overflow: auto; padding: 12px; }
-      .tasks-viewer { display: grid; align-content: start; gap: 12px; }
+      .tasks-viewer { display: grid; align-content: start; gap: 16px; }
+      .task-source { display: grid; gap: 8px; }
+      .task-source h2 { margin: 0; font-size: 15px; }
+      .task-source .source-path { margin: 0; font: 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
       .tasks { display: grid; gap: 14px; }
       .task-group { display: grid; gap: 10px; }
       .task-group h3 { margin: 4px 0 0; color: var(--pi-text-secondary); font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; }
