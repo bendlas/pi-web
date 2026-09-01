@@ -40,9 +40,9 @@ describe("Tasks diagnostics and formatting", () => {
     const invalid = parseTasksConfigText("{");
     if (invalid.ok || invalid.error.kind !== "json") throw new Error("Expected JSON diagnostic");
     expect(loadIssue({ kind: "config", issue: invalid.error })).toBe(`Invalid JSON: ${invalid.error.error}`);
-    expect(loadIssue({ kind: "binary" })).toBe(".pi-web/tasks.json must be a text file");
-    expect(loadIssue({ kind: "truncated" })).toBe(".pi-web/tasks.json is too large and was truncated");
-    expect(loadIssue({ kind: "read", error: "Backend <error>" })).toBe("Unable to read .pi-web/tasks.json: Backend <error>");
+    expect(loadIssue({ kind: "binary", path: ".pi-web/scripts.json" })).toBe(".pi-web/scripts.json must be a text file");
+    expect(loadIssue({ kind: "truncated", path: ".pi-web/scripts.json" })).toBe(".pi-web/scripts.json is too large and was truncated");
+    expect(loadIssue({ kind: "read", path: ".pi-web/tasks.json", error: "Backend <error>" })).toBe("Unable to read .pi-web/tasks.json: Backend <error>");
     expect(loadIssue({ kind: "unexpected", error: "Backend <error>" })).toBe("Backend <error>");
     expect(messages.t("loaded", { count: 1 })).toBe("Loaded 1 task.");
     expect(messages.t("loaded", { count: 1234 })).toBe("Loaded 1.234 tasks.");
