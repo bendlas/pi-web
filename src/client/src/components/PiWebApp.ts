@@ -2437,7 +2437,12 @@ export class PiWebApp extends LitElement {
   };
 
   private steerCurrentPrompt(): void {
-    this.handleSendPrompt(this.promptEditor?.view?.state.doc.toString() ?? "", "steer");
+    const text = this.promptEditor?.view?.state.doc.toString() ?? "";
+    this.handleSendPrompt(text, "steer");
+    // Mirror a normal send: clear the composer once the steer is dispatched,
+    // so the typed text does not linger in the input. Steer is only enabled
+    // while the session is streaming (see the prompt.steer action gating).
+    this.promptEditor?.clearComposer();
   }
 
   private readonly handleStopActiveWork = (): void => {
