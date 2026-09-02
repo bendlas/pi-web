@@ -10,12 +10,13 @@ afterEach(() => {
 });
 
 describe("PiWebApp composer steer shortcut", () => {
-  it("sends the current draft as a steer through the prompt send path", () => {
+  it("sends the current draft as a steer and clears the composer input", () => {
     const app = new PiWebApp();
     // Stub the CodeMirror-backed editor with a fixed draft.
+    const clearComposer = vi.fn();
     Object.defineProperty(app, "promptEditor", {
       configurable: true,
-      value: { view: { state: { doc: { toString: () => "steer this" } } } },
+      value: { view: { state: { doc: { toString: () => "steer this" } } }, clearComposer },
     });
     // Capture the underlying send path call.
     const sendPrompt = vi.fn();
