@@ -83,11 +83,15 @@ export function createGitWorkspaceProvider(context: ServerPluginActivationContex
         });
       // Prefer the checkout Git identifies for the registered project. A
       // submodule is the exception: its sole worktree record points at common
-      // storage under the superproject instead of at --show-toplevel.
-      const mainWorkspacePath = worktrees.some(({ path }) => path === mainRoot)
-        ? mainRoot
-        : commonDirectory;
+      // storage under the superproject instead of at --show-toplevel. Rewrite
+      // that record to the checkout so file APIs resolve the working tree
+      // rather than the Git administrative directory.
+      const mainWorkspacePath = mainRoot;
       const selectable = worktrees
+        .map(({ worktree, path }) => {
+          const effectivePath = path === commonDirectory ? mainWorkspacePath : path;
+          return { worktree: { ...worktree, path: effectivePath }, path: effectivePath };
+        })
         .map(({ worktree, path }) => ({ worktree, path, isMain: path === mainWorkspacePath }))
         .filter(({ worktree, path, isMain }) => worktree.prunable !== true || isMain || path === project.path);
       if (selectable.length === 0) return [singleGitWorkspace(project)];

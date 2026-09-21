@@ -275,7 +275,7 @@ describe("bundled Git workspace provider", () => {
     commit(superproject.path, "add submodule");
     const workspaceProvider = await providerFor(createServerPluginExecFile({ env: cleanGitEnvironment() }));
     const input = project(submodulePath);
-    const submoduleWorkspacePath = resolve(submodulePath, runGit(submodulePath, ["rev-parse", "--git-common-dir"]).trim());
+    const submoduleWorkspacePath = realpath(runGit(submodulePath, ["rev-parse", "--show-toplevel"]).trim());
 
     await expect(workspaceProvider.probe(input, new AbortController().signal)).resolves.toBe("claim");
     const workspaces = await workspaceProvider.list(input, new AbortController().signal);
