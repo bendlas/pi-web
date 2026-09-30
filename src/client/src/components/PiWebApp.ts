@@ -3683,17 +3683,17 @@ export class PiWebApp extends LitElement {
   }
 
   private readonly handleChatChromeVisibility = (event: CustomEvent<ChatChromeVisibilityDetail>): void => {
-    const hidden = event.detail?.hidden === true;
+    const hidden = event.detail.hidden;
     // Keep the input area reachable while the user is composing a message.
-    if (hidden && this.promptEditor?.contains(document.activeElement)) return;
+    if (hidden && this.promptEditor?.contains(document.activeElement) === true) return;
     this.chatChromeHidden = hidden;
   };
 
   private readonly handleChromeFocusIn = (event: FocusEvent): void => {
-    const target = event.target as Node | null;
-    const editor = this.promptEditor;
-    if (target === null || editor === undefined || editor === null) return;
-    if (target === editor || editor.contains(target)) this.chatChromeHidden = false;
+    const target = event.target;
+    if (!(target instanceof Node)) return;
+    // `@query` resolves to `null` before the child renders, even though its type is optional.
+    if (this.promptEditor?.contains(target) === true) this.chatChromeHidden = false;
   };
 
   private renderStatusBar(state: AppState) {
