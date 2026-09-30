@@ -177,6 +177,12 @@ export class PiWebApp extends LitElement {
   @state() private keepUnreadSessionIds: ReadonlySet<string> = loadKeepUnreadIds(selectedMachineId(this.state));
   /** Keep-unread pins on {@link keepUnreadMachineId}, carrying the ownership the nav needs to roll the marker up. */
   @state() private keepUnreadEntries: readonly KeepUnreadEntry[] = loadKeepUnreadEntries(selectedMachineId(this.state));
+  /**
+   * Memoized {@link keepUnreadNodeIds} keyed on the {@link keepUnreadEntries}
+   * reference, so navigation lists receive a stable set across transcript-only
+   * updates and Lit skips re-rendering them.
+   */
+  private keepUnreadNodeIdsCache: { entries: readonly KeepUnreadEntry[]; ids: ReadonlySet<string> } | undefined;
   @state() private unreadSessionIds: ReadonlySet<string> = unionStringSets(
     this.sessionUnread.unreadSessionIds(selectedMachineId(this.state), this.state.sessions),
     this.keepUnreadSessionIds,
@@ -1974,11 +1980,16 @@ export class PiWebApp extends LitElement {
    * keep-unread color rather than the daemon-completion accent.
    */
   private get keepUnreadNodeIds(): ReadonlySet<string> {
+    const cached = this.keepUnreadNodeIdsCache;
+    if (cached !== undefined) {
+      if (cached.entries === this.keepUnreadEntries) return cached.ids;
+    }
     const ids = new Set<string>();
     for (const entry of this.keepUnreadEntries) {
       if (entry.workspaceId !== "") ids.add(entry.workspaceId);
       if (entry.projectId !== "") ids.add(entry.projectId);
     }
+    this.keepUnreadNodeIdsCache = { entries: this.keepUnreadEntries, ids };
     return ids;
   }
 
