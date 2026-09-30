@@ -313,6 +313,8 @@ Requests and channels are bounded and can fail, time out, or disconnect. A succe
 
 A provider decides which workspaces belong to a project. A primary provider can replace bundled Git for projects it claims. Git is the fallback; without a claimant, the project folder remains usable as a workspace.
 
+PI WEB bundles two providers. **Git** is the fallback and discovers Git worktrees. **Jujutsu** is a primary provider: it claims any project inside a Jujutsu workspace and lists that repository's Jujutsu workspaces instead, including for colocated `jj git` repositories. Creation, removal, and listing then follow Jujutsu. The Jujutsu provider is inactive where the `jj` executable is not installed, and disabling it in **Settings → PI WEB plugins** restores Git behavior for those projects.
+
 Conflicting claims produce a visible error. A provider that claims a project and then fails does not silently hand ownership to another provider. Providers can also offer workspace removal, which runs as a visible terminal operation.
 
 External integrations can send a project-scoped discovery hint through the core CLI on the project's machine:
@@ -395,6 +397,7 @@ Keep gateways and targets compatible. During this plugin API transition, upgrade
 - **Git** discovers Git workspaces and provides status/diff, including [automatic discovery of new worktrees](#automatic-git-worktree-discovery) on supported Git builds. Disabling it leaves the project-folder workspace available unless another provider takes over.
 - **Mermaid** uses the default manual mode: choose **Render** to preview `mermaid` fences and `.mmd`/`.mermaid` text files. Its bundled engine runs locally in an opaque-origin sandbox with network access blocked; no diagram service receives your source. Interactive links and external resources are intentionally unavailable. Disable Mermaid in plugin Settings to keep plain code rendering. Only a browser reload is needed after changing this browser-only plugin.
 - **Code highlighting** colours completed chat code fences in common languages automatically, including JavaScript/TypeScript, Python, shell, HTML/CSS, JSON, Go, Rust, SQL, and diff. Choose **Raw** to view plain source or **Preview** to restore colours; Copy always copies the source. Unsupported, unlabelled, incomplete, and oversized blocks stay plain. Highlighting runs locally without executing code. Disable Code highlighting in plugin Settings to keep plain code rendering; reload the browser after changing this browser-only plugin.
+- **Jujutsu** discovers Jujutsu workspaces and takes over from Git for projects inside a `jj` repository, including colocated repositories. It is active only where `jj` is installed; disable it to keep Git in charge.
 - **Info** displays machine and PI WEB status without requiring a workspace, adds workspace details when selected, and provides copyable diagnostics.
 - **Updates** shows update/restart guidance when relevant and offers a manual update check. Run uses the selected machine's maintenance terminal in `$PI_WEB_DATA_DIR/maintenance` (default `~/.pi-web/maintenance`), whether or not a workspace is selected. It requires an available Terminal provider on that machine; guidance and Copy remain available without one.
 - **Workspace Tasks** turns project commands into runnable buttons.
