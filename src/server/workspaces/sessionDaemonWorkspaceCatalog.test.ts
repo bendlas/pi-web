@@ -76,7 +76,7 @@ describe("SessionDaemonWorkspaceCatalog", () => {
       ...providerWorkspace,
       provider: {
         pluginId: "replacement",
-        capabilities: { request: true, remove: false, create: true },
+        capabilities: { remove: false, create: true },
         metadata: { isGitRepo: true, isGitWorktree: true },
       },
     };
@@ -85,7 +85,7 @@ describe("SessionDaemonWorkspaceCatalog", () => {
 
     const listed = await catalog.list("project a");
     expect(listed).toHaveLength(1);
-    expect(listed[0]?.provider?.capabilities).toEqual({ request: true, remove: false, create: true });
+    expect(listed[0]?.provider?.capabilities).toEqual({ remove: false, create: true });
   });
 
   it("parses the immutable provider runtime and startup-health snapshot", async () => {
