@@ -22,7 +22,7 @@ Agentic development works better when the work environment is persistent.
 PI WEB lets you:
 
 - keep Pi Coding Agent sessions alive after browser disconnects;
-- run agents inside real repositories and git worktrees;
+- run agents inside real repositories, Git worktrees, and Jujutsu workspaces;
 - supervise multiple sessions in parallel;
 - switch between laptop, phone, tablet, and desktop;
 - use a server, workstation, or remote dev box as your agent runtime;
@@ -37,7 +37,7 @@ Requirements:
 - Node.js 22.19.0 or newer
 - npm
 - Pi Coding Agent `>=0.87.0`, configured for your user
-- git and the development tools your agents need
+- git and the development tools your agents need (Jujutsu is optional and used when `jj` is installed)
 
 Install and start PI WEB as per-user services:
 
@@ -78,14 +78,14 @@ PI WEB organizes work like this:
 ```text
 Machine     a local or remote PI WEB runtime endpoint
 Project     a folder on that machine
-Workspace   a provider-owned working folder; bundled Git discovers worktrees, otherwise the project folder
+Workspace   a provider-owned working folder; bundled Git and Jujutsu discover worktrees and workspaces, otherwise the project folder
 Session     a Pi Coding Agent chat running inside a workspace
 ```
 
 A typical flow:
 
 1. Add a project.
-2. Choose a workspace or git worktree.
+2. Choose a workspace, Git worktree, or Jujutsu workspace.
 3. Start a session.
 4. Let the agent work.
 5. Come back later from any browser.

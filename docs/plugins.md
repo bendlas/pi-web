@@ -103,6 +103,8 @@ Requests and channels are bounded and can fail, time out, or disconnect. A succe
 
 A provider decides which workspaces belong to a project. A primary provider can replace bundled Git for projects it claims. Git is the fallback; without a claimant, the project folder remains usable as a workspace.
 
+PI WEB bundles two providers. **Git** is the fallback and discovers Git worktrees. **Jujutsu** is a primary provider: it claims any project inside a Jujutsu workspace and lists that repository's Jujutsu workspaces instead, including for colocated `jj git` repositories. Creation, removal, and listing then follow Jujutsu. The Jujutsu provider is inactive where the `jj` executable is not installed, and disabling it in **Settings → PI WEB plugins** restores Git behavior for those projects.
+
 Conflicting claims produce a visible error. A provider that claims a project and then fails does not silently hand ownership to another provider. Providers can also offer workspace removal, which runs as a visible terminal operation.
 
 Workspace discovery must be available before host session services start. If a package needs both a provider and session-backed features, use two plugin entries in the same package. There is no need to split the distribution into separate packages.
@@ -153,6 +155,7 @@ Keep gateways and targets compatible. During this plugin API transition, upgrade
 - **Files** supplies file browsing, previews, and uploads. Disabling its panel does not remove other plugins' file helpers.
 - **Git** discovers Git workspaces and provides status/diff. Disabling it leaves the project-folder workspace available unless another provider takes over.
 - **Mermaid** uses the default manual mode: choose **Render** to preview `mermaid` fences and `.mmd`/`.mermaid` text files. Its bundled engine runs locally in an opaque-origin sandbox with network access blocked; no diagram service receives your source. Interactive links and external resources are intentionally unavailable. Disable Mermaid in plugin Settings to keep plain code rendering. Only a browser reload is needed after changing this browser-only plugin.
+- **Jujutsu** discovers Jujutsu workspaces and takes over from Git for projects inside a `jj` repository, including colocated repositories. It is active only where `jj` is installed; disable it to keep Git in charge.
 - **Info** displays PI WEB status and copyable diagnostics.
 - **Updates** shows update/restart guidance when relevant and offers a manual update check.
 - **Workspace Tasks** turns project commands into runnable buttons.
