@@ -27,7 +27,7 @@ describe("PiWebApp composer steer shortcut", () => {
     Reflect.apply(steer, app, []);
 
     expect(sendPrompt).toHaveBeenCalledOnce();
-    expect(sendPrompt).toHaveBeenCalledWith("steer this", "steer", undefined, undefined);
+    expect(sendPrompt).toHaveBeenCalledWith("steer this", "steer", undefined, undefined, undefined);
     // Steering must clear the input exactly like a normal send does.
     expect(clearComposer).toHaveBeenCalledOnce();
   });

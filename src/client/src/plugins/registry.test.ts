@@ -1285,9 +1285,9 @@ describe("PluginRegistry", () => {
     expect(calls).toEqual(["openModelPicker", "openThinkingLevelPicker"]);
   });
 
-  it("exposes a steer action enabled only while streaming and routes it through steerPrompt", () => {
+  it("exposes a steer action enabled only while streaming and routes it through steerPrompt", async () => {
     const registry = new PluginRegistry();
-    registry.register({ id: "core", plugin: corePlugin });
+    await registry.register({ id: "core", plugin: corePlugin });
 
     // Disabled with no streaming session.
     const idle = registry.getActions(createContext({ selectedSession: testSession() }).context);

@@ -2978,7 +2978,7 @@ export class PiWebApp extends LitElement {
       openThemePicker: () => { this.openThemeDialog(); },
       openModelPicker: () => this.openModelDialog(),
       openThinkingLevelPicker: () => this.openThinkingDialog(),
-      steerPrompt: () => this.steerCurrentPrompt(),
+      steerPrompt: () => { this.steerCurrentPrompt(); },
       selectMainView: (view) => { this.selectMainView(view); },
       navigate: (destination) => this.navigate(destination),
       selectWorkspaceTool: (tool) => { this.openWorkspaceTool(tool); },
