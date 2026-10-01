@@ -15,7 +15,33 @@ describe("unmapped session index", () => {
 
     const byCwd = new Map(index.groups.map((group) => [group.cwd, group]));
     expect(byCwd.get("/gone")?.kind).toBe("project");
+    expect(byCwd.get("/gone")?.projectId).toBeUndefined();
     expect(byCwd.get("/repo-worktrees/gone")?.kind).toBe("workspace");
+    expect(byCwd.get("/repo-worktrees/gone")?.projectId).toBe("p-repo");
+  });
+
+  it("strips the matched root prefix from the workspace display path", () => {
+    const index = build();
+
+    const byCwd = new Map(index.groups.map((group) => [group.cwd, group]));
+    expect(byCwd.get("/repo-worktrees/gone")?.relativePath).toBe("gone");
+    expect(byCwd.get("/gone")?.relativePath).toBeUndefined();
+  });
+
+  it("attributes a workspace to the most specific overlapping containment root", () => {
+    const index = buildUnmappedSessionIndex({
+      sessions: [session("nested", "/outer/inner-worktrees/gone", "2026-04-01T00:00:00.000Z")],
+      mappedWorkspaceCwds: [],
+      workspaceContainmentRoots: [
+        { projectId: "outer", path: "/outer" },
+        { projectId: "inner", path: "/outer/inner" },
+        { projectId: "inner", path: "/outer/inner-worktrees" },
+      ],
+      pathExists: () => false,
+      now: new Date("2026-04-02T00:00:00.000Z"),
+    });
+
+    expect(index.groups[0]?.projectId).toBe("inner");
   });
 
   it("marks groups whose directory still exists as unmapped and the rest as deleted", () => {
@@ -66,7 +92,10 @@ function build(overrides: {
       session("worktree-session", "/repo-worktrees/gone", "2026-04-01T00:00:00.000Z"),
     ],
     mappedWorkspaceCwds: ["/repo"],
-    workspaceContainmentRoots: ["/repo", "/repo-worktrees"],
+    workspaceContainmentRoots: [
+      { projectId: "p-repo", path: "/repo" },
+      { projectId: "p-repo", path: "/repo-worktrees" },
+    ],
     pathExists: (cwd) => existing.has(cwd),
     now: overrides.now ?? new Date("2026-04-02T00:00:00.000Z"),
   });

@@ -26,6 +26,16 @@ describe("UnmappedSection", () => {
     expect(rows[1]?.querySelector(".badge")?.textContent).toBe("unmapped");
   });
 
+  it("shows the prefix-stripped path and keeps the full cwd as the row title", async () => {
+    const section = await render({ groups: [{ ...group("/repo-worktrees/gone", true, "workspace"), relativePath: "gone" }] });
+
+    await showGroups(section);
+
+    const row = section.shadowRoot?.querySelector<HTMLElement>(".group-row");
+    expect(row?.querySelector(".group-cwd")?.textContent).toBe("gone");
+    expect(row?.title).toBe("/repo-worktrees/gone");
+  });
+
   it("expands a group into read-only session rows and reports selection", async () => {
     const onSelectSession = vi.fn();
     const session = sessionInfo("s1", "first prompt");

@@ -745,6 +745,19 @@ export interface UnmappedSessionGroup {
   /** The stored working directory; empty string for legacy sessions that never recorded one. */
   cwd: string;
   kind: UnmappedSessionGroupKind;
+  /**
+   * Registered project this cwd belongs to. Set only for `workspace` groups, so
+   * the Workspaces section can scope its unmapped history to the open project.
+   * Project groups have no matching project and leave this unset.
+   */
+  projectId?: string;
+  /**
+   * Prefix-stripped display path for `workspace` groups: the cwd relative to the
+   * containment root it matched (the project path or its worktree parent), so
+   * the project's absolute location is not repeated in the row. Unset for
+   * `project` groups, which have no owning project and render the full cwd.
+   */
+  relativePath?: string;
   /** True when the directory still exists on disk; false when it was deleted. */
   exists: boolean;
   /** Sessions recorded for this cwd, newest first. Always read-only to the browser. */

@@ -41,10 +41,13 @@ export class UnmappedSection extends LitElement {
 
   private renderGroup(group: UnmappedSessionGroup) {
     const open = this.expandedCwds.has(group.cwd);
-    const label = group.cwd === "" ? "(no recorded location)" : group.cwd;
+    // The visible label drops the project/worktree prefix; the full path stays
+    // as the row title (and the expansion key) so identical suffixes stay apart.
+    const fullPath = group.cwd === "" ? "(no recorded location)" : group.cwd;
+    const label = group.relativePath ?? fullPath;
     return html`
       <div class="group">
-        <button class="group-row" aria-expanded=${String(open)} title=${label} @click=${() => { this.toggleGroup(group.cwd); }}>
+        <button class="group-row" aria-expanded=${String(open)} title=${fullPath} @click=${() => { this.toggleGroup(group.cwd); }}>
           <span class="group-cwd" dir="auto">${label}</span>
           <span class="badges">
             <span class="badge ${group.exists ? "live" : "deleted"}">${group.exists ? "unmapped" : "deleted"}</span>

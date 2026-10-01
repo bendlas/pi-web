@@ -23,9 +23,9 @@ describe("session daemon unmapped session route", () => {
     expect(response.statusCode).toBe(200);
     const body = response.json<UnmappedSessionsResponse>();
     expect(body.generatedAt).toBe("2026-05-01T00:00:00.000Z");
-    expect(body.groups.map((group) => ({ cwd: group.cwd, kind: group.kind, exists: group.exists }))).toEqual([
-      { cwd: "/gone", kind: "project", exists: false },
-      { cwd: "/repo-worktrees/gone", kind: "workspace", exists: true },
+    expect(body.groups.map((group) => ({ cwd: group.cwd, kind: group.kind, exists: group.exists, projectId: group.projectId, relativePath: group.relativePath }))).toEqual([
+      { cwd: "/gone", kind: "project", exists: false, projectId: undefined, relativePath: undefined },
+      { cwd: "/repo-worktrees/gone", kind: "workspace", exists: true, projectId: "p-/repo", relativePath: "gone" },
     ]);
     expect(body.groups.flatMap((group) => group.sessions.map((session) => session.id))).not.toContain("live");
     expect(body.groups.flatMap((group) => group.sessions).every((session) => session.readOnly === true)).toBe(true);

@@ -6,8 +6,10 @@ describe("parseUnmappedSessionsResponse", () => {
     const response = parseUnmappedSessionsResponse({
       generatedAt: "2026-05-01T00:00:00.000Z",
       groups: [{
-        cwd: "/gone",
-        kind: "project",
+        cwd: "/repo-worktrees/gone",
+        kind: "workspace",
+        projectId: "project-1",
+        relativePath: "gone",
         exists: false,
         sessions: [{
           id: "s1",
@@ -22,8 +24,20 @@ describe("parseUnmappedSessionsResponse", () => {
       }],
     });
 
-    expect(response.groups[0]?.kind).toBe("project");
+    expect(response.groups[0]?.kind).toBe("workspace");
+    expect(response.groups[0]?.projectId).toBe("project-1");
+    expect(response.groups[0]?.relativePath).toBe("gone");
     expect(response.groups[0]?.sessions[0]?.readOnly).toBe(true);
+  });
+
+  it("omits projectId when the wire leaves it out", () => {
+    const response = parseUnmappedSessionsResponse({
+      generatedAt: "now",
+      groups: [{ cwd: "/gone", kind: "project", exists: false, sessions: [] }],
+    });
+
+    expect(response.groups[0]?.projectId).toBeUndefined();
+    expect(response.groups[0]?.relativePath).toBeUndefined();
   });
 
   it("rejects an unknown group kind", () => {

@@ -303,6 +303,8 @@ function parseUnmappedSessionGroup(value: unknown): UnmappedSessionGroup {
   return {
     cwd: requireString(record, "cwd"),
     kind,
+    ...(record["projectId"] === undefined ? {} : { projectId: requireString(record, "projectId") }),
+    ...(record["relativePath"] === undefined ? {} : { relativePath: requireString(record, "relativePath") }),
     exists: requireBoolean(record, "exists"),
     sessions: arrayOf(parseSessionInfo)(record["sessions"]),
   };

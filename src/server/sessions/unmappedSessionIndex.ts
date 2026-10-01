@@ -20,6 +20,16 @@ import type { ClientSession } from "../types.js";
  * tested without a daemon, the filesystem, or the Pi SDK.
  */
 
+/**
+ * One containment root: a registered project's own path or a worktree parent
+ * directory it creates. The project id is echoed onto the workspace groups so
+ * the client can scope them to the open project.
+ */
+export interface UnmappedWorkspaceRoot {
+  projectId: string;
+  path: string;
+}
+
 /** Inputs for {@link buildUnmappedSessionIndex}. */
 export interface UnmappedSessionIndexInput {
   /** Every session PI WEB can list, active and archived. */
@@ -36,7 +46,7 @@ export interface UnmappedSessionIndexInput {
    * creates worktrees in. Containment is textual, so a deleted directory still
    * classifies by where it used to live.
    */
-  workspaceContainmentRoots: readonly string[];
+  workspaceContainmentRoots: readonly UnmappedWorkspaceRoot[];
   /** True when the directory still exists; used for the deleted/unmapped badge. */
   pathExists: (cwd: string) => boolean;
   /** Timestamp stamped onto the response, injected for deterministic tests. */
@@ -46,7 +56,9 @@ export interface UnmappedSessionIndexInput {
 /** Group one cwd's sessions into the response shape. */
 export function buildUnmappedSessionIndex(input: UnmappedSessionIndexInput): UnmappedSessionsResponse {
   const mapped = new Set(input.mappedWorkspaceCwds.filter((cwd) => cwd !== "").map((cwd) => resolve(cwd)));
-  const roots = input.workspaceContainmentRoots.filter((root) => root !== "").map((root) => resolve(root));
+  const roots = input.workspaceContainmentRoots
+    .filter((root) => root.path !== "")
+    .map((root) => ({ projectId: root.projectId, path: resolve(root.path) }));
   const sessionsByCwd = new Map<string, ClientSession[]>();
 
   for (const session of input.sessions) {
@@ -60,10 +72,14 @@ export function buildUnmappedSessionIndex(input: UnmappedSessionIndexInput): Unm
 
   const groups: UnmappedSessionGroup[] = [];
   for (const [cwd, sessions] of sessionsByCwd) {
-    const kind: UnmappedSessionGroupKind = cwd !== "" && isWithinAnyRoot(roots, cwd) ? "workspace" : "project";
+    const root = cwd === "" ? undefined : mostSpecificRoot(roots, cwd);
+    const kind: UnmappedSessionGroupKind = root === undefined ? "project" : "workspace";
     groups.push({
       cwd,
       kind,
+      // Workspace groups drop the matched project/worktree prefix from their
+      // display path; the row keeps `cwd` for its full-path title and key.
+      ...(root === undefined ? {} : { projectId: root.projectId, relativePath: relative(root.path, resolve(cwd)) }),
       exists: cwd !== "" && input.pathExists(cwd),
       sessions: [...sessions].sort(byModifiedDesc),
     });
@@ -72,10 +88,19 @@ export function buildUnmappedSessionIndex(input: UnmappedSessionIndexInput): Unm
   return { generatedAt: input.now.toISOString(), groups };
 }
 
-/** True when `child` is a strict descendant of `parent`, comparing resolved paths textually. */
-function isWithinAnyRoot(roots: readonly string[], child: string): boolean {
+/**
+ * The deepest containment root holding `child`. Overlapping roots (a project
+ * inside another project, or a worktree directory nested under one) resolve to
+ * the most specific path so the group is attributed to the right project.
+ */
+function mostSpecificRoot(roots: readonly UnmappedWorkspaceRoot[], child: string): UnmappedWorkspaceRoot | undefined {
   const resolvedChild = resolve(child);
-  return roots.some((root) => isStrictDescendant(root, resolvedChild));
+  let best: UnmappedWorkspaceRoot | undefined;
+  for (const root of roots) {
+    if (!isStrictDescendant(root.path, resolvedChild)) continue;
+    if (best === undefined || root.path.length > best.path.length) best = root;
+  }
+  return best;
 }
 
 function isStrictDescendant(parent: string, child: string): boolean {

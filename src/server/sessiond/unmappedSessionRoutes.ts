@@ -3,7 +3,7 @@ import { basename, dirname, join } from "node:path";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { UnmappedSessionsResponse } from "../../shared/apiTypes.js";
 import type { ClientSession, Project, WorkspaceListing } from "../types.js";
-import { buildUnmappedSessionIndex } from "../sessions/unmappedSessionIndex.js";
+import { buildUnmappedSessionIndex, type UnmappedWorkspaceRoot } from "../sessions/unmappedSessionIndex.js";
 
 /*
  * Browser-facing route for the unmapped-history index. It owns the side effects
@@ -61,9 +61,12 @@ export async function buildUnmappedSessionsResponse(
   ]);
 
   const mappedWorkspaceCwds: string[] = [];
-  const workspaceContainmentRoots: string[] = [];
+  const workspaceContainmentRoots: UnmappedWorkspaceRoot[] = [];
   for (const project of projects) {
-    workspaceContainmentRoots.push(project.path, defaultWorktreeParentDir(project.path));
+    workspaceContainmentRoots.push(
+      { projectId: project.id, path: project.path },
+      { projectId: project.id, path: defaultWorktreeParentDir(project.path) },
+    );
     // A workspace resolution can fail (provider down, probe timeout). Falling
     // back to the project root keeps its live sessions mapped instead of
     // falsely reporting them as unmapped history.

@@ -264,16 +264,18 @@ export class AppNavigationPanel extends LitElement {
     return this.machineStatusSnapshots[selectedMachineId({ selectedMachine: this.selectedMachine })];
   }
 
-  // Split once per `unmappedGroups` change so unrelated panel updates keep
-  // passing the same array identities to the two lists (their render skips
-  // depend on stable inputs).
+  // Split once per input change so unrelated panel updates keep passing the
+  // same array identities to the two lists (their render skips depend on stable
+  // inputs). Project groups track the whole machine; workspace groups are
+  // scoped to the open project, matching the live workspace rows beside them.
   private projectUnmappedGroups: UnmappedSessionGroup[] = [];
   private workspaceUnmappedGroups: UnmappedSessionGroup[] = [];
 
   protected override willUpdate(changed: PropertyValues<this>): void {
-    if (changed.has("unmappedGroups")) {
+    if (changed.has("unmappedGroups") || changed.has("selectedProject")) {
       this.projectUnmappedGroups = this.unmappedGroups.filter((group) => group.kind === "project");
-      this.workspaceUnmappedGroups = this.unmappedGroups.filter((group) => group.kind === "workspace");
+      const projectId = this.selectedProject?.id;
+      this.workspaceUnmappedGroups = this.unmappedGroups.filter((group) => group.kind === "workspace" && group.projectId === projectId);
     }
   }
 
