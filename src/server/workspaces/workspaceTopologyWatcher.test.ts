@@ -50,18 +50,24 @@ describe("WorkspaceTopologyWatcher", () => {
     const catalog = { resolve: vi.fn((project: { id: string }) => Promise.resolve(topologies.get(project.id)!)) };
     const projects = vi.fn(() => Promise.resolve([{ id: "p1" }, { id: "p2" }]));
     const eventHub = { publishGlobal: (event: { type: "workspaces.changed"; projectId: string }) => { emitted.push(event.projectId); } };
+    const onTopologyChanged = vi.fn();
     const watcher = new WorkspaceTopologyWatcher({
       eventHub: eventHub as unknown as SessionEventHub,
       projects: { list: projects } as unknown as ProjectService,
       catalog: catalog as unknown as WorkspaceProviderRegistry,
       intervalMs: 100000,
+      onTopologyChanged,
     });
 
     await watcher.scan();
+    // Priming records the baseline without reporting a change.
+    expect(onTopologyChanged).not.toHaveBeenCalled();
+
     topologies.set("p1", resolution([fakeWorkspace("main"), fakeWorkspace("feature"), fakeWorkspace("extra")]));
     await watcher.scan();
 
     expect(emitted).toEqual(["p1"]);
+    expect(onTopologyChanged).toHaveBeenCalledExactlyOnceWith("p1");
   });
 
   it("drops the baseline for a project that disappears and emits nothing for it", async () => {

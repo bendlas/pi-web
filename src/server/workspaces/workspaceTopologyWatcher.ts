@@ -26,6 +26,14 @@ export interface WorkspaceTopologyWatcherOptions {
    */
   intervalMs?: number;
   logger?: WorkspaceTopologyWatcherLogger;
+  /**
+   * Called after a project's workspace topology actually changed (the same
+   * event that publishes `workspaces.changed`), so caches derived from the
+   * workspace listing can be dropped without re-polling every listing. This is
+   * the inotify-driven invalidation path: the git worktree file watches are
+   * the only source, so a cache refresh only happens on a real change.
+   */
+  onTopologyChanged?: (projectId: string) => void;
 }
 
 /**
@@ -53,6 +61,7 @@ export class WorkspaceTopologyWatcher {
   private readonly catalog: WorkspaceProviderRegistry;
   private readonly intervalMs: number;
   private readonly logger: WorkspaceTopologyWatcherLogger;
+  private readonly onTopologyChanged: (projectId: string) => void;
   private readonly lastSignatures = new Map<string, string>();
   private readonly projectWatchers = new Map<string, fs.FSWatcher[]>();
   private readonly projectScanning = new Set<string>();
@@ -67,6 +76,7 @@ export class WorkspaceTopologyWatcher {
     this.catalog = options.catalog;
     this.intervalMs = options.intervalMs ?? DEFAULT_WORKSPACE_TOPOLOGY_INTERVAL_MS;
     this.logger = options.logger ?? { warn: () => undefined };
+    this.onTopologyChanged = options.onTopologyChanged ?? (() => undefined);
   }
 
   start(): void {
@@ -131,6 +141,7 @@ export class WorkspaceTopologyWatcher {
       }
       if (previous !== signature) {
         this.lastSignatures.set(project.id, signature);
+        this.onTopologyChanged(project.id);
         this.eventHub.publishGlobal({ type: "workspaces.changed", projectId: project.id });
       }
     } finally {
