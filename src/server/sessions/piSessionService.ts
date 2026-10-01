@@ -1527,6 +1527,26 @@ export class PiSessionService implements SessionRouteService {
   }
 
   /**
+   * Every session PI WEB can list, active store plus archived records, mapped to
+   * the browser session shape. This is the raw input for the unmapped-history
+   * index: it deliberately does not filter by cwd or project, because the point
+   * is to surface sessions whose cwd no live workspace exposes.
+   *
+   * Archived records already absent from the active store are appended; a
+   * session that exists in both (archived and still listed) is represented once,
+   * by its active entry.
+   */
+  async listAllSessionsForIndex(): Promise<ClientSession[]> {
+    const [sessions, archivedRecords] = await Promise.all([this.sessionManager.listAll(), this.archiveStore.list()]);
+    const activeIds = new Set(sessions.map((session) => session.id));
+    const archived = archivedRecords
+      .filter((record) => !activeIds.has(record.sessionId))
+      .map((record) => clientSessionFromArchivedRecord(record, undefined))
+      .filter(isDefined);
+    return [...sessions.map(clientSessionFromListEntry), ...archived];
+  }
+
+  /**
    * Append the tracked subsession children that live in a different workspace of
    * the project to a workspace listing, so they still render nested under their
    * parent there. Children in the same workspace are already part of `sessions`

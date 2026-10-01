@@ -1,6 +1,6 @@
-import { LitElement, css, html } from "lit";
+import { LitElement, css, html, type PropertyValues } from "lit";
 import { customElement, property, query } from "lit/decorators.js";
-import type { Machine, MachineHealth, Project, SessionActivity, SessionInfo, SessionStatus, Workspace } from "../../api";
+import type { Machine, MachineHealth, Project, SessionActivity, SessionInfo, SessionStatus, UnmappedSessionGroup, Workspace } from "../../api";
 import type { MachineStatusSnapshot } from "../../../../shared/machineStatus";
 import type { WorkspaceLabelItem } from "../../plugins/types";
 import { selectedMachineId } from "../../controllers/types";
@@ -27,6 +27,10 @@ export class AppNavigationPanel extends LitElement {
   @property({ attribute: false }) selectedProject?: Project;
   @property({ attribute: false }) workspaces: Workspace[] = [];
   @property({ attribute: false }) selectedWorkspace?: Workspace;
+  /** Read-only history groups, split by kind into the Projects and Workspaces lists. */
+  @property({ attribute: false }) unmappedGroups: UnmappedSessionGroup[] = [];
+  @property({ attribute: false }) selectedUnmappedSessionId?: string;
+  @property({ attribute: false }) onSelectUnmappedSession?: (session: SessionInfo) => void | Promise<void>;
   @property({ attribute: false }) sessions: SessionInfo[] = [];
   @property({ attribute: false }) selectedSession?: SessionInfo;
   @property({ attribute: false }) sessionActivities: Record<string, SessionActivity> = {};
@@ -110,6 +114,7 @@ export class AppNavigationPanel extends LitElement {
     archivedCollapsed: () => this.onArchivedCollapsed?.(),
     startSession: () => this.onStartSession?.(),
     selectSession: (session: SessionInfo) => this.onSelectSession?.(session),
+    selectUnmappedSession: (session: SessionInfo) => this.onSelectUnmappedSession?.(session),
     archiveSession: (session: SessionInfo) => this.onArchiveSession?.(session),
     archiveSessionWithDescendants: (session: SessionInfo) => this.onArchiveSessionWithDescendants?.(session),
     archiveSessions: (sessions: SessionInfo[]) => this.onArchiveSessions?.(sessions),
@@ -177,6 +182,9 @@ export class AppNavigationPanel extends LitElement {
         .onToggleCollapsed=${this.childCallbacks.toggleProjects}
         .onSelect=${this.childCallbacks.selectProject}
         .onClose=${this.childCallbacks.closeProject}
+        .unmappedGroups=${this.projectUnmappedGroups}
+        .selectedUnmappedSessionId=${this.selectedUnmappedSessionId}
+        .onSelectUnmappedSession=${this.childCallbacks.selectUnmappedSession}
         .onFocusPreviousSection=${this.childCallbacks.previousFromProjects}
         .onFocusNextSection=${this.childCallbacks.nextFromProjects}
         .onCancelKeyboardNavigation=${this.childCallbacks.cancelKeyboardNavigation}
@@ -196,6 +204,9 @@ export class AppNavigationPanel extends LitElement {
         .onSelect=${this.childCallbacks.selectWorkspace}
         .onDelete=${this.childCallbacks.deleteWorkspace}
         .onCreateWorkspace=${this.childCallbacks.createWorkspace}
+        .unmappedGroups=${this.workspaceUnmappedGroups}
+        .selectedUnmappedSessionId=${this.selectedUnmappedSessionId}
+        .onSelectUnmappedSession=${this.childCallbacks.selectUnmappedSession}
         .onFocusPreviousSection=${this.childCallbacks.previousFromWorkspaces}
         .onFocusNextSection=${this.childCallbacks.nextFromWorkspaces}
         .onCancelKeyboardNavigation=${this.childCallbacks.cancelKeyboardNavigation}
@@ -251,6 +262,19 @@ export class AppNavigationPanel extends LitElement {
    */
   private selectedMachineStatusSnapshot(): MachineStatusSnapshot | undefined {
     return this.machineStatusSnapshots[selectedMachineId({ selectedMachine: this.selectedMachine })];
+  }
+
+  // Split once per `unmappedGroups` change so unrelated panel updates keep
+  // passing the same array identities to the two lists (their render skips
+  // depend on stable inputs).
+  private projectUnmappedGroups: UnmappedSessionGroup[] = [];
+  private workspaceUnmappedGroups: UnmappedSessionGroup[] = [];
+
+  protected override willUpdate(changed: PropertyValues<this>): void {
+    if (changed.has("unmappedGroups")) {
+      this.projectUnmappedGroups = this.unmappedGroups.filter((group) => group.kind === "project");
+      this.workspaceUnmappedGroups = this.unmappedGroups.filter((group) => group.kind === "workspace");
+    }
   }
 
   private async focusNavigableSection(section: KeyboardNavigableSection | undefined): Promise<boolean> {

@@ -648,6 +648,14 @@ export interface SessionInfo extends SessionRef {
   parentSessionPath?: string;
   archived?: boolean;
   archivedAt?: string;
+  /**
+   * Browser-enforced view-only marker for sessions reached outside a live
+   * workspace (the unmapped-history index). It reuses the archived read path:
+   * messages are fetched, but the prompt composer and message actions are
+   * disabled. The server remains the authority for archived sessions' own
+   * write guard.
+   */
+  readOnly?: boolean;
 }
 
 export interface ArchiveSessionsResponse {
@@ -721,6 +729,36 @@ export interface SessionCleanupPreviewResponse {
 export interface SessionCleanupExecuteResponse extends SessionCleanupPreviewResponse {
   archivedSessionIds: string[];
   deletedSessionIds: string[];
+}
+
+/**
+ * Why a cwd with persisted session history is not reachable through a live
+ * project or workspace. `project` covers a session whose project folder is no
+ * longer registered (or never was); `workspace` covers a session whose cwd sits
+ * under a registered project but is not a live workspace of it (e.g. a removed
+ * git worktree).
+ */
+export type UnmappedSessionGroupKind = "project" | "workspace";
+
+/** One cwd with session history that no live project/workspace currently exposes. */
+export interface UnmappedSessionGroup {
+  /** The stored working directory; empty string for legacy sessions that never recorded one. */
+  cwd: string;
+  kind: UnmappedSessionGroupKind;
+  /** True when the directory still exists on disk; false when it was deleted. */
+  exists: boolean;
+  /** Sessions recorded for this cwd, newest first. Always read-only to the browser. */
+  sessions: SessionInfo[];
+}
+
+/**
+ * Session-history index of everything not reachable through registered projects
+ * and workspaces. Derived from Pi's session listing plus PI WEB's archive store;
+ * it is a session-level index, not a full-text message search.
+ */
+export interface UnmappedSessionsResponse {
+  generatedAt: string;
+  groups: UnmappedSessionGroup[];
 }
 
 export interface SessionActivity {

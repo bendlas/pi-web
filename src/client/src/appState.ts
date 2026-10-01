@@ -1,4 +1,4 @@
-import type { AuthProviderOption, CommandOption, CommandResult, ExtensionDialogAnswer, ExtensionDialogCloseReason, Machine, MachineHealth, MachineRuntime, OAuthFlowState, PendingAskUser, PendingExtensionDialog, PiWebStatusResponse, Project, QueuedSessionMessage, SessionActivity, SessionInfo, SessionModelCatalogEntry, SessionStatus, SessionTreeSnapshot, TerminalCommandRun, Workspace } from "./api";
+import type { AuthProviderOption, CommandOption, CommandResult, ExtensionDialogAnswer, ExtensionDialogCloseReason, Machine, MachineHealth, MachineRuntime, OAuthFlowState, PendingAskUser, PendingExtensionDialog, PiWebStatusResponse, Project, QueuedSessionMessage, SessionActivity, SessionInfo, SessionModelCatalogEntry, SessionStatus, SessionTreeSnapshot, TerminalCommandRun, UnmappedSessionGroup, Workspace } from "./api";
 import type { ChatLine } from "./components/shared";
 import type { MachineStatusSnapshot } from "../../shared/machineStatus";
 import type { QualifiedContributionId } from "./plugins/ids";
@@ -16,6 +16,8 @@ export interface AppState {
   machineStatusSnapshots: Record<string, MachineStatusSnapshot>;
   projects: Project[];
   workspaces: Workspace[];
+  /** Session-history groups no live project/workspace exposes; rendered read-only. */
+  unmappedGroups: UnmappedSessionGroup[];
   sessions: SessionInfo[];
   messages: ChatLine[];
   messagePageStart: number;
@@ -132,6 +134,7 @@ export function initialAppState(): AppState {
     machineStatusSnapshots: {},
     projects: [],
     workspaces: [],
+    unmappedGroups: [],
     sessions: [],
     messages: [],
     messagePageStart: 0,

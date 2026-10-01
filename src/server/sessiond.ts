@@ -67,6 +67,7 @@ import {
 import { runSessionDaemonShutdown } from "./sessiond/sessionDaemonShutdown.js";
 import { sessionServiceDependencies } from "./sessiond/sessionServiceDependencies.js";
 import { registerWorkspaceCatalogRoutes } from "./sessiond/workspaceCatalogRoutes.js";
+import { registerUnmappedSessionRoutes } from "./sessiond/unmappedSessionRoutes.js";
 import { registerPluginBackendChannelRoutes } from "./sessiond/pluginBackendChannelRoutes.js";
 import { installPluginBackendChannelWebSocketPayloadLimit } from "./webSocketBridge.js";
 import { registerPairedPluginBackendRoutes } from "./sessiond/pluginBackendRoutes.js";
@@ -449,6 +450,7 @@ function registerSessionDaemonRoutes({ eventHub, machineStatus, statusAttributio
   registerServerNoticeRoutes(app, serverNotices);
   registerAuthRoutes(app, auth);
   registerSessionRoutes(app, sessions, eventHub);
+  registerUnmappedSessionRoutes(app, { sessions, projects, workspaces: workspaceProviders });
   registerWorkspaceCatalogRoutes(app, {
     projects,
     workspaces: workspaceProviders,
