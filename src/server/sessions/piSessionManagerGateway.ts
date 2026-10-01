@@ -192,9 +192,13 @@ class SettingsAwarePiSessionManagerGateway implements PiSessionManagerGateway {
 
   async listAll(): Promise<PiSessionListEntry[]> {
     const envSessionDir = this.resolver.globalEnvSessionDir();
+    // Share the gateway's memoized scanner with the per-cwd listing: the same
+    // fast streaming pass answers unchanged transcripts from one stat, so the
+    // cross-project index costs a full read only for files that actually
+    // changed since the last listing.
     const [defaultSessions, envSessions] = await Promise.all([
-      listSessionsInDefaultPiStore(this.resolver.defaultSessionsRoot()),
-      envSessionDir === undefined ? Promise.resolve([]) : listSessionsInDir(envSessionDir),
+      listSessionsInDefaultPiStore(this.resolver.defaultSessionsRoot(), this.summaryScanner),
+      envSessionDir === undefined ? Promise.resolve([]) : listSessionsInDir(envSessionDir, this.summaryScanner),
     ]);
     return uniqueSessionsByPath([...defaultSessions, ...envSessions]);
   }
@@ -306,17 +310,33 @@ function deriveTranscriptBranch(entries: readonly Record<string, unknown>[]): Re
   return branch.reverse();
 }
 
-export async function listSessionsInDir(sessionDir: string): Promise<PiSessionListEntry[]> {
+/**
+ * How many session directories `listSessionsInDefaultPiStore` scans at once.
+ * Each directory already bounds its own per-file concurrency, so scanning an
+ * unbounded `Promise.all` over a large store multiplies into hundreds of
+ * concurrent transcript reads and pegs a core. Keeping the directory fan-out
+ * small lets the shared scanner's memo and per-file bound do the heavy lifting.
+ */
+const MAX_CONCURRENT_SESSION_DIR_SCANS = 4;
+
+export async function listSessionsInDir(sessionDir: string, scanner?: SessionSummaryScanner): Promise<PiSessionListEntry[]> {
   // listAll(sessionDir) lists without the SDK's internal cwd filter, which would
   // otherwise compare against this process's cwd and drop other projects' sessions.
   // Cwd filtering is applied explicitly by filterSessionsForCwd where needed.
   // Session file headers are written by external tools (Pi CLI, SDK consumers),
   // so their cwd is canonicalized here before it enters pi-web.
-  const sessions = await SessionManager.listAll(sessionDir);
+  //
+  // A scanner, when the caller has one, is preferred over the SDK listing: the
+  // same summary fields, but message bodies are never decoded or parsed and
+  // unchanged files are answered from the memo. The SDK path stays for
+  // standalone callers that have no memoized scanner to share.
+  const sessions = scanner === undefined
+    ? await SessionManager.listAll(sessionDir)
+    : await scanner.scanSessionSummariesInDir(sessionDir);
   return sessions.map((session) => ({ ...session, cwd: canonicalizeStoredCwd(session.cwd) }));
 }
 
-export async function listSessionsInDefaultPiStore(storeRoot: string): Promise<PiSessionListEntry[]> {
+export async function listSessionsInDefaultPiStore(storeRoot: string, scanner?: SessionSummaryScanner): Promise<PiSessionListEntry[]> {
   let entries: Dirent[];
   try {
     entries = await readdir(storeRoot, { withFileTypes: true });
@@ -325,8 +345,24 @@ export async function listSessionsInDefaultPiStore(storeRoot: string): Promise<P
   }
 
   const sessionDirs = entries.filter((entry) => entry.isDirectory()).map((entry) => join(storeRoot, entry.name));
-  const sessions = (await Promise.all(sessionDirs.map((dir) => listSessionsInDir(dir)))).flat();
+  const sessions = (await mapWithConcurrency(sessionDirs, MAX_CONCURRENT_SESSION_DIR_SCANS, (dir) => listSessionsInDir(dir, scanner))).flat();
   return sessions.sort((a, b) => b.modified.getTime() - a.modified.getTime());
+}
+
+/** Run `mapper` over `items` with at most `limit` calls in flight, preserving result order. */
+async function mapWithConcurrency<T, R>(items: readonly T[], limit: number, mapper: (item: T) => Promise<R>): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    for (;;) {
+      const index = nextIndex++;
+      const item = items[index];
+      if (item === undefined) return;
+      results[index] = await mapper(item);
+    }
+  });
+  await Promise.all(workers);
+  return results;
 }
 
 export function filterSessionsForCwd(sessions: readonly PiSessionListEntry[], cwd: string): PiSessionListEntry[] {

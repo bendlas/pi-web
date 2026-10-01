@@ -348,7 +348,9 @@ describe("session summary scanner memo", () => {
     expect(await coldListing(sessionDir)).toEqual(cold);
   });
 
-  it("re-scans a grown file whole", async () => {
+  it("folds a grown file's appended bytes into the memoized summary", async () => {
+    // The prefix ended on a line boundary, so the memo resumes from there and
+    // folds only the appended lines; the result must still match a cold scan.
     const path = await writeSession("grown.jsonl", [
       headerLine({ id: "grown", cwd: WORKSPACE }),
       messageLine({ role: "user", content: textContent("first question") }),

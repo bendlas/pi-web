@@ -1,12 +1,13 @@
 import { LitElement, html, type PropertyValues } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
-import type { Project } from "../api";
+import type { Project, SessionInfo, UnmappedSessionGroup } from "../api";
 import type { MachineStatusSnapshot } from "../../../shared/machineStatus";
 import { actionMenuPanelStyle } from "./actionMenu";
 import { hasStatusUnread, renderActionActivityIndicator, statusActivityKind } from "./activityBadge";
 import type { KeyboardNavigableSection } from "./navigationFocus";
 import { activateSelectableRow, focusSelectedOrFirstSelectableRow, handleSelectableRowKeyboard } from "./selectableRow";
 import { listStyles } from "./shared";
+import "./UnmappedSection";
 
 @customElement("project-list")
 export class ProjectList extends LitElement implements KeyboardNavigableSection {
@@ -20,6 +21,10 @@ export class ProjectList extends LitElement implements KeyboardNavigableSection 
   @property({ type: Boolean, reflect: true }) collapsed = false;
   @property({ attribute: false }) onSelect?: (project: Project) => void;
   @property({ attribute: false }) onClose?: (project: Project) => void;
+  /** Read-only history groups for cwds under no registered project. */
+  @property({ attribute: false }) unmappedGroups: UnmappedSessionGroup[] = [];
+  @property({ attribute: false }) selectedUnmappedSessionId?: string;
+  @property({ attribute: false }) onSelectUnmappedSession?: (session: SessionInfo) => void | Promise<void>;
   @property({ attribute: false }) onToggleCollapsed?: () => void;
   @property({ attribute: false }) onFocusPreviousSection?: () => void | Promise<void>;
   @property({ attribute: false }) onFocusNextSection?: () => void | Promise<void>;
@@ -79,6 +84,12 @@ export class ProjectList extends LitElement implements KeyboardNavigableSection 
                 </div>
               </div>
             `)}
+            <unmapped-section
+              sectionTitle="Unmapped Projects"
+              .groups=${this.unmappedGroups}
+              .selectedSessionId=${this.selectedUnmappedSessionId}
+              .onSelectSession=${this.onSelectUnmappedSession}
+            ></unmapped-section>
           </div>
         `}
       </section>

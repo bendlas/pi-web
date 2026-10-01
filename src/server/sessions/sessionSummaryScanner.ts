@@ -90,9 +90,13 @@ export interface SessionSummaryScannerOptions {
  *   size the cached summary was folded from.
  * - Identity and size unchanged → cached summary. The mtime is re-read from
  *   the same stat, so `modified` stays faithful even on a cache hit.
- * - Identity or size changed → the cached summary is dropped and the file is
- *   scanned whole again. Nothing is folded incrementally, so a warm listing
- *   is always the fold of exactly the bytes it read.
+ * - Identity changed, the file shrank, or its previous scan ended mid-line →
+ *   the cached summary is dropped and the file is scanned whole again.
+ * - Same identity and a larger size whose previous scan ended on a line
+ *   boundary → only the appended bytes are folded into a copy of the cached
+ *   summary. The boundary check is what makes this safe: a scan that folded an
+ *   unterminated trailing line has no boundary to resume from, so it falls back
+ *   to a full scan and no line is ever counted twice.
  * - File gone (ENOENT) → its entry is dropped; entries for files that no
  *   longer appear in the directory listing are pruned on each scan.
  * - {@link clear} drops every entry. There are no TTLs and nothing is
@@ -177,13 +181,51 @@ export class SessionSummaryScanner {
     }
 
     if (stats.dev !== memoized.dev || stats.ino !== memoized.ino || stats.size !== memoized.size) {
-      // Anything but an unchanged file is scanned whole again.
+      // A pure append (same identity, larger size) resumes from the memoized
+      // offset and folds only the new lines. Anything else — a rewrite, a
+      // shrink, or an append the boundary cannot be proven for — is scanned
+      // whole again.
+      if (stats.dev === memoized.dev && stats.ino === memoized.ino && stats.size > memoized.size) {
+        const extended = await this.extendFromAppend(filePath, memoized, chunkBuffer);
+        if (extended !== undefined) return extended;
+      }
       return this.fullScan(filePath, chunkBuffer);
     }
     // Stat-only fast path: unchanged file, so no open and no read. Its one
     // blind spot is an equal-size in-place rewrite that keeps the inode;
     // identity + size cannot see it by design (see the class docs).
     return buildSummaryFromFold(memoized.fold, filePath, stats.mtime);
+  }
+
+  /**
+   * Fold only the bytes appended to a file since its memoized scan, reusing the
+   * memoized summary. Returns undefined when the append assumption cannot be
+   * proven (the file was replaced, the byte before the offset is not a line
+   * boundary, a read came up short, or the file vanished) so the caller falls
+   * back to a full scan.
+   */
+  private async extendFromAppend(filePath: string, memoized: MemoizedSessionSummary, chunkBuffer: () => Buffer): Promise<PiSessionListEntry | undefined> {
+    if (memoized.size === 0 || memoized.fold.rejected) return undefined;
+    const opened = await openSessionFile(filePath);
+    if (opened === undefined) return undefined;
+    const { file, stats } = opened;
+    try {
+      if (stats.dev !== memoized.dev || stats.ino !== memoized.ino || stats.size <= memoized.size) return undefined;
+      // The previous scan must have ended exactly on a newline; otherwise it
+      // folded a partial trailing line that an append may complete, which would
+      // double-count it. Mirrors the transcript branch cache's append guard.
+      const boundary = Buffer.alloc(1);
+      const { bytesRead } = await file.read(boundary, 0, 1, memoized.size - 1);
+      if (bytesRead !== 1 || boundary[0] !== NEWLINE) return undefined;
+      const fold: SummaryFoldState = { ...memoized.fold };
+      const size = await foldFileLines(file, fold, chunkBuffer(), memoized.size);
+      this.memo.set(filePath, { dev: stats.dev, ino: stats.ino, size, fold });
+      return buildSummaryFromFold(fold, filePath, stats.mtime);
+    } catch {
+      return undefined;
+    } finally {
+      await file.close().catch(() => undefined);
+    }
   }
 
   private async fullScan(filePath: string, chunkBuffer: () => Buffer): Promise<PiSessionListEntry | undefined> {
@@ -283,8 +325,8 @@ async function scanWholeSessionFile(filePath: string, chunkBuffer: () => Buffer)
  * whole fold, so the fold always reads the file it was opened on, even if the
  * path is replaced concurrently.
  */
-async function foldFileLines(file: FileHandle, fold: SummaryFoldState, chunkBuffer: Buffer): Promise<number> {
-  let position = 0;
+async function foldFileLines(file: FileHandle, fold: SummaryFoldState, chunkBuffer: Buffer, startPosition = 0): Promise<number> {
+  let position = startPosition;
   let pendingChunks: Buffer[] = [];
   for (;;) {
     const { bytesRead } = await file.read(chunkBuffer, 0, chunkBuffer.length, position);
