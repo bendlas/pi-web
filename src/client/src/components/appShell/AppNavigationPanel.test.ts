@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { trustApi, type Machine, type Project, type SessionInfo, type Workspace } from "../../api";
+import { trustApi, type Machine, type Project, type SessionInfo, type UnmappedSessionGroup, type Workspace } from "../../api";
 import type { MachineStatusSnapshot } from "../../../../shared/machineStatus";
 import { machineStatusSnapshot } from "../../machineStatus.testSupport";
 import { MachineList } from "../MachineList";
@@ -203,6 +203,36 @@ function menuButton(list: ProjectList | WorkspaceList | SessionList, text: strin
   const button = [...(list.shadowRoot?.querySelectorAll("button") ?? [])].find((item) => item.textContent.trim() === text);
   if (!(button instanceof HTMLButtonElement)) throw new Error(`Missing ${text}`);
   return button;
+}
+
+describe("unmapped history scoping", () => {
+  it("scopes unmapped workspace history to the open project and leaves project history machine-wide", async () => {
+    const panel = await mountPanel({}, machine("local"));
+    panel.unmappedGroups = [
+      unmappedGroup("/gone", "project"),
+      unmappedGroup("/repo/project-1-worktrees/gone", "workspace", "project-1"),
+      unmappedGroup("/repo/project-2-worktrees/gone", "workspace", "project-2"),
+    ];
+    panel.selectedProject = project("project-1");
+    await panel.updateComplete;
+
+    const projects = section(panel, "project-list", ProjectList);
+    const workspaces = section(panel, "workspace-list", WorkspaceList);
+    expect(projects.unmappedGroups.map((group) => group.cwd)).toEqual(["/gone"]);
+    expect(workspaces.unmappedGroups.map((group) => group.cwd)).toEqual(["/repo/project-1-worktrees/gone"]);
+  });
+
+  it("hides unmapped workspace history when no project is open", async () => {
+    const panel = await mountPanel({}, machine("local"));
+    panel.unmappedGroups = [unmappedGroup("/repo/project-1-worktrees/gone", "workspace", "project-1")];
+    await panel.updateComplete;
+
+    expect(section(panel, "workspace-list", WorkspaceList).unmappedGroups).toEqual([]);
+  });
+});
+
+function unmappedGroup(cwd: string, kind: UnmappedSessionGroup["kind"], projectId?: string): UnmappedSessionGroup {
+  return { cwd, kind, exists: false, sessions: [], ...(projectId === undefined ? {} : { projectId }) };
 }
 
 function control(list: ProjectList | WorkspaceList | SessionList, selector: string): HTMLElement {

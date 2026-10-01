@@ -1579,6 +1579,26 @@ export class PiSessionService implements SessionRouteService {
   }
 
   /**
+   * Every session PI WEB can list, active store plus archived records, mapped to
+   * the browser session shape. This is the raw input for the unmapped-history
+   * index: it deliberately does not filter by cwd or project, because the point
+   * is to surface sessions whose cwd no live workspace exposes.
+   *
+   * Archived records already absent from the active store are appended; a
+   * session that exists in both (archived and still listed) is represented once,
+   * by its active entry.
+   */
+  async listAllSessionsForIndex(): Promise<ClientSession[]> {
+    const [sessions, archivedRecords] = await Promise.all([this.sessionManager.listAll(), this.archiveStore.list()]);
+    const activeIds = new Set(sessions.map((session) => session.id));
+    const archived = archivedRecords
+      .filter((record) => !activeIds.has(record.sessionId))
+      .map((record) => clientSessionFromArchivedRecord(record, undefined))
+      .filter(isDefined);
+    return [...sessions.map(clientSessionFromListEntry), ...archived];
+  }
+
+  /**
    * Append the tracked subsession children that live in a different workspace of
    * the project to a workspace listing, so they still render nested under their
    * parent there. Children in the same workspace are already part of `sessions`
@@ -2632,9 +2652,36 @@ export class PiSessionService implements SessionRouteService {
   }
 
   async messages(ref: PiSessionRef, page?: { before?: number; limit?: number }): Promise<ClientMessagePage> {
-    const session = await this.getOrOpen(ref);
-    const result = pageMessagesAtSafeBoundary(historyMessagesFromEntries(await this.readableSessionBranch(ref, session)), page);
-    return { ...result, messages: result.messages.map((message) => this.browserTranscriptMessage(session, message)) };
+    try {
+      const session = await this.getOrOpen(ref);
+      const result = pageMessagesAtSafeBoundary(historyMessagesFromEntries(await this.readableSessionBranch(ref, session)), page);
+      return { ...result, messages: result.messages.map((message) => this.browserTranscriptMessage(session, message)) };
+    } catch (error) {
+      // A session whose recorded cwd no longer exists (a removed worktree or an
+      // unmapped project) cannot be opened as a live runtime: the SDK refuses
+      // to resume into a missing directory. Do not hand back the failure when
+      // the transcript file is still readable — serve it straight from disk so
+      // deleted/unmapped history stays viewable. The browser already renders
+      // these sessions read-only.
+      if (!isMissingSessionCwdError(error)) throw error;
+      const detached = await this.readDetachedTranscript(ref);
+      if (detached === undefined) throw error;
+      return pageMessagesAtSafeBoundary(historyMessagesFromEntries(detached), page);
+    }
+  }
+
+  /**
+   * Transcript of a session read directly from its file, without a runtime.
+   * Used only when opening the runtime failed because the recorded cwd is gone.
+   * Returns undefined when the file cannot be located or read, so the original
+   * open failure is the one the caller sees.
+   */
+  private async readDetachedTranscript(ref: PiSessionRef): Promise<unknown[] | undefined> {
+    if (this.sessionManager.readBranch === undefined) return undefined;
+    const archived = await this.getArchived(ref);
+    if (archived?.archivePath !== undefined) return await this.sessionManager.readBranch(archived.archivePath);
+    const match = await this.sessionManager.resolveSessionFile(ref.cwd, ref.id);
+    return match === undefined ? undefined : await this.sessionManager.readBranch(match.path);
   }
 
   async media(ref: PiSessionRef, mediaId: string): Promise<SessionMedia | undefined> {
@@ -5205,6 +5252,15 @@ function findSessionByExactId(sessions: readonly PiSessionListEntry[], sessionId
 
 function uniqueStrings(values: readonly string[]): string[] {
   return [...new Set(values)];
+}
+
+/**
+ * The SDK's `MissingSessionCwdError`. It is not exported by the package, so it
+ * is recognised by the `name` it sets — the same way a caller can tell a
+ * missing-cwd resume apart from any other open failure.
+ */
+function isMissingSessionCwdError(error: unknown): boolean {
+  return error instanceof Error && error.name === "MissingSessionCwdError";
 }
 
 function errorMessage(error: unknown): string {

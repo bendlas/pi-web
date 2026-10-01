@@ -71,6 +71,7 @@ import {
 import { runSessionDaemonShutdown } from "./sessiond/sessionDaemonShutdown.js";
 import { sessionServiceDependencies } from "./sessiond/sessionServiceDependencies.js";
 import { registerWorkspaceCatalogRoutes } from "./sessiond/workspaceCatalogRoutes.js";
+import { registerUnmappedSessionRoutes } from "./sessiond/unmappedSessionRoutes.js";
 import { registerPluginBackendChannelRoutes } from "./sessiond/pluginBackendChannelRoutes.js";
 import { installPluginBackendChannelWebSocketPayloadLimit } from "./webSocketBridge.js";
 import { registerPairedPluginBackendRoutes } from "./sessiond/pluginBackendRoutes.js";
@@ -393,6 +394,11 @@ async function createSessionDaemonRuntime() {
       projects,
       catalog: workspaceProviders,
       logger: { warn: (details, message) => app.log.warn(details, message) },
+      // The git worktree file watches are the only signal: a real topology
+      // change drops the cached attribution so the next status projection
+      // re-resolves. Read-only plugin backend traffic no longer invalidates it,
+      // which is what kept the daemon spawning git/jj on every request.
+      onTopologyChanged: () => { statusAttribution.invalidate(); },
     });
     workspaceTopologyWatcher.start();
     const runtimeComponent = Object.freeze({
@@ -456,17 +462,14 @@ function registerSessionDaemonRoutes({ eventHub, machineStatus, statusAttributio
   registerServerNoticeRoutes(app, serverNotices);
   registerAuthRoutes(app, auth);
   registerSessionRoutes(app, sessions, eventHub);
+  registerUnmappedSessionRoutes(app, { sessions, projects, workspaces: workspaceProviders });
   registerWorkspaceCatalogRoutes(app, {
     projects,
     workspaces: workspaceProviders,
     providerRuntime: workspaceProviderRuntime,
   });
   registerWorkspaceNotificationRoutes(app, { projects, workspaces: workspaceProviders, changes: workspaceChanges });
-  registerPairedPluginBackendRoutes(app, {
-    projects,
-    backends: pluginBackends,
-    onWorkspacesMutated: () => { statusAttribution.invalidate(); },
-  });
+  registerPairedPluginBackendRoutes(app, { projects, backends: pluginBackends });
   registerPluginBackendChannelRoutes(app, { projects, backends: pluginBackends });
   registerWorkspaceRemovalRoutes(app, {
     projects,

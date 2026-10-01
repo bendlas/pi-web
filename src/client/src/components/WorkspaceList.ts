@@ -2,7 +2,7 @@ import { LitElement, css, html, type PropertyValues, type TemplateResult } from 
 import { customElement, property, state } from "lit/decorators.js";
 import { repeat } from "lit/directives/repeat.js";
 import { trustApi } from "../api";
-import type { Workspace } from "../api";
+import type { SessionInfo, UnmappedSessionGroup, Workspace } from "../api";
 import type { MachineStatusSnapshot } from "../../../shared/machineStatus";
 import { writeClipboardText } from "../clipboard";
 import type { WorkspaceLabelItem } from "../plugins/types";
@@ -12,6 +12,7 @@ import { hasStatusUnread, renderActionActivityIndicator, statusActivityKind } fr
 import type { KeyboardNavigableSection } from "./navigationFocus";
 import { activateSelectableRow, focusSelectedOrFirstSelectableRow, handleSelectableRowKeyboard } from "./selectableRow";
 import { listStyles } from "./shared";
+import "./UnmappedSection";
 import { renderWorkspaceLabelInlineItems } from "./workspaceLabel";
 
 interface WorkspaceTrustState {
@@ -38,6 +39,10 @@ export class WorkspaceList extends LitElement implements KeyboardNavigableSectio
   @property({ attribute: false }) onSelect?: (workspace: Workspace) => void;
   @property({ attribute: false }) onDelete?: (workspace: Workspace) => void;
   @property({ attribute: false }) onMove?: (workspace: Workspace, direction: -1 | 1) => void;
+  /** Read-only history groups for cwds under a registered project but not a live workspace. */
+  @property({ attribute: false }) unmappedGroups: UnmappedSessionGroup[] = [];
+  @property({ attribute: false }) selectedUnmappedSessionId?: string;
+  @property({ attribute: false }) onSelectUnmappedSession?: (session: SessionInfo) => void | Promise<void>;
   /** When true, the workspace authority supports creating new workspaces for this project. */
   @property({ type: Boolean }) canCreateWorkspace = false;
   @property({ attribute: false }) onCreateWorkspace?: () => void;
@@ -130,6 +135,12 @@ export class WorkspaceList extends LitElement implements KeyboardNavigableSectio
                 </div>
               `;
             })}
+            <unmapped-section
+              sectionTitle="Unmapped Workspaces"
+              .groups=${this.unmappedGroups}
+              .selectedSessionId=${this.selectedUnmappedSessionId}
+              .onSelectSession=${this.onSelectUnmappedSession}
+            ></unmapped-section>
           </div>
         `}
       </section>
