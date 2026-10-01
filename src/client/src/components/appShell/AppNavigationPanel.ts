@@ -1,13 +1,13 @@
 import { LocalizationController } from "../../localization/browser";
 import { appShellMessages as m } from "../../appShellMessages";
 import { stylesheetIntegrationCapability } from "../../plugins/styles";
-import { LitElement, css, html } from "lit";
+import { LitElement, css, html, type PropertyValues } from "lit";
 import { styleMap } from "lit/directives/style-map.js";
 import { NavigationSectionResizeController, type ResizableNavigationSection } from "../../appShell/navigationSectionResizeController";
 import type { NavigationSectionMeasurement } from "./NavigationSectionResizeHandle";
 import "./NavigationSectionResizeHandle";
 import { customElement, property, query, state } from "lit/decorators.js";
-import type { Machine, MachineHealth, Project, SessionActivity, SessionInfo, SessionStatus, Workspace } from "../../api";
+import type { Machine, MachineHealth, Project, SessionActivity, SessionInfo, SessionStatus, UnmappedSessionGroup, Workspace } from "../../api";
 import type { MachineStatusSnapshot } from "../../../../shared/machineStatus";
 import type { SessionLabelItem, WorkspaceLabelItem } from "../../plugins/types";
 import { selectedMachineId } from "../../controllers/types";
@@ -44,6 +44,10 @@ export class AppNavigationPanel extends LitElement {
   @property({ type: Boolean }) workspaceSelectionVisible = true;
   @property({ attribute: false }) workspaces: Workspace[] = [];
   @property({ attribute: false }) selectedWorkspace?: Workspace;
+  /** Read-only history groups, split by kind into the Projects and Workspaces lists. */
+  @property({ attribute: false }) unmappedGroups: UnmappedSessionGroup[] = [];
+  @property({ attribute: false }) selectedUnmappedSessionId?: string;
+  @property({ attribute: false }) onSelectUnmappedSession?: (session: SessionInfo) => void | Promise<void>;
   @property({ attribute: false }) sessions: SessionInfo[] = [];
   @property({ attribute: false }) selectedSession?: SessionInfo;
   @property({ attribute: false }) pinnedRootIds: string[] = [];
@@ -184,6 +188,7 @@ export class AppNavigationPanel extends LitElement {
     archivedCollapsed: () => this.onArchivedCollapsed?.(),
     startSession: () => this.onStartSession?.(),
     selectSession: (session: SessionInfo) => this.onSelectSession?.(session),
+    selectUnmappedSession: (session: SessionInfo) => this.onSelectUnmappedSession?.(session),
     archiveSession: (session: SessionInfo) => this.onArchiveSession?.(session),
     archiveSessionWithDescendants: (session: SessionInfo) => this.onArchiveSessionWithDescendants?.(session),
     archiveSessions: (sessions: SessionInfo[]) => this.onArchiveSessions?.(sessions),
@@ -264,6 +269,9 @@ export class AppNavigationPanel extends LitElement {
         .onSelect=${this.childCallbacks.selectProject}
         .onClose=${this.childCallbacks.closeProject}
         .onMove=${this.childCallbacks.moveProject}
+        .unmappedGroups=${this.projectUnmappedGroups}
+        .selectedUnmappedSessionId=${this.selectedUnmappedSessionId}
+        .onSelectUnmappedSession=${this.childCallbacks.selectUnmappedSession}
         .onFocusPreviousSection=${this.childCallbacks.previousFromProjects}
         .onFocusNextSection=${this.childCallbacks.nextFromProjects}
         .onCancelKeyboardNavigation=${this.childCallbacks.cancelKeyboardNavigation}
@@ -286,6 +294,9 @@ export class AppNavigationPanel extends LitElement {
         .onSelect=${this.childCallbacks.selectWorkspace}
         .onDelete=${this.childCallbacks.deleteWorkspace}
         .onMove=${this.childCallbacks.moveWorkspace}
+        .unmappedGroups=${this.workspaceUnmappedGroups}
+        .selectedUnmappedSessionId=${this.selectedUnmappedSessionId}
+        .onSelectUnmappedSession=${this.childCallbacks.selectUnmappedSession}
         .onFocusPreviousSection=${this.childCallbacks.previousFromWorkspaces}
         .onFocusNextSection=${this.childCallbacks.nextFromWorkspaces}
         .onCancelKeyboardNavigation=${this.childCallbacks.cancelKeyboardNavigation}
@@ -374,6 +385,21 @@ export class AppNavigationPanel extends LitElement {
    */
   private selectedMachineStatusSnapshot(): MachineStatusSnapshot | undefined {
     return this.machineStatusSnapshots[selectedMachineId({ selectedMachine: this.selectedMachine })];
+  }
+
+  // Split once per input change so unrelated panel updates keep passing the
+  // same array identities to the two lists (their render skips depend on stable
+  // inputs). Project groups track the whole machine; workspace groups are
+  // scoped to the open project, matching the live workspace rows beside them.
+  private projectUnmappedGroups: UnmappedSessionGroup[] = [];
+  private workspaceUnmappedGroups: UnmappedSessionGroup[] = [];
+
+  protected override willUpdate(changed: PropertyValues<this>): void {
+    if (changed.has("unmappedGroups") || changed.has("selectedProject")) {
+      this.projectUnmappedGroups = this.unmappedGroups.filter((group) => group.kind === "project");
+      const projectId = this.selectedProject?.id;
+      this.workspaceUnmappedGroups = this.unmappedGroups.filter((group) => group.kind === "workspace" && group.projectId === projectId);
+    }
   }
 
   private async focusNavigableSection(section: KeyboardNavigableSection | undefined): Promise<boolean> {

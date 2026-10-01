@@ -167,7 +167,9 @@ it("releases locale listeners on disconnection", async () => {
   const list = new WorkspaceList();
   document.body.append(list);
   await list.updateComplete;
-  expect(subscribe).toHaveBeenCalledOnce();
+  // The list and the unmapped-history section it always mounts each own a
+  // localization controller, so both subscribe while connected.
+  expect(subscribe).toHaveBeenCalledTimes(2);
   list.remove();
   const update = vi.spyOn(list, "requestUpdate");
   await localization.setPreferences({ language: "ar-XB", formatLocale: "en" });

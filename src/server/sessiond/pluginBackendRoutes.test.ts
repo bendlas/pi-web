@@ -27,7 +27,7 @@ describe("session daemon paired plugin backend routes", () => {
   it("routes machine/project calls from current authority and rejects wire authority mismatches", async () => {
     const request = vi.fn<PluginBackendRegistry["request"]>(() => Promise.resolve(null));
     const projects = { requireProject: vi.fn(() => Promise.resolve(project)) };
-    registerPairedPluginBackendRoutes(app, { projects, backends: { request }, onWorkspacesMutated: vi.fn() });
+    registerPairedPluginBackendRoutes(app, { projects, backends: { request } });
     const machine = await app.inject({ method: "POST", url: "/paired-plugin-backends/board/read", payload: { scope: "machine", revision: "r1", input: null } });
     expect(machine.statusCode).toBe(200);
     expect(request.mock.calls[0]?.[0]).toMatchObject({ scope: "machine", project: undefined, workspaceId: undefined });
@@ -47,8 +47,7 @@ describe("session daemon paired plugin backend routes", () => {
       return { operation, input };
     });
     const workspaceId = await folderWorkspaceId();
-    const onWorkspacesMutated = vi.fn();
-    registerPairedPluginBackendRoutes(app, { projects: projectReader(), backends, onWorkspacesMutated });
+    registerPairedPluginBackendRoutes(app, { projects: projectReader(), backends });
 
     const response = await app.inject({
       method: "POST",
@@ -61,7 +60,6 @@ describe("session daemon paired plugin backend routes", () => {
     expect(response.json()).toEqual({ operation: "cards.summary", input: { cards: 2 } });
     expect(observedSignal).toBeInstanceOf(AbortSignal);
     expect(observedSignal?.aborted).toBe(true);
-    expect(onWorkspacesMutated).toHaveBeenCalledOnce();
   });
 
   it("does not dispatch a request admitted before quiesce after backend shutdown", async () => {
@@ -75,7 +73,7 @@ describe("session daemon paired plugin backend routes", () => {
     const peerRequest = vi.fn(() => ({ shouldNotRun: true }));
     const backends = registryFor(peerRequest);
     const workspaceId = await folderWorkspaceId();
-    registerPairedPluginBackendRoutes(app, { projects, backends, onWorkspacesMutated: vi.fn() });
+    registerPairedPluginBackendRoutes(app, { projects, backends });
     const response = app.inject({
       method: "POST",
       url: `/paired-plugin-backends/board/projects/${encodeURIComponent(project.id)}/workspaces/${workspaceId}/cards.summary`,
@@ -94,7 +92,7 @@ describe("session daemon paired plugin backend routes", () => {
 
   it("does not register the retired owner-backed route", async () => {
     const request = vi.fn<PluginBackendRegistry["request"]>();
-    registerPairedPluginBackendRoutes(app, { projects: projectReader(), backends: { request }, onWorkspacesMutated: vi.fn() });
+    registerPairedPluginBackendRoutes(app, { projects: projectReader(), backends: { request } });
 
     const response = await app.inject({
       method: "POST",
@@ -109,7 +107,7 @@ describe("session daemon paired plugin backend routes", () => {
   it("serializes invalid, stale, and thrown operation failures without a stack", async () => {
     const backends = registryFor(() => Promise.reject(new Error("neutral handler failed")));
     const workspaceId = await folderWorkspaceId();
-    registerPairedPluginBackendRoutes(app, { projects: projectReader(), backends, onWorkspacesMutated: vi.fn() });
+    registerPairedPluginBackendRoutes(app, { projects: projectReader(), backends });
     const base = `/paired-plugin-backends/board/projects/${encodeURIComponent(project.id)}/workspaces/${workspaceId}`;
 
     const invalid = await app.inject({ method: "POST", url: `${base}/Invalid`, payload: { revision: "server-r1", input: null } });
@@ -132,7 +130,7 @@ describe("session daemon paired plugin backend routes", () => {
 
   it("rejects a missing project and malformed request envelope before dispatch", async () => {
     const request = vi.fn<PluginBackendRegistry["request"]>();
-    registerPairedPluginBackendRoutes(app, { projects: projectReader(), backends: { request }, onWorkspacesMutated: vi.fn() });
+    registerPairedPluginBackendRoutes(app, { projects: projectReader(), backends: { request } });
     const path = "/paired-plugin-backends/board/projects/missing/workspaces/w1/cards.summary";
 
     const malformed = await app.inject({ method: "POST", url: path, payload: { input: null } });
@@ -151,7 +149,7 @@ describe("session daemon paired plugin backend routes", () => {
       observedSignal = signal;
       return Promise.resolve(null);
     });
-    registerPairedPluginBackendRoutes(app, { projects: projectReader(), backends: { request }, onWorkspacesMutated: vi.fn() });
+    registerPairedPluginBackendRoutes(app, { projects: projectReader(), backends: { request } });
 
     const response = await app.inject({
       method: "POST",
