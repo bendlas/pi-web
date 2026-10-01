@@ -4,7 +4,7 @@ import { stylesheetIntegrationCapability } from "../plugins/styles";
 import { LitElement, html, nothing, type PropertyValues } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import { repeat } from "lit/directives/repeat.js";
-import { trustApi, workspacesApi, type Project } from "../api";
+import { trustApi, workspacesApi, type Project, type SessionInfo, type UnmappedSessionGroup } from "../api";
 import { CORE_STATUS_FLAGS, type MachineStatusSnapshot } from "../../../shared/machineStatus";
 import { renderCopyIdAction } from "./copyIdAction";
 import { DetailCopyController } from "./detailCopy";
@@ -17,6 +17,7 @@ import { sidebarListStyles } from "./sidebarListStyles";
 import type { DropPosition } from "./listReorder";
 import { ListReorderController } from "./listReorderController";
 import { renderTrustMenuControl, type TrustMenuState } from "./trustMenuControl";
+import "./UnmappedSection";
 
 interface RootTrustState extends TrustMenuState {
   workspaceId?: string;
@@ -45,6 +46,10 @@ export class ProjectList extends LitElement implements KeyboardNavigableSection 
   @property({ attribute: false }) onMove?: (project: Project, direction: -1 | 1) => void;
   /** The parent persists a drop relative to a visible neighbor. */
   @property({ attribute: false }) onReorder?: (project: Project, neighbor: Project, position: DropPosition) => void;
+  /** Read-only history groups for cwds under no registered project. */
+  @property({ attribute: false }) unmappedGroups: UnmappedSessionGroup[] = [];
+  @property({ attribute: false }) selectedUnmappedSessionId?: string;
+  @property({ attribute: false }) onSelectUnmappedSession?: (session: SessionInfo) => void | Promise<void>;
   @property({ attribute: false }) onToggleCollapsed?: () => void;
   @property({ attribute: false }) onFocusPreviousSection?: () => void | Promise<void>;
   @property({ attribute: false }) onFocusNextSection?: () => void | Promise<void>;
@@ -163,6 +168,12 @@ export class ProjectList extends LitElement implements KeyboardNavigableSection 
                 </div>
               `;
             })}
+            <unmapped-section
+              scope="projects"
+              .groups=${this.unmappedGroups}
+              .selectedSessionId=${this.selectedUnmappedSessionId}
+              .onSelectSession=${this.onSelectUnmappedSession}
+            ></unmapped-section>
           </div>
         `}
       </section>
