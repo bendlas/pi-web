@@ -1,6 +1,6 @@
 import type { WorkspacePanelContext } from "@jmfederico/pi-web/plugin-api";
 import type { WorkspaceTask } from "./config.js";
-import { TASKS_CONFIG_PATH } from "./workspaceTasksClient.js";
+import { SCRIPTS_CONFIG_PATH } from "./workspaceTasksClient.js";
 import { runWorkspaceTaskInTerminal } from "./taskRunner.js";
 import {
   loadWorkspaceTasksConfig,
@@ -34,11 +34,13 @@ interface TaskStatus {
 }
 
 /**
- * A panel "source" describes where a task list comes from and how it is loaded.
- * The Tasks panel combines every source into a single tab, each rendered as its
- * own section: the Workspace Tasks source reads the per-workspace
- * `.pi-web/tasks.json`, and the Global Tasks source reads the machine-wide
- * `<dataDir>/tasks.json`. Global tasks are never merged with the workspace list.
+ * A panel "source" describes where a script list comes from and how it is loaded.
+ * The Scripts panel combines every source into a single tab, each rendered as its
+ * own section: the Workspace Scripts source reads the per-workspace
+ * `.pi-web/scripts.json`, and the Global Scripts source reads the machine-wide
+ * `<dataDir>/scripts.json`. A legacy `.pi-web/tasks.json` / `<dataDir>/tasks.json`
+ * is still read and migrated opportunistically. Global scripts are never merged
+ * with the workspace list.
  */
 interface TasksPanelSource {
   readonly id: string;
@@ -52,8 +54,8 @@ interface TasksPanelSource {
 
 const workspaceTasksSource: TasksPanelSource = {
   id: "workspace",
-  panelTitle: "Workspace Tasks",
-  configPathLabel: TASKS_CONFIG_PATH,
+  panelTitle: "Workspace Scripts",
+  configPathLabel: SCRIPTS_CONFIG_PATH,
   missingMessage: tasksConfigMissingMessage,
   missingHint: tasksConfigMissingHint,
   cacheKey: (context) => cacheKeyForContext(context),
@@ -62,7 +64,7 @@ const workspaceTasksSource: TasksPanelSource = {
 
 const globalTasksSource: TasksPanelSource = {
   id: "global",
-  panelTitle: "Global Tasks",
+  panelTitle: "Global Scripts",
   configPathLabel: globalTasksConfigPathLabel,
   missingMessage: globalTasksMissingMessage,
   missingHint: globalTasksMissingHint,
@@ -146,7 +148,7 @@ class TasksPanelElement extends HTMLElement {
     this.root.innerHTML = `
       ${taskStyles()}
       <section class="toolbar">
-        <strong>Tasks</strong>
+        <strong>Scripts</strong>
         <span class="toolbar-tasks">
           <button class="secondary" data-refresh-config ${this.isAnyLoading(context) ? "disabled" : ""}>Refresh</button>
           <button class="secondary" data-open-terminal>Open Terminal</button>
@@ -195,10 +197,10 @@ class TasksPanelElement extends HTMLElement {
     if (state.kind === "unavailable") return renderUnavailableState(state);
 
     if (state.config.tasks.length === 0) {
-      return `<p class="muted">No tasks are defined in ${escapeHtml(state.path)}. Add tasks to the file, then click Refresh.</p>`;
+      return `<p class="muted">No scripts are defined in ${escapeHtml(state.path)}. Add scripts to the file, then click Refresh.</p>`;
     }
     return `
-      <p class="muted">Tasks run in a dedicated workspace terminal, then switch to that terminal. Edit ${escapeHtml(state.path)} and click Refresh to reload.</p>
+      <p class="muted">Scripts run in a dedicated workspace terminal, then switch to that terminal. Edit ${escapeHtml(state.path)} and click Refresh to reload.</p>
       ${renderTaskGroups(source, state.config.tasks, this.runningKey)}
     `;
   }
@@ -210,7 +212,7 @@ class TasksPanelElement extends HTMLElement {
   }
 
   private async refreshAll(context: WorkspacePanelContext): Promise<void> {
-    this.status = { kind: "info", message: "Refreshing task lists…" };
+    this.status = { kind: "info", message: "Refreshing script lists…" };
     for (const source of taskSources) {
       configCache.set(cacheKeyForSource(source, context), { kind: "loading" });
     }
@@ -220,7 +222,7 @@ class TasksPanelElement extends HTMLElement {
     if (!this.isCurrentContext(context)) return;
     const loaded = results.filter((result): result is Extract<ConfigState, { kind: "loaded" }> => result.kind === "loaded");
     this.status = loaded.length > 0
-      ? { kind: "success", message: `Loaded ${String(loaded.reduce((total, result) => total + result.config.tasks.length, 0))} task(s).` }
+      ? { kind: "success", message: `Loaded ${String(loaded.reduce((total, result) => total + result.config.tasks.length, 0))} script(s).` }
       : undefined;
     this.render();
   }
@@ -231,7 +233,7 @@ class TasksPanelElement extends HTMLElement {
     if (source === undefined) return Promise.resolve();
     const task = taskFromConfigState(getCachedConfig(source, context), taskId);
     if (task === undefined) {
-      this.status = { kind: "error", message: "That task is no longer available. Click Refresh, then try again." };
+      this.status = { kind: "error", message: "That script is no longer available. Click Refresh, then try again." };
       this.render();
       return Promise.resolve();
     }
@@ -245,7 +247,7 @@ class TasksPanelElement extends HTMLElement {
   private async dispatchTask(context: WorkspacePanelContext, source: TasksPanelSource, task: WorkspaceTask): Promise<void> {
     const key = `${source.id}:${task.id}`;
     if (this.runningKey !== undefined) {
-      this.status = { kind: "info", message: "Another task is already starting. Wait for it to finish dispatching, then try again." };
+      this.status = { kind: "info", message: "Another script is already starting. Wait for it to finish dispatching, then try again." };
       this.render();
       return;
     }

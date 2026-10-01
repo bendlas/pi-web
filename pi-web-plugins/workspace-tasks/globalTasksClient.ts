@@ -3,11 +3,11 @@ import type { WorkspaceTasksConfigLoadResult } from "./workspaceTasksClient.js";
 /** Same-origin route served by the session daemon (see globalTasksRoutes.ts). */
 export const globalTasksRoutePath = "api/global-tasks/config";
 
-export const globalTasksConfigPathLabel = "<data-dir>/tasks.json";
-export const globalTasksMissingMessage = "No global tasks configured.";
-export const globalTasksMissingHint = "Create ~/.pi-web/tasks.json to define tasks available in every workspace.";
-export const globalTasksUnavailableMessage = "Could not load global tasks.";
-export const globalTasksRefreshHint = "Fix ~/.pi-web/tasks.json, then click Refresh.";
+export const globalTasksConfigPathLabel = "<data-dir>/scripts.json";
+export const globalTasksMissingMessage = "No global scripts configured.";
+export const globalTasksMissingHint = "Create ~/.pi-web/scripts.json to define scripts available in every workspace (legacy ~/.pi-web/tasks.json is still read).";
+export const globalTasksUnavailableMessage = "Could not load global scripts.";
+export const globalTasksRefreshHint = "Fix ~/.pi-web/scripts.json, then click Refresh.";
 
 export type GlobalTasksConfigLoadResult = WorkspaceTasksConfigLoadResult;
 
@@ -25,11 +25,13 @@ function globalTasksConfigUrl(): string {
 }
 
 /**
- * Load the machine-wide task manifest. Global tasks live in the data dir, which
- * a browser plugin cannot read through the workspace-scoped `files` API, so the
- * panel fetches them from the dedicated session-daemon route instead of reading
- * the file directly. Network and parse failures degrade to `unavailable` rather
- * than throwing, matching the Workspace Tasks panel's resilience contract.
+ * Load the machine-wide scripts manifest. Global scripts live in the data dir,
+ * which a browser plugin cannot read through the workspace-scoped `files` API,
+ * so the panel fetches them from the dedicated session-daemon route instead of
+ * reading the file directly. The server prefers `<data-dir>/scripts.json` and
+ * still serves a legacy `<data-dir>/tasks.json` while migrating it; network and
+ * parse failures degrade to `unavailable` rather than throwing, matching the
+ * Scripts panel's resilience contract.
  */
 export async function loadGlobalTasksConfig(): Promise<GlobalTasksConfigLoadResult> {
   let response: Response;

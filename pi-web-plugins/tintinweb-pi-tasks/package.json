@@ -1,0 +1,9 @@
+{
+  "name": "@pi-web/tintinweb-pi-tasks-plugin",
+  "private": true,
+  "piWeb": {
+    "plugins": [
+      { "id": "tintinweb-pi-tasks", "browserRoot": ".", "module": "pi-web-plugin.js" }
+    ]
+  }
+}

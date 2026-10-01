@@ -121,7 +121,7 @@ Project-local `pathAccess.allowedPaths` entries are merged after the global list
 
 Project-local `uploads.defaultFolder` overrides the global upload destination for workspaces in that project, and project-local `attachments.defaultFolder` overrides the global prompt-attachment destination the same way. These defaults also apply when accessing the project through Fleet.
 
-Plugins may own separate project files, such as `.pi-web/tasks.json` for the built-in Workspace Tasks plugin.
+Plugins may own separate project files, such as `.pi-web/scripts.json` for the built-in Workspace Scripts plugin.
 
 PI WEB also honors one optional project hook; see [Worktree pre-remove hook](#worktree-pre-remove-hook). See also [Add-workspace worktree location](#add-workspace-worktree-location) for where new worktrees are created.
 

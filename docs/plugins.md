@@ -158,11 +158,12 @@ Keep gateways and targets compatible. During this plugin API transition, upgrade
 - **Jujutsu** discovers Jujutsu workspaces and takes over from Git for projects inside a `jj` repository, including colocated repositories. It is active only where `jj` is installed; disable it to keep Git in charge.
 - **Info** displays PI WEB status and copyable diagnostics.
 - **Updates** shows update/restart guidance when relevant and offers a manual update check.
-- **Workspace Tasks** turns project commands into runnable buttons.
+- **Workspace Scripts** turns project commands into runnable buttons.
+- **Tasks** shows the Pi agent's `TaskCreate` task list for the active workspace.
 
-### Workspace Tasks
+### Workspace Scripts
 
-Create `.pi-web/tasks.json` in a project:
+Create `.pi-web/scripts.json` in a project:
 
 ```json
 {
@@ -174,7 +175,11 @@ Create `.pi-web/tasks.json` in a project:
 }
 ```
 
-Open the **Tasks** tab to run a command in a workspace terminal. Tasks can also have a `description`. Review commands before running them, especially in shared repositories. Disabling the plugin hides the tab without changing the project file.
+Open the **Scripts** tab to run a command in a workspace terminal. Scripts can also have a `description`. Review commands before running them, especially in shared repositories. A `.pi-web/tasks.json` from an earlier PI WEB version is still read and copied to `.pi-web/scripts.json` when first loaded (the machine-wide file behaves the same way). Disabling the plugin (bundled id `workspace-tasks`; the name is historical) hides the tab without changing the project file.
+
+### Tasks
+
+The built-in **Tasks** tab (bundled plugin id `tintinweb-pi-tasks`, named after the `@tintinweb/pi-tasks` extension that writes these files) lists the Pi agent's tasks for the active workspace, read from `.pi/tasks/` (`tasks-<sessionId>.json` per session plus a shared `tasks.json`). It refreshes when the workspace's files change and is view-only: use the Pi `TaskCreate`/`TaskUpdate` tools to change the list. Scripts are separate; see [Workspace Scripts](#workspace-scripts).
 
 ### Relays
 

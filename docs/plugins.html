@@ -256,10 +256,11 @@ ln -s /path/to/plugin-folder ~/.pi-web/plugins/my-plugin</code></pre></div>
 <li><strong>Jujutsu</strong> discovers Jujutsu workspaces and takes over from Git for projects inside a <code>jj</code> repository, including colocated repositories. It is active only where <code>jj</code> is installed; disable it to keep Git in charge.</li>
 <li><strong>Info</strong> displays PI WEB status and copyable diagnostics.</li>
 <li><strong>Updates</strong> shows update/restart guidance when relevant and offers a manual update check.</li>
-<li><strong>Workspace Tasks</strong> turns project commands into runnable buttons.</li>
+<li><strong>Workspace Scripts</strong> turns project commands into runnable buttons.</li>
+<li><strong>Tasks</strong> shows the Pi agent&#39;s <code>TaskCreate</code> task list for the active workspace.</li>
 </ul>
-<h3 id="workspace-tasks">Workspace Tasks</h3>
-<p>Create <code>.pi-web/tasks.json</code> in a project:</p>
+<h3 id="workspace-scripts">Workspace Scripts</h3>
+<p>Create <code>.pi-web/scripts.json</code> in a project:</p>
 <div class="code-card"><div class="copy-row"><strong>Example</strong><button class="copy-button" data-copy="#plugin-example-3">Copy</button></div><pre id="plugin-example-3"><code>{
   "version": 1,
   "tasks": [
@@ -267,7 +268,9 @@ ln -s /path/to/plugin-folder ~/.pi-web/plugins/my-plugin</code></pre></div>
     { "id": "db.reset", "title": "Reset database", "command": "npm run db:reset", "confirm": true }
   ]
 }</code></pre></div>
-<p>Open the <strong>Tasks</strong> tab to run a command in a workspace terminal. Tasks can also have a <code>description</code>. Review commands before running them, especially in shared repositories. Disabling the plugin hides the tab without changing the project file.</p>
+<p>Open the <strong>Scripts</strong> tab to run a command in a workspace terminal. Scripts can also have a <code>description</code>. Review commands before running them, especially in shared repositories. A <code>.pi-web/tasks.json</code> from an earlier PI WEB version is still read and copied to <code>.pi-web/scripts.json</code> when first loaded (the machine-wide file behaves the same way). Disabling the plugin (bundled id <code>workspace-tasks</code>; the name is historical) hides the tab without changing the project file.</p>
+<h3 id="tasks">Tasks</h3>
+<p>The built-in <strong>Tasks</strong> tab (bundled plugin id <code>tintinweb-pi-tasks</code>, named after the <code>@tintinweb/pi-tasks</code> extension that writes these files) lists the Pi agent&#39;s tasks for the active workspace, read from <code>.pi/tasks/</code> (<code>tasks-&lt;sessionId&gt;.json</code> per session plus a shared <code>tasks.json</code>). It refreshes when the workspace&#39;s files change and is view-only: use the Pi <code>TaskCreate</code>/<code>TaskUpdate</code> tools to change the list. Scripts are separate; see <a href="#workspace-scripts">Workspace Scripts</a>.</p>
 <h3 id="relays">Relays</h3>
 <p>The shipped Relay package adds agent prompts and skills for carrying work across sessions, plus a read-only <strong>Relays</strong> tab for inspecting plans and progress under <code>.pi-web/relays/</code>. The tab does not start or edit a relay.</p>
 <p>PI WEB installs Relay automatically for the active agent profile if it is not configured. Removing it through <strong>Settings → Pi packages</strong> is remembered; it will not be silently reinstalled. Reinstall from <strong>Available packages</strong> if you change your mind. Disabling just the Relays plugin hides its tab but leaves its agent resources available.</p>
