@@ -42,9 +42,18 @@ export function registerUnmappedSessionRoutes(
   dependencies: UnmappedSessionRouteDependencies,
   prefix = "",
 ): void {
+  // Coalesce overlapping requests: a build walks every registered project's
+  // workspaces and the whole session store, so a burst (tab reloads, machine
+  // switches) must share one pass instead of piling up concurrent scans — the
+  // same in-flight guard the session-name scan uses.
+  let inFlight: Promise<UnmappedSessionsResponse> | undefined;
+  const buildOnce = (): Promise<UnmappedSessionsResponse> => {
+    inFlight ??= buildUnmappedSessionsResponse(dependencies).finally(() => { inFlight = undefined; });
+    return inFlight;
+  };
   app.get(`${prefix}/sessions/unmapped`, async (_request, reply) => {
     try {
-      return await buildUnmappedSessionsResponse(dependencies);
+      return await buildOnce();
     } catch (error) {
       return unmappedRequestFailed(reply, error);
     }

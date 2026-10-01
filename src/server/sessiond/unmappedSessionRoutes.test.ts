@@ -1,5 +1,5 @@
 import Fastify, { type FastifyInstance } from "fastify";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { UnmappedSessionsResponse } from "../../shared/apiTypes.js";
 import type { ClientSession, Project, WorkspaceListing } from "../types.js";
 import { registerUnmappedSessionRoutes, type UnmappedSessionRouteDependencies } from "./unmappedSessionRoutes.js";
@@ -42,6 +42,28 @@ describe("session daemon unmapped session route", () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.json<UnmappedSessionsResponse>().groups.map((group) => group.cwd)).toEqual(["/other"]);
+  });
+
+  it("coalesces overlapping requests into one session listing", async () => {
+    let listCalls = 0;
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    registerUnmappedSessionRoutes(app, dependencies({
+      sessions: async () => {
+        listCalls += 1;
+        await gate;
+        return [session("gone", "/gone")];
+      },
+    }));
+
+    const first = app.inject({ method: "GET", url: "/sessions/unmapped" });
+    const second = app.inject({ method: "GET", url: "/sessions/unmapped" });
+    await vi.waitFor(() => { expect(listCalls).toBe(1); });
+    release();
+    const responses = await Promise.all([first, second]);
+
+    expect(listCalls).toBe(1);
+    expect(responses.map((response) => response.statusCode)).toEqual([200, 200]);
   });
 
   it("answers 503 when the session listing fails", async () => {

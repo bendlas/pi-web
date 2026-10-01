@@ -108,6 +108,17 @@ describe("Pi session manager gateway", () => {
     await expect(gateway.listAll()).resolves.toEqual(expect.arrayContaining([expect.objectContaining({ id: "session-a", cwd }), expect.objectContaining({ id: "session-b", cwd: otherCwd })]));
   });
 
+  it("lists cross-project sessions through the shared summary scanner without assembling message text", async () => {
+    await writeSessionFileWithMessage(defaultPiSessionDir(cwd, agentDir), "session-msg", cwd, "hello there");
+    const gateway = createPiSessionManagerGateway(piProfileOptions());
+
+    const entries = await gateway.listAll();
+
+    // The SDK listing builds `allMessagesText`; the scanner leaves it empty, so
+    // this pins `listAll` to the shared fast path rather than the full parse.
+    expect(entries).toMatchObject([{ id: "session-msg", cwd, firstMessage: "hello there", allMessagesText: "" }]);
+  });
+
   it("includes an absolute env-configured session directory in global listing", async () => {
     const envSessionDir = join(tempDir, "env-sessions");
     await writeSessionFile(defaultPiSessionDir(cwd, agentDir), "default-session", cwd);
@@ -617,6 +628,11 @@ function branchIds(branch: unknown[] | undefined): unknown[] {
 async function writeSessionFile(dir: string, id: string, sessionCwd: string): Promise<void> {
   await mkdir(dir, { recursive: true });
   await writeFile(join(dir, `${id}.jsonl`), `${JSON.stringify({ type: "session", version: 3, id, timestamp: "2026-01-01T00:00:00.000Z", cwd: sessionCwd })}\n`, "utf8");
+}
+
+async function writeSessionFileWithMessage(dir: string, id: string, sessionCwd: string, text: string): Promise<void> {
+  await writeSessionFile(dir, id, sessionCwd);
+  await appendFile(join(dir, `${id}.jsonl`), `${JSON.stringify({ type: "message", id: "entry-1", parentId: "root", timestamp: "2026-01-01T00:01:00.000Z", message: { role: "user", content: [{ type: "text", text }] } })}\n`, "utf8");
 }
 
 async function writeNamedSessionFile(dir: string, fileName: string, header: { id: string; cwd?: string; parentSession?: string }): Promise<string> {
