@@ -529,7 +529,7 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
     const keptUnread = this.keepUnreadSessionIds.has(session.id);
     return html`
       <div
-        class="action-row ui-nav-row ${this.selected?.id === session.id ? "selected" : ""} ${bulkSelected ? "bulk-selected" : ""} ${session.archived === true ? "archived" : ""} ${selectionActive ? "selecting" : ""} ${unread ? "unread" : ""} ${keptUnread ? "keep-unread" : ""} ${indicatorKind === "intervention-required" ? "intervention-required" : ""} ${agentChildCount > 0 ? "has-agent-subsessions" : ""} ${linkedAgentChild ? "linked-agent-child" : ""} ${this.reorder.rowClass(session.id)}"
+        class="action-row ui-nav-row ${this.selected?.id === session.id ? "selected" : ""} ${bulkSelected ? "bulk-selected" : ""} ${session.archived === true ? "archived" : ""} ${selectionActive ? "selecting" : ""} ${unread ? "unread" : ""} ${keptUnread ? "keep-unread" : ""} ${indicatorKind === "intervention-required" ? "intervention-required" : ""} ${agentChildCount > 0 ? "has-agent-subsessions" : ""} ${linkedAgentChild ? "linked-agent-child" : ""}"
         style=${`--depth:${String(cappedDepth)};--agent-offset:${String(agentOffset)}px`}
         tabindex="0"
         data-session-id=${session.id}
@@ -832,7 +832,7 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
 
   private renderActivity(kind: ActivityIndicatorKind | undefined, unread: boolean, keepUnread: boolean) {
     const label = kind === "sending" ? sessionNavigationMessages.t("sending") : sessionNavigationMessages.t("active");
-    return renderActionActivityIndicator(kind, label, unread ? sessionNavigationMessages.t("unreadActivity") : undefined, keepUnread);
+    return renderActionActivityIndicator(kind, label, unread ? sessionNavigationMessages.t("unreadActivity") : undefined, undefined, keepUnread);
   }
 
   static override styles = [listStyles, sidebarListStyles, css`
