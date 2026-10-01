@@ -2499,8 +2499,35 @@ export class PiSessionService implements SessionRouteService {
   }
 
   async messages(ref: PiSessionRef, page?: { before?: number; limit?: number }): Promise<ClientMessagePage> {
-    const session = await this.getOrOpen(ref);
-    return pageMessagesAtSafeBoundary(historyMessagesFromEntries(await this.readableSessionBranch(ref, session)), page);
+    try {
+      const session = await this.getOrOpen(ref);
+      return pageMessagesAtSafeBoundary(historyMessagesFromEntries(await this.readableSessionBranch(ref, session)), page);
+    } catch (error) {
+      // A session whose recorded cwd no longer exists (a removed worktree or an
+      // unmapped project) cannot be opened as a live runtime: the SDK refuses
+      // to resume into a missing directory. Do not hand back the failure when
+      // the transcript file is still readable — serve it straight from disk so
+      // deleted/unmapped history stays viewable. The browser already renders
+      // these sessions read-only.
+      if (!isMissingSessionCwdError(error)) throw error;
+      const detached = await this.readDetachedTranscript(ref);
+      if (detached === undefined) throw error;
+      return pageMessagesAtSafeBoundary(historyMessagesFromEntries(detached), page);
+    }
+  }
+
+  /**
+   * Transcript of a session read directly from its file, without a runtime.
+   * Used only when opening the runtime failed because the recorded cwd is gone.
+   * Returns undefined when the file cannot be located or read, so the original
+   * open failure is the one the caller sees.
+   */
+  private async readDetachedTranscript(ref: PiSessionRef): Promise<unknown[] | undefined> {
+    if (this.sessionManager.readBranch === undefined) return undefined;
+    const archived = await this.getArchived(ref);
+    if (archived?.archivePath !== undefined) return await this.sessionManager.readBranch(archived.archivePath);
+    const match = await this.sessionManager.resolveSessionFile(ref.cwd, ref.id);
+    return match === undefined ? undefined : await this.sessionManager.readBranch(match.path);
   }
 
   async media(ref: PiSessionRef, mediaId: string): Promise<SessionMedia | undefined> {
@@ -4964,6 +4991,15 @@ function findSessionByIdOrPrefix(sessions: readonly PiSessionListEntry[], sessio
 
 function uniqueStrings(values: readonly string[]): string[] {
   return [...new Set(values)];
+}
+
+/**
+ * The SDK's `MissingSessionCwdError`. It is not exported by the package, so it
+ * is recognised by the `name` it sets — the same way a caller can tell a
+ * missing-cwd resume apart from any other open failure.
+ */
+function isMissingSessionCwdError(error: unknown): boolean {
+  return error instanceof Error && error.name === "MissingSessionCwdError";
 }
 
 function errorMessage(error: unknown): string {

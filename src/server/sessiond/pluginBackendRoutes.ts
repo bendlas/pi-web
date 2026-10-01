@@ -34,12 +34,6 @@ export interface PluginBackendDispatcher {
 export interface PluginBackendRouteDependencies {
   projects: PluginBackendProjectReader;
   backends: PluginBackendDispatcher;
-  /**
-   * Reports that the project's workspaces may have changed. A backend
-   * operation is opaque here, so every completed request is reported rather
-   * than guessing which operations create or remove a workspace.
-   */
-  onWorkspacesMutated: () => void;
 }
 
 /** JSON-only sessiond boundary for one revision-paired package and current workspace. */
@@ -95,7 +89,6 @@ export function registerPairedPluginBackendRoutes(app: FastifyInstance, dependen
       } catch (error) {
         return await pluginBackendRequestFailed(reply, error, pluginId, operation);
       } finally {
-        dependencies.onWorkspacesMutated();
         cancellation.dispose();
       }
     },

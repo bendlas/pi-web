@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { PiSessionService } from "./piSessionService.js";
-import { CapturingSessionEventHub, fakeRuntime, fakeSessionManager, runtimeCreator, sessionGateway, sessionRecord, sessionRef, testModelRuntime } from "./piSessionService.testSupport.js";
+import { CapturingSessionEventHub, fakeRuntime, fakeSessionManager, resolveSessionFileFromList, runtimeCreator, sessionGateway, sessionRecord, sessionRef, testModelRuntime } from "./piSessionService.testSupport.js";
 
 const TEST_AGENT_DIR = "/tmp/pi-web-test-agent";
 
@@ -87,6 +87,38 @@ describe("PiSessionService", () => {
         content: [{ type: "thinking", thinking: "hmm" }],
         thinkingLevel: "xhigh",
       });
+      await service.dispose();
+    });
+  });
+
+  describe("detached transcript for a session whose cwd is gone", () => {
+    it("serves messages straight from the file instead of failing to open a runtime", async () => {
+      const missingCwd = "/tmp/pi-web-missing-cwd-does-not-exist-7f3a";
+      const branch = [
+        { type: "message", message: { role: "user", content: [{ type: "text", text: "from disk" }] } },
+      ];
+      const record = sessionRecord("session-gone", missingCwd);
+      // Mirror the SDK refusing to resume into a directory that no longer exists.
+      const missingCwdError = Object.assign(new Error("Stored session working directory does not exist"), { name: "MissingSessionCwdError" });
+      const service = new PiSessionService(new CapturingSessionEventHub(), {
+        agentDir: TEST_AGENT_DIR,
+        modelRuntime: testModelRuntime,
+        createAgentRuntime: () => { throw missingCwdError; },
+        sessionManager: {
+          create: () => fakeSessionManager(missingCwd),
+          list: () => Promise.resolve([record]),
+          listAll: () => Promise.resolve([record]),
+          invalidateSessionFile: () => undefined,
+          resolveSessionFile: resolveSessionFileFromList(() => Promise.resolve([record])),
+          open: () => fakeSessionManager(),
+          readBranch: (path: string) => Promise.resolve(path === record.path ? branch : undefined),
+        },
+        heartbeatIntervalMs: 60_000,
+      });
+
+      const page = await service.messages(sessionRef("session-gone", missingCwd));
+
+      expect(page.messages).toEqual([{ role: "user", content: [{ type: "text", text: "from disk" }] }]);
       await service.dispose();
     });
   });

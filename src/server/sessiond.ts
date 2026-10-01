@@ -387,6 +387,11 @@ async function createSessionDaemonRuntime() {
       projects,
       catalog: workspaceProviders,
       logger: { warn: (details, message) => app.log.warn(details, message) },
+      // The git worktree file watches are the only signal: a real topology
+      // change drops the cached attribution so the next status projection
+      // re-resolves. Read-only plugin backend traffic no longer invalidates it,
+      // which is what kept the daemon spawning git/jj on every request.
+      onTopologyChanged: () => { statusAttribution.invalidate(); },
     });
     workspaceTopologyWatcher.start();
     const runtimeComponent = Object.freeze({
@@ -456,11 +461,7 @@ function registerSessionDaemonRoutes({ eventHub, machineStatus, statusAttributio
     workspaces: workspaceProviders,
     providerRuntime: workspaceProviderRuntime,
   });
-  registerPairedPluginBackendRoutes(app, {
-    projects,
-    backends: pluginBackends,
-    onWorkspacesMutated: () => { statusAttribution.invalidate(); },
-  });
+  registerPairedPluginBackendRoutes(app, { projects, backends: pluginBackends });
   registerPluginBackendChannelRoutes(app, { projects, backends: pluginBackends });
   registerWorkspaceRemovalRoutes(app, {
     projects,

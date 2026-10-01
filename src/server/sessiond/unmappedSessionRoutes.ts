@@ -69,22 +69,23 @@ export async function buildUnmappedSessionsResponse(
     dependencies.projects.list(),
   ]);
 
-  const mappedWorkspaceCwds: string[] = [];
-  const workspaceContainmentRoots: UnmappedWorkspaceRoot[] = [];
-  for (const project of projects) {
-    workspaceContainmentRoots.push(
-      { projectId: project.id, path: project.path },
-      { projectId: project.id, path: defaultWorktreeParentDir(project.path) },
-    );
+  const workspaceContainmentRoots: UnmappedWorkspaceRoot[] = projects.flatMap((project) => [
+    { projectId: project.id, path: project.path },
+    { projectId: project.id, path: defaultWorktreeParentDir(project.path) },
+  ]);
+  // Resolve every project's workspaces concurrently: each one runs provider
+  // commands, so a sequential loop made this route take seconds per request.
+  const mappedByProject = await Promise.all(projects.map(async (project) => {
     // A workspace resolution can fail (provider down, probe timeout). Falling
     // back to the project root keeps its live sessions mapped instead of
     // falsely reporting them as unmapped history.
     try {
-      for (const workspace of await dependencies.workspaces.list(project)) mappedWorkspaceCwds.push(workspace.path);
+      return (await dependencies.workspaces.list(project)).map((workspace) => workspace.path);
     } catch {
-      mappedWorkspaceCwds.push(project.path);
+      return [project.path];
     }
-  }
+  }));
+  const mappedWorkspaceCwds = mappedByProject.flat();
 
   return buildUnmappedSessionIndex({
     // Every session reached through this index is view-only: its cwd is outside
