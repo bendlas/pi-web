@@ -86,6 +86,7 @@ import { sessionServiceDependencies } from "./sessiond/sessionServiceDependencie
 import { PiSessionEventConnections } from "./sessions/piSessionEventConnections.js";
 import { bindCompanionBackend } from "./sessions/companionBackend.js";
 import { registerWorkspaceCatalogRoutes } from "./sessiond/workspaceCatalogRoutes.js";
+import { registerUnmappedSessionRoutes } from "./sessiond/unmappedSessionRoutes.js";
 import { registerSessionLocationRoutes } from "./sessiond/sessionLocationRoutes.js";
 import { registerPluginBackendChannelRoutes } from "./sessiond/pluginBackendChannelRoutes.js";
 import { installPluginBackendChannelWebSocketPayloadLimit } from "./webSocketBridge.js";
@@ -508,6 +509,7 @@ function registerSessionDaemonRoutes({ eventHub, machineStatus, statusAttributio
   registerAuthRoutes(app, auth);
   registerMcpAuthRoutes(app, sessions);
   registerSessionRoutes(app, sessions, eventHub);
+  registerUnmappedSessionRoutes(app, { sessions, projects, workspaces: workspaceProviders });
   registerSessionLocationRoutes(app, { sessions, workspaces: statusAttribution });
   registerWorkspaceCatalogRoutes(app, {
     projects,
@@ -515,11 +517,7 @@ function registerSessionDaemonRoutes({ eventHub, machineStatus, statusAttributio
     providerRuntime: workspaceProviderRuntime,
   });
   registerWorkspaceNotificationRoutes(app, { projects, workspaces: workspaceProviders, changes: workspaceChanges });
-  registerPairedPluginBackendRoutes(app, {
-    projects,
-    backends: pluginBackends,
-    onWorkspacesMutated: () => { statusAttribution.invalidate(); },
-  });
+  registerPairedPluginBackendRoutes(app, { projects, backends: pluginBackends });
   registerPluginBackendChannelRoutes(app, { projects, backends: pluginBackends });
   registerPluginBackendResourceRoutes(app, { projects, backends: pluginBackends });
   registerWorkspaceRemovalRoutes(app, {
