@@ -7,13 +7,14 @@ export interface GlobalTasksRouteDependencies {
 }
 
 /**
- * Machine-wide task manifest endpoint, served from the browser-facing API
+ * Machine-wide scripts manifest endpoint, served from the browser-facing API
  * server (`buildApp` in `src/server/app.ts`) and also available on the session
- * daemon. Global tasks live in the data dir (outside any workspace root), so
+ * daemon. Global scripts live in the data dir (outside any workspace root), so
  * they cannot be served through the workspace-scoped
  * `WorkspaceProviderRegistry.request` seam, which only reaches the plugin that
  * currently owns the workspace. This small dedicated route is therefore the
  * least-invasive channel that actually reaches a non-owning plugin's data.
+ * The route name is retained for compatibility; it serves the Scripts panel.
  */
 export function registerGlobalTasksRoutes(
   app: FastifyInstance,

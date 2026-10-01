@@ -14,7 +14,7 @@ describe("global tasks client", () => {
     const fetchMock = vi.fn<(input: string, init?: unknown) => Promise<Response>>(() => Promise.resolve(jsonResponse({
       kind: "loaded",
       config: { version: 1, tasks: [{ id: "git.log-oneline", title: "Git log", command: "git log --format=oneline", confirm: false }] },
-      path: "/x/tasks.json",
+      path: "/x/scripts.json",
     }, { ok: true, status: 200 })));
     vi.stubGlobal("fetch", fetchMock);
 
@@ -30,7 +30,7 @@ describe("global tasks client", () => {
 
   it("maps a missing result from the server", async () => {
     vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(jsonResponse(
-      { kind: "missing", message: "No global tasks configured.", hint: "Create ~/.pi-web/tasks.json to define tasks available in every workspace." },
+      { kind: "missing", message: "No global scripts configured.", hint: "Create ~/.pi-web/scripts.json to define scripts available in every workspace (legacy ~/.pi-web/tasks.json is still read)." },
       { ok: true, status: 200 },
     ))));
     await expect(loadGlobalTasksConfig()).resolves.toMatchObject({ kind: "missing" });
@@ -38,7 +38,7 @@ describe("global tasks client", () => {
 
   it("maps an unavailable result from the server", async () => {
     vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(jsonResponse(
-      { kind: "unavailable", message: "Could not load global tasks.", hint: "Fix ~/.pi-web/tasks.json, then click Refresh.", detail: "Config version must be 1" },
+      { kind: "unavailable", message: "Could not load global scripts.", hint: "Fix ~/.pi-web/scripts.json, then click Refresh.", detail: "Config version must be 1" },
       { ok: true, status: 200 },
     ))));
     await expect(loadGlobalTasksConfig()).resolves.toMatchObject({ kind: "unavailable", detail: "Config version must be 1" });

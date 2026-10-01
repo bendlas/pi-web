@@ -1,13 +1,14 @@
 /**
- * Shared schema and parser for the PI WEB tasks manifest.
+ * Shared schema and parser for the PI WEB scripts manifest.
  *
- * This is the single source of truth for both the server-side global tasks
+ * This is the single source of truth for both the server-side global scripts
  * reader (`src/server/globalTasksServer.ts`, which validates the data-dir
- * `~/.pi-web/tasks.json`) and the browser Workspace Tasks plugin (which reads
- * `.pi-web/tasks.json` per workspace). The browser plugin reaches it through a
- * symlinked `pi-web-plugins/workspace-tasks/config.ts` so the same module is
- * bundled into the plugin without a runtime cross-import; the server imports it
- * directly from `src`.
+ * `<data-dir>/scripts.json`, falling back to legacy `tasks.json`) and the
+ * browser Scripts plugin (which reads `.pi-web/scripts.json` per workspace,
+ * falling back to legacy `.pi-web/tasks.json`). The browser plugin reaches it
+ * through a symlinked `pi-web-plugins/workspace-tasks/config.ts` so the same
+ * module is bundled into the plugin without a runtime cross-import; the server
+ * imports it directly from `src`.
  */
 export const TASKS_CONFIG_VERSION = 1;
 
