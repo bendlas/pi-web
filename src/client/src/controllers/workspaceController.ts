@@ -266,6 +266,29 @@ export class WorkspaceController {
     }
   }
 
+  /**
+   * Merge a provider-created workspace into the project's list without disturbing
+   * the selection. Creation is host-orchestrated, so no `workspaces.changed` event
+   * is guaranteed (the topology watcher only watches Git worktree metadata), and a
+   * re-list is a redundant round trip that can race the immediate selection. The
+   * create response is already the complete listing the browser renders.
+   */
+  registerCreatedWorkspace(projectId: string, workspace: Workspace): void {
+    const state = this.getState();
+    const current = state.selectedProject?.id === projectId ? state.workspaces : state.workspacesByProjectId[projectId];
+    const workspaces = current ?? [];
+    const existing = workspaces.findIndex((candidate) => candidate.id === workspace.id);
+    const next = existing === -1
+      ? [...workspaces, workspace]
+      : workspaces.map((candidate, index) => (index === existing ? workspace : candidate));
+    const workspacesByProjectId = { ...state.workspacesByProjectId, [projectId]: next };
+    if (state.selectedProject?.id !== projectId) {
+      this.setState({ workspacesByProjectId });
+      return;
+    }
+    this.setState({ workspaces: next, workspacesByProjectId, ...this.refreshedSelection(state.selectedWorkspace, next) });
+  }
+
   private applyProjectWorkspaces(projectId: string, workspaces: Workspace[]): void {
     const state = this.getState();
     const workspacesByProjectId = { ...state.workspacesByProjectId, [projectId]: workspaces };

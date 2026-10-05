@@ -164,7 +164,9 @@ describe("bundled Jujutsu workspace provider", () => {
       label: "feature-x",
       isMain: false,
       publicMetadata: { isJjRepo: true, isJjWorkspace: true, workspace: "feature-x" },
+      removal: { actionLabel: "Delete workspace" },
     });
+    expect(created?.removal?.confirmation).toContain("jj workspace forget");
     expect(execFile).toHaveBeenCalledWith(expect.objectContaining({
       args: ["--ignore-working-copy", "log", "-r", "main", "--no-graph", "-T", 'commit_id.short() ++ "\\n"'],
     }));
