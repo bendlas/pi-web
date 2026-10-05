@@ -31,6 +31,7 @@ import "./ExtensionDialogCard";
 import type { ExtensionDialogAnswerCallback, ExtensionDialogCancelCallback, ExtensionDialogDismissCallback } from "./ExtensionDialogCard";
 import "./ImageGalleryDialog";
 import type { ImageGalleryDialog } from "./ImageGalleryDialog";
+import "./ChatDisclosureBody";
 import "./FormattedText";
 import type { MarkdownWorkspaceContext } from "../formatting/workspaceLinks";
 import "./ToolExecutionView";
@@ -63,10 +64,6 @@ export function chatImagePartSource(part: ChatImagePart, session?: SessionRef, m
 }
 
 export { chatToolOutputLabel, chatMessageGroupClassName, chatMessageGroupLabel } from "./chat/transcriptLabels";
-
-function chatLineIdentity(index: number, message?: ChatLine): string {
-  return chatLineScrollIdentity(message) ?? String(index);
-}
 
 function chatLineScrollIdentity(message?: ChatLine): string | undefined {
   if (message?.entryId === undefined || message.entryId === "") return undefined;
@@ -377,8 +374,16 @@ export class ChatView extends LitElement {
   }
 
   private readonly renderKeys = new ChatRenderKeys();
+  /**
+   * The open state this view last knows each disclosure to have: what a render
+   * wrote, or what the user left behind. A programmatic open fires the same
+   * toggle event a click does, so a toggle only means a user choice when it
+   * differs from the state recorded here.
+   */
+  private readonly knownDisclosureOpen = new Map<string, boolean>();
 
   override render() {
+    this.knownDisclosureOpen.clear();
     const sourceGroups = this.groupedMessages();
     const entryActionHeaders = canonicalEntryActionHeaders(sourceGroups);
     const groups = groupConsecutiveImageOutputs(sourceGroups);
@@ -578,7 +583,11 @@ export class ChatView extends LitElement {
       disclosure: {
         isOpen: (key, defaultOpen) => this.isDisclosureOpen(key, defaultOpen),
         toggle: (key, event, defaultOpen) => { this.onDisclosureToggle(key, event, defaultOpen); },
+        part: (key, defaultOpen, groupKey) => this.partDisclosure(key, defaultOpen, groupKey),
+        remember: this.behaviors.rememberDisclosures,
+        controller: this.disclosures,
       },
+      groupDisclosureKey: (group) => this.groupDisclosureKey(group),
       metadata: {
         expandedKey: this.expandedMetaKey,
         label: (message) => this.messageMetaLabel(message),
@@ -606,8 +615,9 @@ export class ChatView extends LitElement {
     // Quiet mode keeps the live group expanded-on-demand: it is the one group a
     // reader opens while work is running, so its identity must not change as it grows.
     const defaultOpen = liveTail && !this.quietMode;
-    const disclosureKey = this.groupDisclosureKey(group, liveTail);
+    const disclosureKey = this.groupDisclosureKey(group);
     const open = this.isDisclosureOpen(disclosureKey, defaultOpen);
+    this.knownDisclosureOpen.set(disclosureKey, open);
     return transcript.renderMessageGroup(this.transcriptRenderContext(), group, liveTail, entryActionHeaders, {
       open,
       anchor: this.groupAnchorKey(group, liveTail),
@@ -639,10 +649,38 @@ export class ChatView extends LitElement {
   private onDisclosureToggle(key: string, event: Event, defaultOpen: boolean) {
     const details = event.currentTarget;
     if (!(details instanceof HTMLDetailsElement)) return;
+    // A programmatic open or close fires the same toggle event a click does; only
+    // a state this view does not already expect is the user choosing something.
+    if (details.open === this.knownDisclosureOpen.get(key)) return;
+    this.knownDisclosureOpen.set(key, details.open);
     const changed = this.isDisclosureOpen(key, defaultOpen) !== details.open;
     if (this.behaviors.rememberDisclosures) this.disclosures.applyToggle(key, details.open, defaultOpen);
     else this.transientDisclosures.set(key, details.open);
     if (changed) this.requestUpdate();
+  }
+
+  private partDisclosure(key: string, defaultOpen: boolean, groupKey: string | undefined): { open: boolean; toggle: ((event: Event) => void) | undefined } {
+    const open = this.isDisclosureOpen(key, defaultOpen);
+    this.knownDisclosureOpen.set(key, open);
+    return {
+      open,
+      toggle: (event: Event) => { this.onPartToggle(key, event, defaultOpen, groupKey); },
+    };
+  }
+
+  private onPartToggle(key: string, event: Event, defaultOpen: boolean, groupKey: string | undefined) {
+    const details = event.currentTarget;
+    if (!(details instanceof HTMLDetailsElement)) return;
+    if (details.open === this.knownDisclosureOpen.get(key)) return;
+    this.knownDisclosureOpen.set(key, details.open);
+    if (this.behaviors.rememberDisclosures) this.disclosures.applyToggle(key, details.open, defaultOpen);
+    else this.transientDisclosures.set(key, details.open);
+    // A block the user opened stays open when the live-tail default flips after the
+    // response finishes; an opened block inside an event group also keeps that group.
+    if (details.open && this.behaviors.rememberDisclosures) {
+      this.disclosures.markOpen(key);
+      if (groupKey !== undefined) this.disclosures.markOpen(groupKey);
+    }
   }
 
   private get handlesScrollIntent(): boolean {
@@ -747,12 +785,11 @@ export class ChatView extends LitElement {
     this.transcriptLayoutChildren = children;
   }
 
-  private groupDisclosureKey(group: Extract<ChatGroup, { kind: "group" }>, liveTail: boolean): string {
-    return liveTail
-      ? `${this.sessionId}:live:${chatLineIdentity(group.startIndex, group.messages[0]?.message)}`
-      : `${this.sessionId}:${chatLineIdentity(group.endIndex, group.messages.at(-1)?.message)}`;
+  // Stable across a group growing and across the live-tail default flipping, so
+  // a user-opened (or user-opened-inside) group is not closed by either change.
+  private groupDisclosureKey(group: Extract<ChatGroup, { kind: "group" }>): string {
+    return `${this.sessionId}:group:${String(group.startIndex)}`;
   }
-
 
   private groupAnchorKey(group: Extract<ChatGroup, { kind: "group" }>, live: boolean): string | undefined {
     // Historical groups can absorb earlier events; live groups grow at the end.

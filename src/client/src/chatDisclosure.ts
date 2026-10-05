@@ -34,8 +34,8 @@ const browserChatDisclosureStorage: ChatDisclosureStorage = {
 
 export class ChatDisclosureController {
   private sessionId = "";
-  private openGroupKeys = new Set<string>();
-  private closedDefaultOpenGroupKeys = new Set<string>();
+  private openKeys = new Set<string>();
+  private closedDefaultOpenKeys = new Set<string>();
 
   constructor(private readonly storage: ChatDisclosureStorage = browserChatDisclosureStorage) {}
 
@@ -43,43 +43,61 @@ export class ChatDisclosureController {
     if (this.sessionId === sessionId) return;
     this.sessionId = sessionId;
     const snapshot = sessionId === "" ? undefined : this.storage.read(sessionId);
-    this.openGroupKeys = new Set(snapshot?.open ?? []);
-    this.closedDefaultOpenGroupKeys = new Set(snapshot?.closedDefaultOpen ?? []);
+    this.openKeys = new Set(snapshot?.open ?? []);
+    this.closedDefaultOpenKeys = new Set(snapshot?.closedDefaultOpen ?? []);
   }
 
-  isOpen(groupKey: string, defaultOpen: boolean): boolean {
-    if (defaultOpen) return !this.closedDefaultOpenGroupKeys.has(groupKey);
-    return this.openGroupKeys.has(groupKey);
+  isOpen(key: string, defaultOpen: boolean): boolean {
+    if (defaultOpen) return !this.closedDefaultOpenKeys.has(key);
+    return this.openKeys.has(key);
   }
 
-  applyToggle(groupKey: string, open: boolean, defaultOpen: boolean): boolean {
-    const wasOpen = this.isOpen(groupKey, defaultOpen);
-    const nextOpenKeys = new Set(this.openGroupKeys);
-    const nextClosedDefaultOpenKeys = new Set(this.closedDefaultOpenGroupKeys);
+  applyToggle(key: string, open: boolean, defaultOpen: boolean): boolean {
+    const wasOpen = this.isOpen(key, defaultOpen);
+    const nextOpenKeys = new Set(this.openKeys);
+    const nextClosedDefaultOpenKeys = new Set(this.closedDefaultOpenKeys);
 
     if (defaultOpen) {
-      nextOpenKeys.delete(groupKey);
-      if (open) nextClosedDefaultOpenKeys.delete(groupKey);
-      else nextClosedDefaultOpenKeys.add(groupKey);
+      nextOpenKeys.delete(key);
+      if (open) nextClosedDefaultOpenKeys.delete(key);
+      else nextClosedDefaultOpenKeys.add(key);
     } else {
-      nextClosedDefaultOpenKeys.delete(groupKey);
-      if (open) nextOpenKeys.add(groupKey);
-      else nextOpenKeys.delete(groupKey);
+      nextClosedDefaultOpenKeys.delete(key);
+      if (open) nextOpenKeys.add(key);
+      else nextOpenKeys.delete(key);
     }
 
-    const nextOpen = defaultOpen ? !nextClosedDefaultOpenKeys.has(groupKey) : nextOpenKeys.has(groupKey);
-    if (nextOpen === wasOpen && setsEqual(nextOpenKeys, this.openGroupKeys) && setsEqual(nextClosedDefaultOpenKeys, this.closedDefaultOpenGroupKeys)) return false;
+    const nextOpen = defaultOpen ? !nextClosedDefaultOpenKeys.has(key) : nextOpenKeys.has(key);
+    if (nextOpen === wasOpen && setsEqual(nextOpenKeys, this.openKeys) && setsEqual(nextClosedDefaultOpenKeys, this.closedDefaultOpenKeys)) return false;
 
-    this.openGroupKeys = nextOpenKeys;
-    this.closedDefaultOpenGroupKeys = nextClosedDefaultOpenKeys;
+    this.openKeys = nextOpenKeys;
+    this.closedDefaultOpenKeys = nextClosedDefaultOpenKeys;
+    this.persist();
+    return true;
+  }
+
+  /**
+   * Record an explicit open that must outlive a later flip of the same key's
+   * default. Event groups are default-open while they are the live tail and
+   * default-closed once finished; marking the group open when the user opens a
+   * block inside it keeps that block visible across the flip.
+   */
+  markOpen(key: string): boolean {
+    if (this.openKeys.has(key) && !this.closedDefaultOpenKeys.has(key)) return false;
+    const nextOpenKeys = new Set(this.openKeys);
+    nextOpenKeys.add(key);
+    const nextClosedDefaultOpenKeys = new Set(this.closedDefaultOpenKeys);
+    nextClosedDefaultOpenKeys.delete(key);
+    this.openKeys = nextOpenKeys;
+    this.closedDefaultOpenKeys = nextClosedDefaultOpenKeys;
     this.persist();
     return true;
   }
 
   snapshot(): ChatDisclosureSnapshot {
     return {
-      open: [...this.openGroupKeys],
-      closedDefaultOpen: [...this.closedDefaultOpenGroupKeys],
+      open: [...this.openKeys],
+      closedDefaultOpen: [...this.closedDefaultOpenKeys],
     };
   }
 

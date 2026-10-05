@@ -57,6 +57,38 @@ describe("ChatDisclosureController", () => {
 
     expect(second.isOpen(key, false)).toBe(true);
   });
+
+  it("keeps a marked-open key open when its default flips from open to closed", () => {
+    const controller = new ChatDisclosureController(new MemoryDisclosureStorage());
+    controller.syncSession("s1");
+    const key = "s1:group:7";
+
+    expect(controller.isOpen(key, true)).toBe(true);
+    expect(controller.markOpen(key)).toBe(true);
+    // The live-tail group finished: same key, now closed by default.
+    expect(controller.isOpen(key, false)).toBe(true);
+  });
+
+  it("clears a user-pinned close when its key is marked open", () => {
+    const controller = new ChatDisclosureController(new MemoryDisclosureStorage());
+    controller.syncSession("s1");
+    const key = "s1:group:7";
+
+    controller.applyToggle(key, false, true);
+    expect(controller.isOpen(key, true)).toBe(false);
+
+    expect(controller.markOpen(key)).toBe(true);
+    expect(controller.isOpen(key, true)).toBe(true);
+  });
+
+  it("reports no change when marking an already-open key", () => {
+    const controller = new ChatDisclosureController(new MemoryDisclosureStorage());
+    controller.syncSession("s1");
+    const key = "s1:part:3:1";
+
+    expect(controller.markOpen(key)).toBe(true);
+    expect(controller.markOpen(key)).toBe(false);
+  });
 });
 
 describe("parseDisclosureSnapshot", () => {

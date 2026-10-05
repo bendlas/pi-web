@@ -7,6 +7,7 @@ import { MANUAL_CHAT_BEHAVIORS } from "../chatBehaviors.testSupport";
 import { groupStorageKey } from "../chatDisclosure";
 import { transcriptViewFromHistory } from "../chatTranscriptStore";
 import { ChatView, CHAT_CHROME_VISIBILITY_EVENT, type ChatChromeVisibilityDetail } from "./ChatView";
+import { ChatDisclosureBody } from "./ChatDisclosureBody";
 import { controlledChatViewport } from "./chatScroll.testSupport";
 import type { ChatLine } from "./shared";
 import type { TranscriptImage } from "./TranscriptImage";
@@ -214,7 +215,36 @@ describe("composable normal chat", () => {
     await view.updateComplete;
     expect(required(view.renderRoot, ".event-group").hasAttribute("open")).toBe(live);
     await openGroup(view);
-    expect(required(view.renderRoot, ".thinking").hasAttribute("open")).toBe(true);
+    const thinking = required(view.renderRoot, ".thinking");
+    expect(thinking.hasAttribute("open")).toBe(true);
+    // The body is built only while the block is open.
+    const body = required(thinking, "chat-disclosure-body");
+    if (!(body instanceof ChatDisclosureBody)) throw new Error("Expected disclosure body");
+    await body.updateComplete;
+    expect(body.renderRoot.querySelector("formatted-text")).not.toBeNull();
+  });
+
+  it("builds a thinking body only while the block is open", async () => {
+    const view = await mount();
+    await openGroup(view);
+    const thinking = required(view.renderRoot, ".thinking");
+    if (!(thinking instanceof HTMLDetailsElement)) throw new Error("Expected thinking disclosure");
+    const body = required(thinking, "chat-disclosure-body");
+    if (!(body instanceof ChatDisclosureBody)) throw new Error("Expected disclosure body");
+    await body.updateComplete;
+    expect(thinking.open).toBe(true);
+    expect(body.renderRoot.querySelector("formatted-text")).not.toBeNull();
+    // A native toggle builds and drops the body without rerendering the transcript.
+    const render = vi.spyOn(view, "render");
+    thinking.open = false;
+    thinking.dispatchEvent(new Event("toggle"));
+    await body.updateComplete;
+    expect(body.renderRoot.querySelector("formatted-text")).toBeNull();
+    expect(render).not.toHaveBeenCalled();
+    thinking.open = true;
+    thinking.dispatchEvent(new Event("toggle"));
+    await body.updateComplete;
+    expect(body.renderRoot.querySelector("formatted-text")).not.toBeNull();
   });
 
   it.each([true, false])("keeps thinking individually collapsible and remembers its choice only when enabled (%s)", async (rememberDisclosures) => {
@@ -226,7 +256,6 @@ describe("composable normal chat", () => {
     thinking.open = false;
     thinking.dispatchEvent(new Event("toggle"));
     await view.updateComplete;
-    expect(thinking.querySelector("formatted-text")).toBeNull();
     view.messages = [...view.messages];
     await view.updateComplete;
     expect(required(view.renderRoot, ".thinking").hasAttribute("open")).toBe(false);
@@ -238,6 +267,7 @@ describe("composable normal chat", () => {
     restored.sessionId = "another-session";
     await restored.updateComplete;
     await openGroup(restored);
+    // Another session starts from the default instead of inheriting the choice.
     expect(required(restored.renderRoot, ".thinking").hasAttribute("open")).toBe(true);
   });
 
@@ -248,6 +278,7 @@ describe("composable normal chat", () => {
     if (!(thinking instanceof HTMLDetailsElement)) throw new Error("Expected thinking disclosure");
     thinking.open = false;
     thinking.dispatchEvent(new Event("toggle"));
+    await view.updateComplete;
     view.messages = [{ role: "assistant", entryId: "earlier-thinking", parts: [{ type: "thinking", text: "Earlier plan." }] }, ...view.messages];
     await view.updateComplete;
     const entries = view.renderRoot.querySelectorAll<HTMLDetailsElement>(".thinking");
@@ -558,6 +589,10 @@ describe("composable normal chat", () => {
     ] }];
     await view.updateComplete;
     await openGroup(view);
+    const thinking = required(view.renderRoot, ".thinking");
+    const body = required(thinking, "chat-disclosure-body");
+    if (!(thinking instanceof HTMLDetailsElement) || !(body instanceof ChatDisclosureBody)) throw new Error("Expected thinking disclosure");
+    await body.updateComplete;
     for (const disclosure of view.renderRoot.querySelectorAll<HTMLDetailsElement>(".skill-invocation, .tool-result")) {
       disclosure.open = true; disclosure.dispatchEvent(new Event("toggle"));
     }
