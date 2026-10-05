@@ -220,7 +220,7 @@ PI WEB also honors one optional project hook; see [Worktree pre-remove hook](#wo
 
 ## Add-workspace worktree location
 
-The Add-workspace action creates a new git worktree directly from the UI, without starting a session. PI WEB places each new worktree under a configured parent directory. Set it per project in `.pi-web/config.json` or globally in your PI WEB config:
+The Add-workspace action creates a new workspace directly from the UI, without starting a session. For Git and Jujutsu projects the new workspace's directory is placed under a configured parent directory. Set it per project in `.pi-web/config.json` or globally in your PI WEB config:
 
 ```json
 {
@@ -235,9 +235,9 @@ The Add-workspace action creates a new git worktree directly from the UI, withou
 - **Precedence:** project-local `.pi-web/config.json` overrides the global config; the sibling default applies when neither is set.
 - **Environment policy:** `PI_WEB_GIT='{"worktreeParentDir":"/srv/worktrees"}'` enforces the leaf over project and global config. The global value is read when the session daemon starts, so restart the daemon after changing it; a project config change applies to the next creation.
 
-The action opens a small dialog collecting the worktree name, an optional base ref (branch, commit, or tag to branch from — defaults to the current branch), and an optional new branch name (defaults to the worktree name). PI WEB runs `git worktree add <parent>/<name> -b <branch> [<baseRef>]`, then surfaces the new workspace immediately.
+The action opens a small dialog collecting the workspace name, an optional base ref (for Git, a branch, commit, or tag to branch from, defaulting to the current branch; for Jujutsu, a revision), and an optional new branch name (defaulting to the workspace name). The active workspace provider performs the creation — `git worktree add <parent>/<name> -b <branch> [<baseRef>]` for Git, or `jj workspace add` for a Jujutsu project — and the new workspace appears in the list immediately, ready to select.
 
-The worktree parent directory is created if it does not already exist. Because creation runs through the Git workspace provider, the action is available only for Git projects.
+The parent directory is created if it does not already exist. Because creation runs through the current owner provider, the action is available for any project whose provider advertises the create capability, including the bundled Git and Jujutsu providers.
 
 ## Worktree pre-remove hook
 

@@ -358,7 +358,9 @@ describe("bundled Git workspace provider", () => {
       label: "feature-x",
       isMain: false,
       publicMetadata: { isGitRepo: true, isGitWorktree: true, branch: "feature-x" },
+      removal: { actionLabel: "Delete workspace" },
     });
+    expect(created.removal?.confirmation).toContain("git worktree remove");
     expect(runGit(worktreePath, ["rev-parse", "--abbrev-ref", "HEAD"]).trim()).toBe("feature-x");
     // The new worktree is discoverable through the regular listing.
     const workspaces = await workspaceProvider.list(project(repository.path), new AbortController().signal);

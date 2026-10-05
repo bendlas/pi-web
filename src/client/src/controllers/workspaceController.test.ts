@@ -346,6 +346,78 @@ describe("WorkspaceController route selection freshness", () => {
   });
 });
 
+describe("WorkspaceController.registerCreatedWorkspace", () => {
+  it("adds a created workspace to the selected project list and per-project cache", () => {
+    const repo = project("p1", "/repo");
+    const main = workspace(repo.id, repo.path, { isMain: true });
+    const created = workspace(repo.id, "/repo-feature", {
+      removal: { actionLabel: "Delete workspace", confirmation: "Delete?", precondition: "v1.abc" },
+    });
+    const test = harness(
+      {
+        selectedMachine: machine("local"),
+        projects: [repo],
+        selectedProject: repo,
+        selectedWorkspace: main,
+        workspaces: [main],
+        workspacesByProjectId: { [repo.id]: [main] },
+      },
+      vi.fn().mockResolvedValue([main]),
+    );
+
+    test.controller.registerCreatedWorkspace(repo.id, created);
+
+    expect(test.state().workspaces).toEqual([main, created]);
+    expect(test.state().workspacesByProjectId[repo.id]).toEqual([main, created]);
+  });
+
+  it("replaces an existing entry for the same workspace id instead of duplicating it", () => {
+    const repo = project("p1", "/repo");
+    const main = workspace(repo.id, repo.path, { isMain: true });
+    const stale = workspace(repo.id, "/repo-feature", { label: "stale" });
+    const fresh = workspace(repo.id, "/repo-feature", { label: "fresh" });
+    const test = harness(
+      {
+        selectedMachine: machine("local"),
+        projects: [repo],
+        selectedProject: repo,
+        selectedWorkspace: main,
+        workspaces: [main, stale],
+        workspacesByProjectId: { [repo.id]: [main, stale] },
+      },
+      vi.fn().mockResolvedValue([main]),
+    );
+
+    test.controller.registerCreatedWorkspace(repo.id, fresh);
+
+    expect(test.state().workspaces).toEqual([main, fresh]);
+  });
+
+  it("keeps the current selection untouched and only updates the per-project cache for another project", () => {
+    const repo = project("p1", "/repo");
+    const other = project("p2", "/other");
+    const main = workspace(repo.id, repo.path, { isMain: true });
+    const otherMain = workspace(other.id, other.path, { isMain: true });
+    const created = workspace(other.id, "/other-feature");
+    const test = harness(
+      {
+        selectedMachine: machine("local"),
+        projects: [repo, other],
+        selectedProject: repo,
+        selectedWorkspace: main,
+        workspaces: [main],
+        workspacesByProjectId: { [repo.id]: [main], [other.id]: [otherMain] },
+      },
+      vi.fn().mockResolvedValue([main]),
+    );
+
+    test.controller.registerCreatedWorkspace(other.id, created);
+
+    expect(test.state().workspaces).toEqual([main]);
+    expect(test.state().workspacesByProjectId[other.id]).toEqual([otherMain, created]);
+  });
+});
+
 describe("WorkspaceController.refreshSelectedProjectTopology", () => {
   it("retains healthy topology and conversation state when background discovery is degraded", async () => {
     const selectedProject = project("p", "/repo");

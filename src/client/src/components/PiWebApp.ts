@@ -3329,6 +3329,7 @@ export class PiWebApp extends LitElement {
       if (selectedMachineId(this.state) !== machineId || this.state.selectedProject?.id !== projectId) return;
       this.workspaceCreateDialog = undefined;
       this.openWorkspaceCreateDialogFor = undefined;
+      this.workspaces.registerCreatedWorkspace(projectId, workspace);
       await this.workspaces.selectWorkspace(workspace);
     } catch (error) {
       if (selectedMachineId(this.state) === machineId) {

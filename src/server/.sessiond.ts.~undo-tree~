@@ -1,0 +1,14 @@
+(undo-tree-save-format-version . 1)
+"da14def4a9430141d4b25b756cda5652b52cf5fe"
+[nil nil nil nil (27288 29505 181666 799000) 0 nil]
+([nil nil ((#("import { PendingAskStore } from \"./sessions/pendingAskStore.js\";
+import { FileSessionPendingAskPersistence, defaultSessionPendingAskFilePath } from \"./sessions/pendingAskPersistence.js\";
+" 0 6 (face (smerge-lower font-lock-keyword-face) fontified t) 6 32 (face (smerge-lower) fontified t) 32 63 (face (smerge-lower font-lock-string-face) fontified t) 63 65 (face (smerge-lower) fontified t) 65 71 (face (smerge-lower font-lock-keyword-face) fontified t) 71 148 (face (smerge-lower) fontified t) 148 185 (face (smerge-lower font-lock-string-face) fontified t) 185 187 (face (smerge-lower) fontified t)) . 4172) (undo-tree-id14 . -65) (undo-tree-id15 . -187) (undo-tree-id16 . -65) (undo-tree-id17 . -65) (undo-tree-id18 . -187) (undo-tree-id19 . -187) 4359 (t 27288 29426 66833 120000)) nil (27288 29505 181666 128000) 0 nil])
+([nil nil ((nil rear-nonsticky nil 4171 . 4172) (nil fontified nil 4170 . 4172) (nil fontified nil 4133 . 4170) (nil fontified nil 4056 . 4133) (nil fontified nil 4050 . 4056) (nil fontified nil 4048 . 4050) (nil fontified nil 4017 . 4048) (nil fontified nil 3991 . 4017) (nil fontified nil 3985 . 3991) (3985 . 4172)) nil (27288 29505 181663 964000) 0 nil])
+([nil current ((#("<<<<<<< HEAD
+=======
+import { WorkspaceCreateService } from \"./workspaces/workspaceCreateService.js\";
+import { loadEffectiveWorktreeParentDir } from \"./workspaces/projectPiWebConfig.js\";
+>>>>>>> 05b266d2 (fix(sessions): persist open ask_user asks across session daemon reload)
+" 0 1 (face smerge-markers smerge-refine-part (16 . 2) fontified t) 1 13 (face smerge-markers fontified t) 13 20 (face smerge-markers fontified t) 20 21 (face nil fontified t) 21 27 (face (smerge-lower font-lock-keyword-face) fontified t) 27 60 (face (smerge-lower) fontified t) 60 100 (face (smerge-lower font-lock-string-face) fontified t) 100 102 (face (smerge-lower) fontified t) 102 108 (face (smerge-lower font-lock-keyword-face) fontified t) 108 149 (face (smerge-lower) fontified t) 149 185 (face (smerge-lower font-lock-string-face) fontified t) 185 187 (face (smerge-lower) fontified t) 187 277 (face smerge-markers fontified t)) . 4172) (undo-tree-id0 . -13) (undo-tree-id1 . -21) (undo-tree-id2 . -187) (undo-tree-id3 . -277) (undo-tree-id4 . -187) (undo-tree-id5 . -187) (undo-tree-id6 . -187) (undo-tree-id7 . -187) (undo-tree-id8 . -187) (undo-tree-id9 . -187) (undo-tree-id10 . -187) (undo-tree-id11 . -187) (undo-tree-id12 . -277) (undo-tree-id13 . -277) 4449) nil (27288 29505 181661 178000) 0 nil])
+nil
