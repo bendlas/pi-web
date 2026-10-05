@@ -5,6 +5,7 @@ import { stylesheetIntegrationCapability } from "../plugins/styles";
 import { LitElement, css, html, type PropertyValues } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import { writeClipboardText } from "../clipboard";
+import type { ChatDisclosureController } from "../chatDisclosure";
 import type { ToolExecutionPart } from "../chatTypes";
 import { uiButtonStyles } from "./ui/controlStyles";
 import { uiTranscriptStyles } from "./ui/transcriptStyles";
@@ -28,6 +29,11 @@ export class ToolExecutionView extends LitElement {
   }
 
   @property({ attribute: false }) execution: ToolExecutionPart | undefined;
+  // Disclosure ownership lives in the parent so a user-opened diff/details
+  // survives the tool re-rendering (and the surrounding group finishing).
+  @property({ attribute: false }) disclosures: ChatDisclosureController | undefined;
+  @property({ attribute: false }) disclosureKey: string | undefined;
+  @property({ attribute: false }) groupDisclosureKey: string | undefined;
   @state() private showFullDiff = false;
   @state() private copied = false;
   @state() private diffOpen = true;
@@ -36,6 +42,13 @@ export class ToolExecutionView extends LitElement {
   private diffStats: { added: number; removed: number; lines: number } | undefined;
   @state() private argsOpen: boolean | undefined = undefined;
   @state() private showFullArgs = false;
+  /**
+   * The open state this view last knows each disclosure to have: what a render
+   * wrote, or what the user left behind. A programmatic open fires the same
+   * toggle event a click does, so a toggle only means a user choice when it
+   * differs from the state recorded here.
+   */
+  private readonly knownOpen = new Map<string, boolean>();
 
   protected override willUpdate(changed: PropertyValues<ToolExecutionView>): void {
     const previous = changed.get("execution");
@@ -43,6 +56,7 @@ export class ToolExecutionView extends LitElement {
   }
 
   override render() {
+    this.knownOpen.clear();
     const execution = this.execution;
     if (execution === undefined) return null;
 
@@ -135,15 +149,13 @@ export class ToolExecutionView extends LitElement {
     `;
   }
 
-  private renderTextBody(text: string | undefined, open: boolean, target: ToolTarget | undefined) {
+  private renderTextBody(text: string | undefined, defaultOpen: boolean, target: ToolTarget | undefined) {
     if ((text === undefined || text === "") && target === undefined) return null;
-    const expanded = this.textOpen ?? open;
+    const open = this.ownedDisclosureOpen("text", defaultOpen);
     return html`
-      <details class="text-body" ?open=${expanded} @toggle=${(event: Event) => {
-        if (event.currentTarget instanceof HTMLDetailsElement) this.textOpen = event.currentTarget.open;
-      }}>
+      <details class="text-body" ?open=${open} @toggle=${(event: Event) => { this.onSubDisclosureToggle("text", defaultOpen, event); }}>
         <summary class="ui-transcript-disclosure">${messages.t("details")}</summary>
-        ${expanded ? html`${this.renderExpandedTarget(target)}
+        ${open ? html`${this.renderExpandedTarget(target)}
         ${text === undefined || text === "" ? null : html`
           <div class="detail-result">
             <span class="detail-label">${messages.t("result")}</span>
@@ -156,13 +168,14 @@ export class ToolExecutionView extends LitElement {
 
   private renderDiffBody(diff: string, label: string, target: ToolTarget | undefined) {
     const lineCount = this.diffStats?.lines ?? 0;
+    const open = this.ownedDisclosureOpen("diff", true);
     return html`
-      <details class="diff-details" ?open=${this.diffOpen} @toggle=${(event: Event) => { this.onDiffToggle(event); }}>
+      <details class="diff-details" ?open=${open} @toggle=${(event: Event) => { this.onSubDisclosureToggle("diff", true, event); }}>
         <summary class="ui-transcript-disclosure">
           <span>${label}</span>
           <small>${messages.t("lines", { count: lineCount })}</small>
         </summary>
-        ${this.diffOpen ? this.renderDiffContent(diff, label, target) : null}
+        ${open ? this.renderDiffContent(diff, label, target) : null}
       </details>
     `;
   }
@@ -186,9 +199,37 @@ export class ToolExecutionView extends LitElement {
     `;
   }
 
-  private onDiffToggle(event: Event): void {
+  private ownedDisclosureOpen(suffix: "text" | "diff", defaultOpen: boolean): boolean {
+    const key = this.disclosureKey;
+    const disclosures = this.disclosures;
+    if (disclosures === undefined || key === undefined) return (suffix === "text" ? this.textOpen : this.diffOpen) ?? defaultOpen;
+    const open = disclosures.isOpen(`${key}:${suffix}`, defaultOpen);
+    this.knownOpen.set(suffix, open);
+    return open;
+  }
+
+  private onSubDisclosureToggle(suffix: "text" | "diff", defaultOpen: boolean, event: Event): void {
     const details = event.currentTarget;
-    if (details instanceof HTMLDetailsElement) this.diffOpen = details.open;
+    if (!(details instanceof HTMLDetailsElement)) return;
+    const key = this.disclosureKey;
+    const disclosures = this.disclosures;
+    if (disclosures === undefined || key === undefined) {
+      if (suffix === "text") this.textOpen = details.open;
+      else this.diffOpen = details.open;
+      return;
+    }
+    // A programmatic open or close fires the same toggle event a click does; only
+    // a state this view does not already expect is the user choosing something.
+    if (details.open === this.knownOpen.get(suffix)) return;
+    this.knownOpen.set(suffix, details.open);
+    let changed = disclosures.applyToggle(`${key}:${suffix}`, details.open, defaultOpen);
+    // An opened block stays open when the group's default flips after the
+    // response finishes, and it also keeps the group that holds it open.
+    if (details.open) {
+      changed = disclosures.markOpen(`${key}:${suffix}`) || changed;
+      if (this.groupDisclosureKey !== undefined) changed = disclosures.markOpen(this.groupDisclosureKey) || changed;
+    }
+    if (changed) this.requestUpdate();
   }
 
   private async copyDiff(diff: string): Promise<void> {
