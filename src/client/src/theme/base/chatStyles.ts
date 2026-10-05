@@ -112,14 +112,16 @@ export const chatStyles = css`
   .thinking { --ui-activity-tone: var(--pi-thinking, color-mix(in srgb, #4f83b3 70%, var(--pi-text) 30%)); }
   .thinking-icon { flex: 0 0 auto; width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.5; }
   .thinking > summary { font-weight: 600; }
+  /* A thinking body sits inside its disclosure element, which adds no box. */
+  chat-disclosure-body { display: contents; }
   .tool-line > .ui-transcript-heading { font: 13px/20px var(--pi-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace); overflow-wrap: anywhere; }
   .tool-result.error { --ui-activity-tone: var(--pi-danger); }
   .tool-result.error > summary { color: color-mix(in srgb, var(--pi-danger) 65%, var(--pi-text) 35%); }
   .summary { color: var(--pi-text-secondary); margin-left: 6px; }
   .part:is(details):not(.ui-transcript-activity) { padding-top: 4px; }
-  .part:is(details) > formatted-text { padding: 8px 12px 0; box-sizing: border-box; }
-  .part.ui-transcript-activity > formatted-text { padding: 8px 12px 12px; }
-  .part > formatted-text { display: block; max-width: 100%; min-width: 0; overflow: visible; }
+  .part:is(details) > formatted-text, .part:is(details) > chat-disclosure-body > formatted-text { padding: 8px 12px 0; box-sizing: border-box; }
+  .part.ui-transcript-activity > formatted-text, .part.ui-transcript-activity > chat-disclosure-body > formatted-text { padding: 8px 12px 12px; }
+  .part > formatted-text, .part > chat-disclosure-body > formatted-text { display: block; max-width: 100%; min-width: 0; overflow: visible; }
   .skill-invocation, .skill-read { padding: 8px 0; }
   .skill-invocation > summary, .skill-read > strong { color: var(--pi-purple); }
   .skill-invocation > small, .skill-read > small { display: block; max-width: 100%; margin: 6px 0 0; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; scrollbar-width: thin; white-space: nowrap; color: var(--pi-muted); direction: ltr; text-align: left; unicode-bidi: isolate; }

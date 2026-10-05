@@ -2,6 +2,7 @@ import { stylesheetIntegrationCapability } from "../plugins/styles";
 import { LitElement, css, html } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import { writeClipboardText } from "../clipboard";
+import type { ChatDisclosureController } from "../chatDisclosure";
 import type { ToolExecutionPart } from "../chatTypes";
 import { uiButtonStyles } from "./ui/controlStyles";
 import { uiTranscriptStyles } from "./ui/transcriptStyles";
@@ -23,13 +24,25 @@ export class ToolExecutionView extends LitElement {
   }
 
   @property({ attribute: false }) execution: ToolExecutionPart | undefined;
+  // Disclosure ownership lives in the parent so a user-opened diff/details
+  // survives the tool re-rendering (and the surrounding group finishing).
+  @property({ attribute: false }) disclosures: ChatDisclosureController | undefined;
+  @property({ attribute: false }) disclosureKey: string | undefined;
+  @property({ attribute: false }) groupDisclosureKey: string | undefined;
   @state() private showFullDiff = false;
   @state() private copied = false;
-  @state() private diffOpen = true;
   @state() private argsOpen: boolean | undefined = undefined;
   @state() private showFullArgs = false;
+  /**
+   * The open state this view last knows each disclosure to have: what a render
+   * wrote, or what the user left behind. A programmatic open fires the same
+   * toggle event a click does, so a toggle only means a user choice when it
+   * differs from the state recorded here.
+   */
+  private readonly knownOpen = new Map<string, boolean>();
 
   override render() {
+    this.knownOpen.clear();
     const execution = this.execution;
     if (execution === undefined) return null;
 
@@ -117,10 +130,12 @@ export class ToolExecutionView extends LitElement {
     `;
   }
 
-  private renderTextBody(text: string | undefined, open: boolean, target: ToolTarget | undefined) {
+  private renderTextBody(text: string | undefined, defaultOpen: boolean, target: ToolTarget | undefined) {
     if ((text === undefined || text === "") && target === undefined) return null;
+    const open = this.subDisclosureOpen("text", defaultOpen);
+    this.knownOpen.set("text", open);
     return html`
-      <details class="text-body" ?open=${open}>
+      <details class="text-body" ?open=${open} @toggle=${(event: Event) => { this.onSubDisclosureToggle("text", defaultOpen, event); }}>
         <summary class="ui-transcript-disclosure">Details</summary>
         ${this.renderExpandedTarget(target)}
         ${text === undefined || text === "" ? null : html`
@@ -137,8 +152,10 @@ export class ToolExecutionView extends LitElement {
     const lines = diff.split("\n");
     const truncated = !this.showFullDiff && lines.length > MAX_COLLAPSED_DIFF_LINES;
     const visibleLines = truncated ? lines.slice(0, MAX_COLLAPSED_DIFF_LINES) : lines;
+    const open = this.subDisclosureOpen("diff", true);
+    this.knownOpen.set("diff", open);
     return html`
-      <details class="diff-details" ?open=${this.diffOpen} @toggle=${(event: Event) => { this.onDiffToggle(event); }}>
+      <details class="diff-details" ?open=${open} @toggle=${(event: Event) => { this.onSubDisclosureToggle("diff", true, event); }}>
         <summary class="ui-transcript-disclosure">
           <span>${label}</span>
           <small>${String(lines.length)} ${lines.length === 1 ? "line" : "lines"}</small>
@@ -158,9 +175,24 @@ export class ToolExecutionView extends LitElement {
     `;
   }
 
-  private onDiffToggle(event: Event): void {
+  private subDisclosureOpen(suffix: string, defaultOpen: boolean): boolean {
+    const key = this.disclosureKey;
+    if (this.disclosures === undefined || key === undefined) return defaultOpen;
+    return this.disclosures.isOpen(`${key}:${suffix}`, defaultOpen);
+  }
+
+  private onSubDisclosureToggle(suffix: string, defaultOpen: boolean, event: Event): void {
     const details = event.currentTarget;
-    if (details instanceof HTMLDetailsElement) this.diffOpen = details.open;
+    if (!(details instanceof HTMLDetailsElement)) return;
+    // A programmatic open or close fires the same toggle event a click does; only
+    // a state this view does not already expect is the user choosing something.
+    if (details.open === this.knownOpen.get(suffix)) return;
+    this.knownOpen.set(suffix, details.open);
+    const key = this.disclosureKey;
+    if (this.disclosures === undefined || key === undefined) return;
+    let changed = this.disclosures.applyToggle(`${key}:${suffix}`, details.open, defaultOpen);
+    if (details.open && this.groupDisclosureKey !== undefined) changed = this.disclosures.markOpen(this.groupDisclosureKey) || changed;
+    if (changed) this.requestUpdate();
   }
 
   private async copyDiff(diff: string): Promise<void> {

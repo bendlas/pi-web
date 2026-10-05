@@ -7,6 +7,7 @@ import { MANUAL_CHAT_BEHAVIORS } from "../chatBehaviors.testSupport";
 import { groupStorageKey } from "../chatDisclosure";
 import { transcriptViewFromHistory } from "../chatTranscriptStore";
 import { ChatView, CHAT_CHROME_VISIBILITY_EVENT, type ChatChromeVisibilityDetail } from "./ChatView";
+import { ChatDisclosureBody } from "./ChatDisclosureBody";
 import { controlledChatViewport } from "./chatScroll.testSupport";
 import type { ChatLine } from "./shared";
 import type { TranscriptImage } from "./TranscriptImage";
@@ -142,18 +143,44 @@ describe("composable normal chat", () => {
     expect(group).toBeInstanceOf(HTMLDetailsElement);
     expect(group.hasAttribute("open")).toBe(false);
     expect(required(thinking, "summary").textContent).toContain("Thinking");
-    expect(thinking.hasAttribute("open")).toBe(true);
+    // This block is history, so it starts collapsed and unbuilt.
+    expect(thinking.hasAttribute("open")).toBe(false);
     expect(required(result, "summary").textContent).toContain("read result · Failed");
     expect(result.hasAttribute("open")).toBe(true);
   });
 
-  it.each([false, true])("expands thinking by default while only opening the live outer group (live: %s)", async (live) => {
+  it.each([false, true])("keeps thinking open with the live outer group and collapsed once it is history (live: %s)", async (live) => {
     const view = await mount();
     view.messages = [{ role: "assistant", entryId: "default-thinking", parts: [{ type: "thinking", text: "Plan the work." }] }];
     view.isSendingPrompt = live;
     await view.updateComplete;
     expect(required(view.renderRoot, ".event-group").hasAttribute("open")).toBe(live);
-    expect(required(view.renderRoot, ".thinking").hasAttribute("open")).toBe(true);
+    const thinking = required(view.renderRoot, ".thinking");
+    expect(thinking.hasAttribute("open")).toBe(live);
+    // Reasoning is worth watching while it arrives and expensive to lay out once it
+    // is history, so the body is built only while the block is open.
+    expect(thinking.querySelector("formatted-text") === null).toBe(!live);
+  });
+
+  it("builds a thinking body only while the block is open", async () => {
+    const view = await mount();
+    const thinking = required(view.renderRoot, ".thinking");
+    if (!(thinking instanceof HTMLDetailsElement)) throw new Error("Expected thinking disclosure");
+    const body = required(thinking, "chat-disclosure-body");
+    if (!(body instanceof ChatDisclosureBody)) throw new Error("Expected disclosure body");
+    expect(thinking.open).toBe(false);
+    expect(body.renderRoot.querySelector("formatted-text")).toBeNull();
+    // A native toggle must build the body without rerendering the transcript.
+    const render = vi.spyOn(view, "render");
+    thinking.open = true;
+    thinking.dispatchEvent(new Event("toggle"));
+    await body.updateComplete;
+    expect(body.renderRoot.querySelector("formatted-text")).not.toBeNull();
+    expect(render).not.toHaveBeenCalled();
+    thinking.open = false;
+    thinking.dispatchEvent(new Event("toggle"));
+    await body.updateComplete;
+    expect(body.renderRoot.querySelector("formatted-text")).toBeNull();
   });
 
   it.each([true, false])("keeps thinking individually collapsible and remembers its choice only when enabled (%s)", async (rememberDisclosures) => {
@@ -161,34 +188,40 @@ describe("composable normal chat", () => {
     const view = await mount(behaviors);
     const thinking = required(view.renderRoot, ".thinking");
     if (!(thinking instanceof HTMLDetailsElement)) throw new Error("Expected thinking disclosure");
-    const render = vi.spyOn(view, "render");
-    thinking.open = false;
+    expect(thinking.open).toBe(false);
+    // The user opens the block. A remembered choice survives a rerender of the same
+    // messages; without remembering, the block stays where the user left it and only
+    // a fresh view returns to the default.
+    thinking.open = true;
     thinking.dispatchEvent(new Event("toggle"));
-    expect(render).not.toHaveBeenCalled();
-    view.messages = [...view.messages];
-    await view.updateComplete;
-    expect(required(view.renderRoot, ".thinking").hasAttribute("open")).toBe(false);
+    if (rememberDisclosures) {
+      view.messages = [...view.messages];
+      await view.updateComplete;
+      expect(required(view.renderRoot, ".thinking").hasAttribute("open")).toBe(true);
+    }
     view.remove();
 
     const restored = await mount(behaviors);
-    expect(required(restored.renderRoot, ".thinking").hasAttribute("open")).toBe(!rememberDisclosures);
+    expect(required(restored.renderRoot, ".thinking").hasAttribute("open")).toBe(rememberDisclosures);
     restored.sessionId = "another-session";
     await restored.updateComplete;
-    expect(required(restored.renderRoot, ".thinking").hasAttribute("open")).toBe(true);
+    // Another session starts from the default instead of inheriting the choice.
+    expect(required(restored.renderRoot, ".thinking").hasAttribute("open")).toBe(false);
   });
 
-  it("keeps a remembered collapse scoped to its entry when earlier thinking is prepended", async () => {
+  it("keeps a remembered open scoped to its entry when earlier thinking is prepended", async () => {
     const view = await mount();
     const thinking = required(view.renderRoot, ".thinking");
     if (!(thinking instanceof HTMLDetailsElement)) throw new Error("Expected thinking disclosure");
-    thinking.open = false;
+    thinking.open = true;
     thinking.dispatchEvent(new Event("toggle"));
+    await view.updateComplete;
     view.messages = [{ role: "assistant", entryId: "earlier-thinking", parts: [{ type: "thinking", text: "Earlier plan." }] }, ...view.messages];
     await view.updateComplete;
     const entries = view.renderRoot.querySelectorAll<HTMLDetailsElement>(".thinking");
     expect(entries).toHaveLength(2);
-    expect(entries[0]?.open).toBe(true);
-    expect(entries[1]?.open).toBe(false);
+    expect(entries[0]?.open).toBe(false);
+    expect(entries[1]?.open).toBe(true);
   });
 
   it("reveals a hidden chrome when the host pins it for a view a scroll cannot restore", async () => {
@@ -487,6 +520,13 @@ describe("composable normal chat", () => {
       { type: "toolResult", toolName: "read", text, isError: false },
     ] }];
     await view.updateComplete;
+    // A thinking body is built on demand, so open its block to keep this surface covered.
+    const thinking = required(view.renderRoot, ".thinking");
+    const body = required(thinking, "chat-disclosure-body");
+    if (!(thinking instanceof HTMLDetailsElement) || !(body instanceof ChatDisclosureBody)) throw new Error("Expected thinking disclosure");
+    thinking.open = true;
+    thinking.dispatchEvent(new Event("toggle"));
+    await body.updateComplete;
     expect(view.behaviors.codeBlocks).toEqual({ presentation: "code", overflow: "scroll", copy: true, previews: true });
     const formatted = [...view.renderRoot.querySelectorAll<FormattedText>("formatted-text")];
     expect(formatted).toHaveLength(5);

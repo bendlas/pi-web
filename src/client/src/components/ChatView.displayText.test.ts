@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, expect, it, vi } from "vitest";
 import { ChatView } from "./ChatView";
+import { ChatDisclosureBody } from "./ChatDisclosureBody";
 import type { FormattedText } from "./FormattedText";
 import { normalizeMessages } from "../chatMessages";
 import { createContentRenderingService } from "../formatting/contentRendering";
@@ -44,6 +45,14 @@ it.each([false, true].flatMap((previews) => ["```text\ndisplayed\n```", "", unde
     group.open = true;
     group.dispatchEvent(new Event("toggle"));
     await view.updateComplete;
+  }
+  // A thinking body exists only while its block is open, so open it as a reader would.
+  const reasoning = view.renderRoot.querySelector<HTMLDetailsElement>("details.part.thinking");
+  if (reasoning !== null) {
+    reasoning.open = true;
+    reasoning.dispatchEvent(new Event("toggle"));
+    const body = reasoning.querySelector("chat-disclosure-body");
+    if (body instanceof ChatDisclosureBody) await body.updateComplete;
   }
   const formatted = [...view.renderRoot.querySelectorAll<FormattedText>("formatted-text")];
   await Promise.all(formatted.map((element) => element.updateComplete));

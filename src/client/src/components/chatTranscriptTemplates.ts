@@ -2,6 +2,7 @@ import { html, nothing } from "lit";
 import { live } from "lit/directives/live.js";
 import { MessageActionsMenu } from "./chat/MessageActionsMenu";
 import { renderSessionWarningIcon } from "./shared";
+import type { ChatDisclosureController } from "../chatDisclosure";
 import { chatToolOutputLabel, chatMessageGroupClassName, chatMessageGroupLabel } from "./chat/transcriptLabels";
 import { chatMessageHasHeader, summarizeChatGroup, type ChatDisplayGroup, type ChatGroup } from "../chatGroups";
 import type { ChatBehaviors } from "../chatBehaviors";
@@ -36,7 +37,11 @@ export interface TranscriptRenderContext {
   disclosure: {
     isOpen: (key: string, defaultOpen: boolean) => boolean;
     toggle: (key: string, event: Event, defaultOpen: boolean) => void;
+    part: (key: string, defaultOpen: boolean, groupKey: string | undefined) => { open: boolean; toggle: ((event: Event) => void) | undefined };
+    remember: boolean;
+    controller: ChatDisclosureController | undefined;
   };
+  groupDisclosureKey: (group: Extract<ChatGroup, { kind: "group" }>) => string;
   metadata: {
     expandedKey: string | undefined;
     label: (message: ChatLine) => string;
@@ -122,20 +127,22 @@ export function renderMessageGroup(context: TranscriptRenderContext, group: Extr
           <span class="label">${chatMessageGroupLabel(defaultOpen)}</span>
           <span>${summarizeChatGroup(messages.map((event) => event.message))}</span>
         </summary>
-        ${renderMessageGroupBody(context, group, entryActionHeaders)}
+        ${renderMessageGroupBody(context, group, entryActionHeaders, defaultOpen)}
       </details>
     `;
   }
 
 
-export function renderMessageGroupBody(context: TranscriptRenderContext, { messages, startIndex }: Extract<ChatGroup, { kind: "group" }>, entryActionHeaders: ReadonlySet<ChatLine> = new Set()) {
+export function renderMessageGroupBody(context: TranscriptRenderContext, group: Extract<ChatGroup, { kind: "group" }>, entryActionHeaders: ReadonlySet<ChatLine> = new Set(), liveTail = false) {
+    const { messages, startIndex } = group;
+    const groupKey = context.groupDisclosureKey(group);
     return html`
       <div class="group-body">
         ${messages.map(({ message, index }, offset) => {
           return html`
             <section class=${`group-msg ${message.role} ui-transcript-surface`} data-index=${index} data-scroll-anchor-id=${context.anchors.event(index, message) ?? nothing}>
               ${chatMessageHasHeader(message) ? html`<div class="transcript-content">${renderMessageHeader(context, message, `${String(startIndex)}:${String(offset)}`, index, entryActionHeaders)}</div>` : null}
-              ${renderGroupedParts(context, message, index)}
+              ${renderGroupedParts(context, message, index, groupKey, liveTail)}
             </section>`;
         })}
       </div>
@@ -144,7 +151,7 @@ export function renderMessageGroupBody(context: TranscriptRenderContext, { messa
 
 
 /** Sections own their body inset; only consecutive ordinary content shares outer padding. */
-function renderGroupedParts(context: TranscriptRenderContext, message: ChatLine, messageIndex: number) {
+function renderGroupedParts(context: TranscriptRenderContext, message: ChatLine, messageIndex: number, groupKey: string, liveTail: boolean) {
   const runs: { section: boolean; parts: { part: ChatPart; index: number }[] }[] = [];
   message.parts.forEach((part, index) => {
     if ((part.type === "text" || part.type === "thinking") && (part.displayText ?? part.text) === "") return;
@@ -156,7 +163,7 @@ function renderGroupedParts(context: TranscriptRenderContext, message: ChatLine,
   });
   return runs.map((run) => html`
     <div class=${run.section ? "transcript-section" : "transcript-content"}>
-      ${run.parts.map(({ part, index }) => renderPart(context, part, message, messageIndex, index))}
+      ${run.parts.map(({ part, index }) => renderPart(context, part, message, messageIndex, index, groupKey, liveTail))}
     </div>
   `);
 }
@@ -188,32 +195,39 @@ function renderMessageMetadata(context: TranscriptRenderContext, message: ChatLi
   return html`<div id=${`message-meta-${key}`} class="msg-meta-details" ?hidden=${context.metadata.expandedKey !== key}>${context.metadata.label(message)}</div>`;
 }
 
-export function renderPart(context: TranscriptRenderContext, part: ChatPart, message: ChatLine, messageIndex: number, partIndex: number) {
+export function renderPart(context: TranscriptRenderContext, part: ChatPart, message: ChatLine, messageIndex: number, partIndex: number, groupKey?: string, liveTail = false) {
     const intentKey = JSON.stringify([context.machineId, context.sessionId, message.entryId ?? messageIndex, partIndex]);
     if (part.type === "text" || part.type === "thinking") {
       const text = part.displayText ?? part.text;
       if (text === "") return null;
       if (part.type === "thinking") {
-        const disclosureKey = `thinking:${intentKey}`;
-        const open = context.behaviors.rememberDisclosures ? context.disclosure.isOpen(disclosureKey, true) : true;
+        const key = intentKey;
+        // Reasoning is worth watching while it arrives and expensive to parse and lay
+        // out once it is history, so only the live tail opens the block; the body is
+        // built while the block is open.
+        const { open, toggle } = context.disclosure.part(key, liveTail, groupKey);
         return html`
           <details class="part thinking ui-transcript-surface ui-transcript-activity" ?open=${context.behaviors.rememberDisclosures ? live(open) : open}
-            @toggle=${context.behaviors.rememberDisclosures ? (event: Event) => { context.disclosure.toggle(disclosureKey, event, true); } : undefined}>
+            @toggle=${toggle}>
             <summary class="ui-transcript-disclosure ui-transcript-heading"><svg class="thinking-icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M6 14a5 5 0 1 1 8-1H9l-3 2v-1Z"/><circle cx="4" cy="17" r="1"/></svg>Thinking</summary>
-            <formatted-text .imagesEnabled=${context.behaviors.loadImages} .codeBlocks=${context.behaviors.codeBlocks} .intentKey=${intentKey} .contentRendering=${context.contentRendering} .machineId=${context.machineId} .workspaceContext=${context.workspaceContext} .text=${text}></formatted-text>
+            <chat-disclosure-body .content=${html`<formatted-text .imagesEnabled=${context.behaviors.loadImages} .codeBlocks=${context.behaviors.codeBlocks} .intentKey=${intentKey} .contentRendering=${context.contentRendering} .machineId=${context.machineId} .workspaceContext=${context.workspaceContext} .text=${text}></formatted-text>`}></chat-disclosure-body>
           </details>
         `;
       }
       if (message.role === "bash") return html`<pre class="part shell-output">${text}</pre>`;
       return html`<formatted-text .imagesEnabled=${context.behaviors.loadImages} .codeBlocks=${context.behaviors.codeBlocks} .intentKey=${intentKey} class="part" .contentRendering=${context.contentRendering} .machineId=${context.machineId} .workspaceContext=${context.workspaceContext} .text=${text}></formatted-text>`;
     }
-    if (part.type === "skillInvocation") return html`
-      <details class="part skill-invocation">
+    if (part.type === "skillInvocation") {
+      const key = intentKey;
+      const { open, toggle } = context.disclosure.remember ? context.disclosure.part(key, false, groupKey) : { open: false, toggle: undefined };
+      return html`
+      <details class="part skill-invocation" ?open=${open} @toggle=${toggle}>
         <summary class="ui-transcript-disclosure"><b>[skill]</b> ${part.name}</summary>
         <small>${part.location}</small>
         <formatted-text .imagesEnabled=${context.behaviors.loadImages} .codeBlocks=${context.behaviors.codeBlocks} .intentKey=${intentKey} .contentRendering=${context.contentRendering} .machineId=${context.machineId} .workspaceContext=${context.workspaceContext} .text=${part.content}></formatted-text>
       </details>
     `;
+    }
     if (part.type === "skillRead") return html`
       <div class="part skill-read">
         <strong>Loaded ${part.name}</strong>
@@ -244,13 +258,20 @@ export function renderPart(context: TranscriptRenderContext, part: ChatPart, mes
       ></pi-web-transcript-image>`;
     }
     if (part.type === "toolCall") return html`<div class="part tool-line ui-transcript-surface ui-transcript-activity ui-transcript-tool"><div class="ui-transcript-heading"><span aria-hidden="true">▶</span> ${part.toolName}<span class="summary">${part.summary}</span></div></div>`;
-    if (part.type === "toolExecution") return html`<tool-execution-view class="part" .execution=${part}></tool-execution-view>`;
-    if (part.type === "toolResult") return html`
-      <details class=${`part tool-result ui-transcript-surface ui-transcript-activity ui-transcript-tool${part.isError ? " error" : ""}`} ?open=${part.isError}>
+    if (part.type === "toolExecution") {
+      const key = intentKey;
+      return html`<tool-execution-view class="part" .execution=${part} .disclosures=${context.disclosure.remember ? context.disclosure.controller : undefined} .disclosureKey=${key} .groupDisclosureKey=${groupKey}></tool-execution-view>`;
+    }
+    if (part.type === "toolResult") {
+      const key = intentKey;
+      const remembered = context.disclosure.remember ? context.disclosure.part(key, part.isError, groupKey) : { open: part.isError, toggle: undefined };
+      return html`
+      <details class=${`part tool-result ui-transcript-surface ui-transcript-activity ui-transcript-tool${part.isError ? " error" : ""}`} ?open=${remembered.open} @toggle=${remembered.toggle}>
         <summary class="ui-transcript-disclosure ui-transcript-heading">${part.isError ? "✖" : "✓"} ${part.toolName} result${part.isError ? " · Failed" : ""}</summary>
         <formatted-text .imagesEnabled=${context.behaviors.loadImages} .codeBlocks=${context.behaviors.codeBlocks} .intentKey=${intentKey} .contentRendering=${context.contentRendering} .machineId=${context.machineId} .workspaceContext=${context.workspaceContext} .text=${part.text}></formatted-text>
       </details>
     `;
+    }
     return null;
   }
 

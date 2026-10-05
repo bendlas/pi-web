@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { summarizeArgs } from "../chatMessages";
+import { ChatDisclosureController, type ChatDisclosureSnapshot, type ChatDisclosureStorage } from "../chatDisclosure";
 import { ToolExecutionView } from "./ToolExecutionView";
 import type { ToolExecutionPart } from "../chatTypes";
 import { writeClipboardText } from "../clipboard";
@@ -139,3 +140,97 @@ it("summarizes nested argument values instead of collapsing them to a count", ()
   expect(summary).toContain("BUILD SUCCESS");
   expect(summary).toContain("timeout: 1800");
 });
+
+describe("ToolExecutionView disclosure persistence", () => {
+  it("restores a user-opened details disclosure after the tool view is recreated", async () => {
+    const controller = new ChatDisclosureController(new MemoryDisclosureStorage());
+    controller.syncSession("session-1");
+    const execution: ToolExecutionPart = {
+      type: "toolExecution",
+      toolName: "read",
+      summary: "src/file.ts",
+      status: "success",
+      resultText: "file contents",
+    };
+
+    const first = mount(execution, controller);
+    await settled(first);
+    const firstDetails = requiredElement(first.shadowRoot?.querySelector<HTMLDetailsElement>("details.text-body"), "details disclosure");
+    expect(firstDetails.open).toBe(false);
+    toggle(firstDetails, true);
+    await settled(first);
+
+    expect(controller.isOpen("part-1:text", false)).toBe(true);
+    expect(controller.isOpen("group-1", false)).toBe(true);
+
+    // Re-mounting models the surrounding group body rendering the tool again.
+    const second = mount(execution, controller);
+    await settled(second);
+    expect(requiredElement(second.shadowRoot?.querySelector<HTMLDetailsElement>("details.text-body"), "details disclosure").open).toBe(true);
+  });
+
+  it("does not record a disclosure the render opened by itself", async () => {
+    const controller = new ChatDisclosureController(new MemoryDisclosureStorage());
+    controller.syncSession("session-1");
+    const execution: ToolExecutionPart = {
+      type: "toolExecution",
+      toolName: "bash",
+      summary: "false",
+      args: { command: "false" },
+      status: "running",
+      resultText: "exit 1",
+    };
+
+    const view = mount(execution, controller);
+    await settled(view);
+    const details = requiredElement(view.shadowRoot?.querySelector<HTMLDetailsElement>("details.text-body"), "details disclosure");
+    expect(details.open).toBe(false);
+
+    // A failed tool opens its output by default, and that write fires the same
+    // toggle event a click does.
+    view.execution = { ...execution, status: "error" };
+    await settled(view);
+    expect(details.open).toBe(true);
+    details.dispatchEvent(new Event("toggle"));
+
+    expect(controller.snapshot()).toEqual({ open: [], closedDefaultOpen: [] });
+  });
+});
+
+class MemoryDisclosureStorage implements ChatDisclosureStorage {
+  private readonly snapshots = new Map<string, ChatDisclosureSnapshot>();
+
+  read(sessionId: string): ChatDisclosureSnapshot | undefined {
+    const snapshot = this.snapshots.get(sessionId);
+    return snapshot === undefined ? undefined : { open: [...snapshot.open], closedDefaultOpen: [...snapshot.closedDefaultOpen] };
+  }
+
+  write(sessionId: string, snapshot: ChatDisclosureSnapshot): void {
+    this.snapshots.set(sessionId, { open: [...snapshot.open], closedDefaultOpen: [...snapshot.closedDefaultOpen] });
+  }
+}
+
+function mount(execution: ToolExecutionPart, controller: ChatDisclosureController): ToolExecutionView {
+  const view = new ToolExecutionView();
+  view.execution = execution;
+  view.disclosures = controller;
+  view.disclosureKey = "part-1";
+  view.groupDisclosureKey = "group-1";
+  document.body.append(view);
+  return view;
+}
+
+async function settled(view: ToolExecutionView): Promise<void> {
+  await view.updateComplete;
+  await view.updateComplete;
+}
+
+function toggle(details: HTMLDetailsElement, open: boolean): void {
+  details.open = open;
+  details.dispatchEvent(new Event("toggle"));
+}
+
+function requiredElement<T extends Element>(element: T | null | undefined, label: string): T {
+  if (element === null || element === undefined) throw new Error(`Expected ${label} to render`);
+  return element;
+}
