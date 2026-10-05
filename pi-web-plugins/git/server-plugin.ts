@@ -149,6 +149,7 @@ export function createGitWorkspaceProvider(context: ServerPluginActivationContex
         isMain: false,
         data: { worktreePath },
         publicMetadata: { isGitRepo: true, isGitWorktree: true, branch: branchName },
+        removal: gitRemovalPresentation(branchName, worktreePath),
       };
     },
     async prepareRemove({ project, workspace, signal }: ProviderRemoveContext): Promise<WorkspaceRemovePlan> {

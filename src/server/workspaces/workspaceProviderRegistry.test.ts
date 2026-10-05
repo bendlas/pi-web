@@ -706,6 +706,50 @@ describe("WorkspaceProviderRegistry.createWorkspace", () => {
     expect(Object.isFrozen(created.provider?.capabilities)).toBe(true);
   });
 
+  it("preserves a provider-advertised removal on a created workspace", async () => {
+    const createWorkspace = vi.fn((context: ProviderCreateContext) => Promise.resolve(
+      workspace(context.input.name, join(context.worktreeParentDir, context.input.name), false, {
+        removal: { actionLabel: "Delete workspace", confirmation: "Delete feature-x?" },
+      }),
+    ));
+    const registry = registryFor([contribution("owner", provider({
+      probe: () => Promise.resolve("claim"),
+      list: () => Promise.resolve([workspace("root", hostPath("/repo"), true)]),
+      createWorkspace,
+      prepareRemove: () => Promise.resolve({ title: "Remove", command: "true" }),
+    }))]);
+
+    const created = await registry.createWorkspace(
+      project,
+      { name: "feature-x" },
+      hostPath("/worktrees"),
+      new AbortController().signal,
+    );
+
+    expect(created.provider?.capabilities).toMatchObject({ remove: true, create: true });
+    expect(created.removal).toMatchObject({ actionLabel: "Delete workspace", confirmation: "Delete feature-x?" });
+    expect(created.removal?.precondition).toMatch(/^v1\./u);
+  });
+
+  it("rejects a created workspace that advertises removal without a prepareRemove capability", async () => {
+    const registry = registryFor([contribution("owner", provider({
+      probe: () => Promise.resolve("claim"),
+      list: () => Promise.resolve([workspace("root", hostPath("/repo"), true)]),
+      createWorkspace: (context) => Promise.resolve(
+        workspace(context.input.name, join(context.worktreeParentDir, context.input.name), false, {
+          removal: { actionLabel: "Delete workspace", confirmation: "Delete?" },
+        }),
+      ),
+    }))]);
+
+    await expect(registry.createWorkspace(
+      project,
+      { name: "feature-x" },
+      hostPath("/worktrees"),
+      new AbortController().signal,
+    )).rejects.toThrow(/advertises removal without a prepareRemove capability/u);
+  });
+
   it("rejects creation when the owner provider does not support it", async () => {
     const registry = registryFor([contribution("owner", provider({
       probe: () => Promise.resolve("claim"),

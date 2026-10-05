@@ -464,6 +464,14 @@ export class WorkspaceProviderRegistry {
       }
 
       const validated = await validateCreatedWorkspace(input2, contribution, value, this.pathInspector, signal);
+      const hostRemoval = classifyHostRemoval(
+        input2,
+        contribution,
+        validated.key,
+        validated.path,
+        validated.removal,
+        `Workspace provider ${contribution.pluginId} created workspace`,
+      );
       return Object.freeze({
         id: workspaceId(input2.id, validated.key),
         projectId: input2.id,
@@ -473,11 +481,12 @@ export class WorkspaceProviderRegistry {
         provider: Object.freeze({
           pluginId: contribution.pluginId,
           capabilities: Object.freeze({
-            remove: false,
+            remove: hostRemoval.remove,
             create: true,
           }),
           ...(validated.publicMetadata !== undefined && validated.publicMetadata !== null ? { metadata: cloneJsonObject(validated.publicMetadata, "workspace publicMetadata") } : {}),
         }),
+        ...(hostRemoval.removal === undefined ? {} : { removal: hostRemoval.removal }),
       });
     }
 
@@ -668,17 +677,11 @@ async function validateProviderWorkspaces(
     const data = candidate.data === undefined
       ? undefined
       : cloneJsonValue(candidate.data, new Set<object>(), `${label} data`);
-    const removal = candidate.removal === undefined ? undefined : parseRemoval(candidate.removal, `${label} removal`);
-    if (removal !== undefined && contribution.provider.prepareRemove === undefined) {
-      throw new WorkspaceProviderContractError(`${label} advertises removal without a prepareRemove capability`);
-    }
-    const publicRemoval = removal === undefined
-      ? undefined
-      : hostRemovalPresentation(project, contribution, candidate.key, path, removal);
+    const hostRemoval = classifyHostRemoval(project, contribution, candidate.key, path, candidate.removal, label);
     const provider = Object.freeze({
       pluginId: contribution.pluginId,
       capabilities: Object.freeze({
-        remove: removal !== undefined,
+        remove: hostRemoval.remove,
         ...(contribution.provider.createWorkspace !== undefined ? { create: true } : {}),
       }),
       ...(metadata === undefined ? {} : { metadata }),
@@ -690,7 +693,7 @@ async function validateProviderWorkspaces(
       label: candidate.label,
       isMain: candidate.isMain,
       provider,
-      ...(publicRemoval === undefined ? {} : { removal: publicRemoval }),
+      ...(hostRemoval.removal === undefined ? {} : { removal: hostRemoval.removal }),
     };
     const providerWorkspace: Readonly<ProviderWorkspace> = Object.freeze({
       key: candidate.key,
@@ -699,7 +702,7 @@ async function validateProviderWorkspaces(
       isMain: candidate.isMain,
       ...(data === undefined ? {} : { data }),
       ...(metadata === undefined ? {} : { publicMetadata: metadata }),
-      ...(removal === undefined ? {} : { removal }),
+      ...(hostRemoval.parsed === undefined ? {} : { removal: hostRemoval.parsed }),
     });
     workspaces.push(Object.freeze({ workspace: Object.freeze(workspace), providerWorkspace }));
   }
@@ -760,6 +763,34 @@ function parseRemoval(value: unknown, label: string): ProviderWorkspaceRemovalPr
   if (typeof actionLabel !== "string" || actionLabel === "") throw new WorkspaceProviderContractError(`${label} actionLabel must be a non-empty string`);
   if (typeof confirmation !== "string" || confirmation === "") throw new WorkspaceProviderContractError(`${label} confirmation must be a non-empty string`);
   return Object.freeze({ actionLabel, confirmation });
+}
+
+interface HostRemovalClassification {
+  remove: boolean;
+  parsed?: ProviderWorkspaceRemovalPresentation;
+  removal?: WorkspaceRemovalHostState;
+}
+
+/**
+ * Classify a provider-advertised removal the same way for listing and creation:
+ * a workspace is removable exactly when its owner supplies a presentation and a
+ * `prepareRemove` operation. Creation must not silently advertise `remove: false`
+ * for a workspace the listing would let the user delete.
+ */
+function classifyHostRemoval(
+  project: ProjectInput,
+  contribution: ServerPluginProviderContribution,
+  providerKey: string,
+  path: string,
+  removal: unknown,
+  label: string,
+): HostRemovalClassification {
+  const parsed = removal === undefined ? undefined : parseRemoval(removal, `${label} removal`);
+  if (parsed === undefined) return { remove: false };
+  if (contribution.provider.prepareRemove === undefined) {
+    throw new WorkspaceProviderContractError(`${label} advertises removal without a prepareRemove capability`);
+  }
+  return { remove: true, parsed, removal: hostRemovalPresentation(project, contribution, providerKey, path, parsed) };
 }
 
 function hostRemovalPresentation(

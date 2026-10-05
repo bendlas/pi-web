@@ -153,6 +153,7 @@ export function createJjWorkspaceProvider(
           isJjWorkspace: true,
           workspace: workspaceName,
         },
+        removal: jjRemovalPresentation(workspaceName, destination),
       };
     },
     async prepareRemove({ project, workspace, signal }: ProviderRemoveContext): Promise<WorkspaceRemovePlan> {
