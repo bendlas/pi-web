@@ -46,6 +46,19 @@ describe("client static caching", () => {
     }
   });
 
+  it("answers unmatched API routes with a JSON 404 instead of the app shell", async () => {
+    const app = await buildApp({ clientDist, logger: false });
+    try {
+      const missing = await app.inject({ method: "GET", url: "/api/definitely-not-a-route" });
+
+      expect(missing.statusCode).toBe(404);
+      expect(missing.headers["content-type"]).toContain("application/json");
+      expect(missing.json()).toEqual({ message: "Route GET:/api/definitely-not-a-route not found", error: "Not Found", statusCode: 404 });
+    } finally {
+      await app.close();
+    }
+  });
+
   it("keeps unhashed static files revalidating", async () => {
     const app = await buildApp({ clientDist, logger: false });
     try {
