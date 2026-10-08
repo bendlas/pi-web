@@ -72,7 +72,7 @@ it("localizes the whole panel live, with regional summaries and unchanged raw va
     expect(frame(panel).description).toBe(messages.t("description", { target: raw }));
     expect(frame(panel).actionLabel).toBe(messages.t("refresh"));
     expect(panel.shadowRoot?.querySelector("#session-naming-model-label")?.textContent).toBe(messages.t("model"));
-    expect(Array.from(panel.shadowRoot?.querySelectorAll("small code") ?? [], (node) => node.textContent)).toEqual(["spawn_session", "spawn_subsession", "list_subsessions", "check_subsession", "read_subsession", "ask_user"]);
+    expect(Array.from(panel.shadowRoot?.querySelectorAll("small code") ?? [], (node) => node.textContent)).toEqual(["spawn_session", "spawn_subsession", "list_subsessions", "check_subsession", "read_subsession", "steer_subsession", "ask_user"]);
     expect(panel.shadowRoot?.querySelector("#restart-summary-help")?.textContent).toBe(messages.t("restartHelp"));
     expect(panel.shadowRoot?.querySelector("#naming-summary-help")?.textContent).toBe(messages.t("namingSummaryHelp"));
     expect(panel.shadowRoot?.querySelector(".config-path-card code")?.textContent).toBe(panel.configResponse?.path);
