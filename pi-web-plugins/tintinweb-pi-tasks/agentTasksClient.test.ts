@@ -38,20 +38,28 @@ describe("agent tasks client", () => {
   });
 
   it("keeps the selected session's copy on dedup and sorts numerically", async () => {
-    const files = reader({
-      [`${AGENT_TASKS_DIR}/tasks-session-1.json`]: JSON.stringify({
-        tasks: [
-          { id: "10", subject: "ten" },
-          { id: "2", subject: "two from session" },
+    const files = reader(
+      {
+        [`${AGENT_TASKS_DIR}/tasks-session-1.json`]: JSON.stringify({
+          tasks: [
+            { id: "10", subject: "ten" },
+            { id: "2", subject: "two from session" },
+          ],
+        }),
+        [`${AGENT_TASKS_DIR}/tasks.json`]: JSON.stringify({
+          tasks: [
+            { id: "2", subject: "two from project" },
+            { id: "1", subject: "one" },
+          ],
+        }),
+      },
+      {
+        [AGENT_TASKS_DIR]: [
+          { name: "tasks-session-1.json", path: `${AGENT_TASKS_DIR}/tasks-session-1.json`, type: "file" },
+          { name: "tasks.json", path: `${AGENT_TASKS_DIR}/tasks.json`, type: "file" },
         ],
-      }),
-      [`${AGENT_TASKS_DIR}/tasks.json`]: JSON.stringify({
-        tasks: [
-          { id: "2", subject: "two from project" },
-          { id: "1", subject: "one" },
-        ],
-      }),
-    });
+      },
+    );
 
     await expect(loadAgentTasks(files, "session-1")).resolves.toEqual([
       { id: "1", subject: "one", status: "pending", blockedBy: [] },
@@ -85,6 +93,24 @@ describe("agent tasks client", () => {
   it("degrades missing files and unreadable directories to an empty list", async () => {
     await expect(loadAgentTasks(reader({}), "session-1")).resolves.toEqual([]);
     await expect(loadAgentTasks(reader({}), undefined)).resolves.toEqual([]);
+  });
+
+  it("only reads task files the directory listing reports", async () => {
+    const reads: string[] = [];
+    const files: AgentTaskFileReader = {
+      readFile: (path) => {
+        reads.push(path);
+        return Promise.reject(new Error("not found"));
+      },
+      listFiles: (path) => Promise.resolve({
+        entries: path === AGENT_TASKS_DIR
+          ? [{ name: "tasks-session-2.json", path: `${AGENT_TASKS_DIR}/tasks-session-2.json`, type: "file" }]
+          : [],
+      }),
+    };
+
+    await expect(loadAgentTasks(files, "session-1")).resolves.toEqual([]);
+    expect(reads).toEqual([]);
   });
 
   it("summarizes counts and statuses", () => {

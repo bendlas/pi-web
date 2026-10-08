@@ -88,6 +88,11 @@ function registerLocalProjectRoutes(app: FastifyInstance, projects: ProjectServi
   });
 }
 
+function isApiRequestPath(url: string): boolean {
+  const path = url.split("?", 1)[0] ?? "";
+  return path === "/api" || path.startsWith("/api/");
+}
+
 async function resolveWorkspacesWithEffectiveConfig(
   project: Project,
   workspaces: WorkspaceCatalog,
@@ -280,7 +285,18 @@ export async function buildApp(deps: AppDependencies = {}): Promise<FastifyInsta
       (error) => { app.log.warn({ err: error }, "failed to detect PI WEB deployment flavor"); },
     );
     registerDeploymentIdentityAssetRoutes(app, { clientDist, flavor: deploymentFlavor });
-    app.setNotFoundHandler((_request, reply) => reply.sendFile("index.html"));
+    // Browser routes fall back to the app shell; API routes must never do so.
+    // A 2xx text/html shell answering an unmatched `/api/...` request makes the
+    // client fail with an opaque `SyntaxError: Unexpected token '<'` instead of
+    // a usable 404, so API misses are answered with JSON.
+    app.setNotFoundHandler((request, reply) => {
+      if (isApiRequestPath(request.url)) {
+        // Mirror Fastify's default JSON 404 shape so clients that distinguish an
+        // unavailable route from a domain error keep working.
+        return reply.code(404).send({ message: `Route ${request.method}:${request.url} not found`, error: "Not Found", statusCode: 404 });
+      }
+      return reply.sendFile("index.html");
+    });
   }
 
   return app;

@@ -722,6 +722,25 @@ describe("buildApp remote machine proxy routes", () => {
     expect(request).toHaveBeenCalledTimes(4);
   });
 
+  it("proxies the remote unmapped-history route through the selected machine", async () => {
+    const addResponse = await appTestContext.app.inject({ method: "POST", url: "/api/machines", payload: { name: "Remote", baseUrl: "https://remote.example.test/" } });
+    const remote = addResponse.json<{ id: string }>();
+    const payload = { generatedAt: "now", groups: [] };
+    const request = vi.fn<MachineClient["request"]>(() => Promise.resolve({
+      statusCode: 200,
+      headers: { "content-type": "application/json" },
+      body: Readable.from([JSON.stringify(payload)]),
+    }));
+    appTestContext.remoteClient = fakeRemoteClient({ request });
+
+    const response = await appTestContext.app.inject({ method: "GET", url: `/api/machines/${remote.id}/sessions/unmapped` });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["content-type"]).toContain("application/json");
+    expect(response.json()).toEqual(payload);
+    expect(request).toHaveBeenCalledWith("GET", "/api/sessions/unmapped", undefined);
+  });
+
   it("proxies remote server notice reads and dismissals through the allowlisted routes", async () => {
     const addResponse = await appTestContext.app.inject({ method: "POST", url: "/api/machines", payload: { name: "Remote", baseUrl: "https://remote.example.test/" } });
     const remote = addResponse.json<{ id: string }>();

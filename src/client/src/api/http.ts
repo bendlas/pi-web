@@ -13,12 +13,28 @@ export async function request<T>(url: string, parse: (value: unknown) => T, init
   const headers = new Headers(init?.headers);
   if (init?.body !== undefined && !headers.has("content-type")) headers.set("content-type", "application/json");
   const response = await fetch(resolveAppUrl(url), { ...init, headers });
+  const text = await response.text();
   if (!response.ok) {
-    const body: unknown = await response.json().catch((): unknown => ({}));
-    throw new HttpRequestError(errorMessage(body) ?? response.statusText, response.status);
+    throw new HttpRequestError(errorMessage(parseJson(text)) ?? response.statusText, response.status);
   }
-  const body: unknown = await response.json();
+  let body: unknown;
+  try {
+    body = JSON.parse(text);
+  } catch {
+    // A 2xx non-JSON body (an app shell, login redirect, or proxy error page)
+    // must surface as a clear request failure, not a raw `SyntaxError`.
+    const contentType = response.headers.get("content-type") ?? "an unknown content type";
+    throw new HttpRequestError(`Expected a JSON response but received ${contentType}`, response.status);
+  }
   return parse(body);
+}
+
+function parseJson(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return undefined;
+  }
 }
 
 function errorMessage(value: unknown): string | undefined {

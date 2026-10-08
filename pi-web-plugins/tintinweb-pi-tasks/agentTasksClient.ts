@@ -66,15 +66,28 @@ function toAgentTask(value: unknown): AgentTask | undefined {
 
 /** List per-session task files in the workspace; unreadable directories yield none. */
 export async function listSessionTaskFiles(files: AgentTaskFileReader): Promise<string[]> {
-  let tree: Awaited<ReturnType<AgentTaskFileReader["listFiles"]>>;
+  return (await listTaskEntries(files))
+    .filter((entry) => entry.type !== "directory" && isSessionTaskFileName(entry.name))
+    .map((entry) => entry.path);
+}
+
+interface AgentTaskFileEntry {
+  name: string;
+  path: string;
+  type: string;
+}
+
+/** Read the directory once so missing files are never requested (and never 400). */
+async function listTaskEntries(files: AgentTaskFileReader): Promise<readonly AgentTaskFileEntry[]> {
   try {
-    tree = await files.listFiles(AGENT_TASKS_DIR);
+    return (await files.listFiles(AGENT_TASKS_DIR)).entries;
   } catch {
     return [];
   }
-  return tree.entries
-    .filter((entry) => entry.type !== "directory" && /^tasks-.+\.json$/u.test(entry.name))
-    .map((entry) => entry.path);
+}
+
+function isSessionTaskFileName(name: string): boolean {
+  return /^tasks-.+\.json$/u.test(name);
 }
 
 /**
@@ -92,12 +105,18 @@ export async function loadAgentTasks(files: AgentTaskFileReader, sessionId: stri
     }
   };
 
-  if (sessionId !== undefined && sessionId !== "") {
-    add(await readTaskFile(files, `${AGENT_TASKS_DIR}/tasks-${sessionId}.json`));
-  } else {
-    for (const path of await listSessionTaskFiles(files)) add(await readTaskFile(files, path));
+  // Only read files the listing reports. Blindly reading the selected session's
+  // file and `tasks.json` turns a normal empty workspace into a 400 per read.
+  const entries = await listTaskEntries(files);
+  const present = new Set(entries.map((entry) => entry.path));
+  const sessionPaths = sessionId !== undefined && sessionId !== ""
+    ? [`${AGENT_TASKS_DIR}/tasks-${sessionId}.json`]
+    : entries.filter((entry) => entry.type !== "directory" && isSessionTaskFileName(entry.name)).map((entry) => entry.path);
+  for (const path of sessionPaths) {
+    if (present.has(path)) add(await readTaskFile(files, path));
   }
-  add(await readTaskFile(files, `${AGENT_TASKS_DIR}/${PROJECT_TASKS_FILENAME}`));
+  const projectPath = `${AGENT_TASKS_DIR}/${PROJECT_TASKS_FILENAME}`;
+  if (present.has(projectPath)) add(await readTaskFile(files, projectPath));
 
   return tasks.sort((left, right) => numericId(left.id) - numericId(right.id));
 }
