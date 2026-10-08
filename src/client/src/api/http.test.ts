@@ -21,7 +21,7 @@ function rejectTransport(stage: "fetch" | "body", error: unknown): void {
     fetchMock.mockRejectedValue(error);
   } else {
     const response = new Response("{}");
-    vi.spyOn(response, "json").mockRejectedValue(error);
+    vi.spyOn(response, "text").mockRejectedValue(error);
     fetchMock.mockResolvedValue(response);
   }
 }
@@ -84,7 +84,7 @@ describe.each(transportStages)("bounded request %s", (stage) => {
     if (stage === "fetch") fetchMock.mockReturnValue(new Promise(() => undefined));
     else {
       const response = new Response("{}");
-      vi.spyOn(response, "json").mockReturnValue(new Promise(() => undefined));
+      vi.spyOn(response, "text").mockReturnValue(new Promise(() => undefined));
       fetchMock.mockResolvedValue(response);
     }
     const parse = vi.fn((body: unknown) => body);
@@ -144,15 +144,17 @@ describe("request", () => {
     expect(fetchMock).toHaveBeenCalledExactlyOnceWith("https://pi.example.test/api/read", { headers: new Headers() });
   });
 
-  it("preserves JSON SyntaxError without invoking the parser", async () => {
-    const response = new Response("not json");
-    const syntaxError = new SyntaxError("Invalid JSON");
-    vi.spyOn(response, "json").mockRejectedValue(syntaxError);
-    fetchMock.mockResolvedValue(response);
+  it("reports a non-JSON 2xx body as a request error instead of a SyntaxError", async () => {
+    fetchMock.mockResolvedValue(new Response("<!doctype html><html></html>", {
+      status: 200,
+      headers: { "content-type": "text/html; charset=utf-8" },
+    }));
     const parse = vi.fn((body: unknown) => body);
 
-    await expect(request("api/read", parse)).rejects.toBe(syntaxError);
+    const failure = request("api/read", parse);
 
+    await expect(failure).rejects.toBeInstanceOf(HttpRequestError);
+    await expect(failure).rejects.toThrow("Expected a JSON response but received text/html; charset=utf-8");
     expect(parse).not.toHaveBeenCalled();
   });
 
@@ -186,10 +188,8 @@ describe("request", () => {
     expect(fetchMock).toHaveBeenCalledOnce();
   });
 
-  it.each([new TypeError("Body transport failure"), new SyntaxError("Invalid JSON"), new DOMException("Cancelled", "AbortError")])("retains HTTP failure fallback when its body is unreadable: %s", async (failure) => {
-    const response = new Response("", { status: 503, statusText: "Service Unavailable" });
-    vi.spyOn(response, "json").mockRejectedValue(failure);
-    fetchMock.mockResolvedValue(response);
+  it("falls back to the HTTP status text when the failure body is not JSON", async () => {
+    fetchMock.mockResolvedValue(new Response("not json", { status: 503, statusText: "Service Unavailable" }));
 
     const pending = request("api/read", (body) => body);
 
