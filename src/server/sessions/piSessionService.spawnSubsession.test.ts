@@ -1369,13 +1369,30 @@ describe("PiSessionService", () => {
       await service.dispose();
     });
 
-    it("check_subsession and read_subsession refuse sessions that are not the caller's children", async () => {
+    it("check_subsession, read_subsession, and steer_subsession refuse sessions that are not the caller's children", async () => {
       const { service } = subsessionService({ allowed: true, cwd: "/workspace" });
       await service.start("/workspace");
       await service.spawnSubsession({ spawningCwd: "/workspace", parentSessionId: "parent-1", parentSessionFile: "/tmp/parent-1.jsonl", prompt: "go" });
 
       await expect(service.checkSubsession("someone-else", "child-1")).rejects.toThrow("not one of your subsessions");
       await expect(service.readSubsession("someone-else", "child-1", {})).rejects.toThrow("not one of your subsessions");
+      await expect(service.steerSubsession("someone-else", "child-1", "stop")).rejects.toThrow("not one of your subsessions");
+      await service.dispose();
+    });
+
+    it("steer_subsession steers a working child and starts a new turn for an idle one", async () => {
+      const { child, service } = subsessionService({ allowed: true, cwd: "/workspace" });
+      await service.start("/workspace");
+      await service.spawnSubsession({ spawningCwd: "/workspace", parentSessionId: "parent-1", parentSessionFile: "/tmp/parent-1.jsonl", prompt: "go" });
+      child.calls.prompt.length = 0;
+
+      child.session.isStreaming = true;
+      await expect(service.steerSubsession("parent-1", "child-1", "change of plan")).resolves.toEqual({ sessionId: "child-1", cwd: "/workspace", status: "working" });
+      expect(child.calls.prompt).toEqual([{ text: "change of plan", options: { streamingBehavior: "steer" } }]);
+
+      child.session.isStreaming = false;
+      await expect(service.steerSubsession("parent-1", "child-1", "and then stop")).resolves.toEqual({ sessionId: "child-1", cwd: "/workspace", status: "idle" });
+      expect(child.calls.prompt.at(-1)).toEqual({ text: "and then stop", options: undefined });
       await service.dispose();
     });
 

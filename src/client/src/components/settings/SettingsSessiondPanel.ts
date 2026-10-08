@@ -71,7 +71,7 @@ export class SettingsSessiondPanel extends LitElement {
               >
               <span>Enable the <code>spawn_subsession</code> tools</span>
             </label>
-            <small>Agents can start child sessions they stay attached to (<code>spawn_subsession</code>, <code>list_subsessions</code>, <code>check_subsession</code>, <code>read_subsession</code>) and are notified when a child finishes. Requires "Allow agents to start sessions". On by default.</small>
+            <small>Agents can start child sessions they stay attached to (<code>spawn_subsession</code>, <code>list_subsessions</code>, <code>check_subsession</code>, <code>read_subsession</code>, <code>steer_subsession</code>) and are notified when a child finishes. Requires "Allow agents to start sessions". On by default.</small>
           </div>
           <div class="field">
             <span class="field-heading">

@@ -91,7 +91,7 @@ import { PendingExtensionDialogStore, type ExtensionDialogCancelReason } from ".
 import { ExtensionDialogWaiters, effectiveExtensionDialogTimeoutMs, extensionDialogCancelValue } from "./extensionDialogWaiters.js";
 import { DEFAULT_EXTENSION_DIALOGS_TIMEOUT_MS } from "../../config.js";
 import { createSpawnSessionToolDefinition, type SpawnSessionInvocation, type SpawnSessionResult } from "./spawnSessionTool.js";
-import { createSubsessionToolDefinitions, type SpawnSubsessionInvocation, type SpawnSubsessionResult, type SubsessionCheckResult, type SubsessionReadQuery, type SubsessionReadResult, type SubsessionStatus, type SubsessionSummary, type SubsessionToolDeps } from "./spawnSubsessionTool.js";
+import { createSubsessionToolDefinitions, type SpawnSubsessionInvocation, type SpawnSubsessionResult, type SteerSubsessionResult, type SubsessionCheckResult, type SubsessionReadQuery, type SubsessionReadResult, type SubsessionStatus, type SubsessionSummary, type SubsessionToolDeps } from "./spawnSubsessionTool.js";
 import { buildTranscriptView } from "./subsessionTranscript.js";
 import { annotateAssistantThinkingLevel, historyMessagesFromEntries } from "./transcriptMessages.js";
 import { planSessionCleanup, summarizeSessionCleanupExecution, type NormalizedSessionCleanupRequest, type SessionCleanupPlan } from "./sessionCleanup.js";
@@ -1301,6 +1301,7 @@ export class PiSessionService implements SessionRouteService {
         list: (parentSessionId, parentSessionFile) => this.listSubsessions(parentSessionId, parentSessionFile),
         check: (parentSessionId, sessionId, parentSessionFile) => this.checkSubsession(parentSessionId, sessionId, parentSessionFile),
         read: (parentSessionId, sessionId, query, parentSessionFile) => this.readSubsession(parentSessionId, sessionId, query, parentSessionFile),
+        steer: (parentSessionId, sessionId, text, parentSessionFile) => this.steerSubsession(parentSessionId, sessionId, text, parentSessionFile),
       },
       deps.askUserEnabled === true ? { open: (input) => this.openAsk(input) } : undefined,
       deps.appendSystemPromptSections ?? [],
@@ -2165,6 +2166,20 @@ export class PiSessionService implements SessionRouteService {
       status: this.subsessionStatus(session),
       ...view,
     };
+  }
+
+  /**
+   * Send a steering message to one of the caller's tracked children. A working
+   * child queues it for the turn after its current tool calls; an idle child
+   * receives it as a new turn. Routes through the ordinary prompt path so
+   * queueing, compaction deferral, and duplicate suppression match the browser.
+   */
+  async steerSubsession(parentSessionId: string, sessionId: string, text: string, parentSessionFile?: string): Promise<SteerSubsessionResult> {
+    const session = await this.openSubsession(parentSessionId, sessionId, parentSessionFile);
+    const cwd = session.sessionManager.getCwd();
+    const status = this.subsessionStatus(session);
+    await this.prompt({ id: sessionId, cwd }, text, "steer", undefined, { echoUserMessage: false });
+    return { sessionId, cwd, status };
   }
 
   /** Open a session after verifying it is one of the caller's tracked children. */

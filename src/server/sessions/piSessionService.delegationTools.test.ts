@@ -17,13 +17,15 @@ afterEach(async () => {
 function delegationDeps() {
   const spawn = vi.fn(() => Promise.resolve({ sessionId: "independent-1", cwd: "/workspace" }));
   const subsessionSpawn = vi.fn(() => Promise.resolve({ sessionId: "child-1", cwd: "/workspace" }));
+  const subsessionSteer = vi.fn(() => Promise.resolve({ sessionId: "child-1", cwd: "/workspace", status: "idle" as const }));
   const subsessions: SubsessionToolDeps = {
     spawn: subsessionSpawn,
     list: vi.fn(() => Promise.resolve([])),
     check: vi.fn(() => Promise.resolve({ sessionId: "child-1", cwd: "/workspace", status: "idle" as const, finalText: "", messageCount: 0 })),
     read: vi.fn(() => Promise.resolve({ sessionId: "child-1", cwd: "/workspace", status: "idle" as const, entries: [], total: 0, matched: 0, start: 0, hasMore: false })),
+    steer: subsessionSteer,
   };
-  return { spawn, subsessions, subsessionSpawn };
+  return { spawn, subsessions, subsessionSpawn, subsessionSteer };
 }
 
 function toolNames(definitions: ReturnType<typeof createPiWebCustomToolDefinitions>): string[] {
@@ -68,6 +70,7 @@ describe("delegation tool capability boundary", () => {
       "list_subsessions",
       "check_subsession",
       "read_subsession",
+      "steer_subsession",
       "yield_to_subsessions",
     ]);
   });
@@ -115,6 +118,15 @@ describe("delegation tool capability boundary", () => {
       model: dispatchModel,
       modelSpec: "openai/gpt-5",
     });
+  });
+
+  it("wires the dispatching parent identity into steer_subsession", async () => {
+    const { spawn, subsessions, subsessionSteer } = delegationDeps();
+    const steerTool = findTool(createPiWebCustomToolDefinitions("/workspace", true, spawn, subsessions), "steer_subsession");
+
+    await steerTool.execute("call-3", { sessionId: "child-1", text: "change of plan" }, undefined, undefined, ctxFor("parent-9", "/sessions/parent-9.jsonl"));
+
+    expect(subsessionSteer).toHaveBeenCalledWith("parent-9", "child-1", "change of plan", "/sessions/parent-9.jsonl");
   });
 
   it.each(["human-created", "spawn_session-created"])("allows delegation for a %s session without tracked-child provenance", async () => {
