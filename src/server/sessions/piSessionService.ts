@@ -110,7 +110,7 @@ import { DEFAULT_EXTENSION_DIALOGS_TIMEOUT_MS } from "../../config.js";
 import { createSpawnSessionToolDefinition, type SpawnSessionInvocation, type SpawnSessionResult } from "./spawnSessionTool.js";
 import type { SessionUiMetadata } from "../../shared/pluginApiTypes.js";
 import { readSessionUiMetadata, requireSessionUiMetadata, SESSION_UI_METADATA_CUSTOM_TYPE } from "./sessionMetadata.js";
-import { createSubsessionToolDefinitions, type SpawnSubsessionInvocation, type SpawnSubsessionResult, type SubsessionCheckResult, type SubsessionJoinResult, type SubsessionReadQuery, type SubsessionReadResult, type SubsessionStatus, type SubsessionSummary, type SubsessionToolDeps } from "./spawnSubsessionTool.js";
+import { createSubsessionToolDefinitions, type SpawnSubsessionInvocation, type SpawnSubsessionResult, type SteerSubsessionResult, type SubsessionCheckResult, type SubsessionJoinResult, type SubsessionReadQuery, type SubsessionReadResult, type SubsessionStatus, type SubsessionSummary, type SubsessionToolDeps } from "./spawnSubsessionTool.js";
 import { buildTranscriptView, type TranscriptView } from "./subsessionTranscript.js";
 import { createSendSessionMessageToolDefinition, type SendSessionMessageInvocation, type SendSessionMessageResult, type SendSessionMessageToolDeps } from "./sendSessionMessageTool.js";
 import { createSubsessionCompletionDelivery, type SubsessionCompletionDeliveryDeps } from "./subsessionCompletionDelivery.js";
@@ -1373,6 +1373,7 @@ export class PiSessionService implements SessionRouteService {
         prepare: (parentSessionId, parentSessionFile) => this.prepareSubsessionDelivery(parentSessionId, parentSessionFile),
         check: (parentSessionId, sessionId, parentSessionFile, toolCallId) => this.checkSubsession(parentSessionId, sessionId, parentSessionFile, toolCallId),
         read: (parentSessionId, sessionId, query, parentSessionFile, toolCallId) => this.readSubsession(parentSessionId, sessionId, query, parentSessionFile, toolCallId),
+        steer: (parentSessionId, sessionId, text, parentSessionFile) => this.steerSubsession(parentSessionId, sessionId, text, parentSessionFile),
       },
       deps.askUserEnabled === true,
       deps.appendSystemPromptSections ?? [],
@@ -2526,6 +2527,20 @@ export class PiSessionService implements SessionRouteService {
       content: renderSubsessionCompletions(completions, this.workingSubsessionIds(parentId)),
       details: { sessionId: completions[0]?.sessionId, completionIds: completions.map(({ completionId }) => completionId) },
     };
+  }
+
+  /**
+   * Send a steering message to one of the caller's tracked children. A working
+   * child queues it for the turn after its current tool calls; an idle child
+   * receives it as a new turn. Routes through the ordinary prompt path so
+   * queueing, compaction deferral, and duplicate suppression match the browser.
+   */
+  async steerSubsession(parentSessionId: string, sessionId: string, text: string, parentSessionFile?: string): Promise<SteerSubsessionResult> {
+    const session = await this.openSubsession(parentSessionId, sessionId, parentSessionFile);
+    const cwd = session.sessionManager.getCwd();
+    const status = this.subsessionStatus(session);
+    await this.prompt({ id: sessionId, cwd }, text, "steer", undefined, { echoUserMessage: false });
+    return { sessionId, cwd, status };
   }
 
   /** Open a session after verifying it is one of the caller's tracked children. */

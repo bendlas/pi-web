@@ -89,6 +89,17 @@ export interface SubsessionReadQuery {
   limit?: number;
 }
 
+/**
+ * Outcome of steering a tracked child. `status` is the child's state when the
+ * message was accepted: `working` children receive it as a steering message,
+ * `idle` ones as a new turn.
+ */
+export interface SteerSubsessionResult {
+  sessionId: string;
+  cwd: string;
+  status: SubsessionStatus;
+}
+
 export interface SubsessionToolDeps {
   archive(parentSessionId: string, sessionId: string, parentSessionFile?: string): Promise<void>;
   spawn(input: SpawnSubsessionInvocation): Promise<SpawnSubsessionResult>;
@@ -98,6 +109,7 @@ export interface SubsessionToolDeps {
   join(parentSessionId: string, parentSessionFile?: string, toolCallId?: string): Promise<SubsessionJoinResult>;
   check(parentSessionId: string, sessionId: string, parentSessionFile?: string, toolCallId?: string): Promise<SubsessionCheckResult>;
   read(parentSessionId: string, sessionId: string, query: SubsessionReadQuery, parentSessionFile?: string, toolCallId?: string): Promise<SubsessionReadResult>;
+  steer(parentSessionId: string, sessionId: string, text: string, parentSessionFile?: string): Promise<SteerSubsessionResult>;
 }
 
 const SpawnSubsessionParams = Type.Object({
@@ -201,6 +213,15 @@ const ReadSubsessionParams = Type.Object({
   })),
 });
 
+const SteerSubsessionParams = Type.Object({
+  sessionId: Type.String({
+    description: "Tracked child id from spawn_subsession or list_subsessions.",
+  }),
+  text: Type.String({
+    description: "Steering message for the child. A working child receives it after its current turn finishes its tool calls, before its next model call; an idle child receives it as a new turn.",
+  }),
+});
+
 function statusLine(summary: SubsessionSummary): string {
   return `- ${summary.sessionId} [${summary.status}] in ${summary.cwd}`;
 }
@@ -258,8 +279,8 @@ function renderTranscript(result: SubsessionReadResult): string {
 }
 
 /**
- * Tools that let an agent spawn *tracked* child sessions, inspect and control
- * their runs, and explicitly yield at a join point.
+ * Tools that let an agent spawn *tracked* child sessions, inspect and steer
+ * them, and explicitly yield at a join point.
  *
  * A subsession records its parent in its session header, the parent is notified
  * when it stops working, and the parent may read its transcript/result. The
@@ -390,6 +411,25 @@ export function createSubsessionToolDefinitions(spawningCwd: string, deps: Subse
     },
   });
 
+
+  const steerTool = defineTool<typeof SteerSubsessionParams, SteerSubsessionResult>({
+    name: "steer_subsession",
+    label: "Steer subsession",
+    description: "Send a steering message to a tracked child without waiting for it. A working child receives it after its current turn finishes its tool calls, before its next model call; an idle child receives it as a new turn. Never yields; do not poll.",
+    promptSnippet: "steer_subsession: redirect a tracked child's next turn without waiting",
+    parameters: SteerSubsessionParams,
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const parentSessionId = ctx.sessionManager.getSessionId();
+      const parentSessionFile = ctx.sessionManager.getSessionFile() ?? undefined;
+      const result = await deps.steer(parentSessionId, params.sessionId, params.text, parentSessionFile);
+      const delivery = result.status === "working"
+        ? "The steering message is delivered after its current turn's tool calls."
+        : "The message starts a new turn.";
+      const text = `Steered subsession ${result.sessionId} [${result.status}] in ${result.cwd}. ${delivery} Continue other work; completion notices wake you, so do not poll.`;
+      return { content: [{ type: "text", text }], details: result };
+    },
+  });
+
   const yieldTool = defineTool<typeof YieldToSubsessionsParams, SubsessionYieldResult>({
     name: "yield_to_subsessions",
     // Nested tools cannot terminate the outer agent run.
@@ -430,7 +470,7 @@ export function createSubsessionToolDefinitions(spawningCwd: string, deps: Subse
     },
   });
 
-  const waitTool = defineTool<typeof WaitSubsessionsParams, SubsessionJoinResult>({
+  const waitTool = defineTool<typeof WaitSubsessionsParams, SubsessionYieldResult>({
     name: "wait_subsessions",
     // Nested tools cannot hold the outer run for an unbounded time; keep it for the model.
     exposure: "model-only",
@@ -448,7 +488,11 @@ export function createSubsessionToolDefinitions(spawningCwd: string, deps: Subse
       const timeoutMs = (params.timeout ?? DEFAULT_WAIT_TIMEOUT_SECONDS) * 1000;
       const deadline = Date.now() + timeoutMs;
       for (;;) {
-        const result = await deps.join(parentSessionId, parentSessionFile, _toolCallId);
+        const snapshot = await deps.join(parentSessionId, parentSessionFile, _toolCallId);
+        const result: SubsessionYieldResult = {
+          subsessions: snapshot.subsessions.map(({ sessionId, status }) => ({ sessionId, status })),
+          completions: snapshot.completions.map(subsessionLifecycleNotice),
+        };
         const workingIds = result.subsessions.filter(({ status }) => status === "working").map(({ sessionId }) => sessionId);
         if (result.completions.length > 0) {
           return {
@@ -458,7 +502,7 @@ export function createSubsessionToolDefinitions(spawningCwd: string, deps: Subse
         }
         if (workingIds.length === 0) {
           return {
-            content: [{ type: "text", text: "No unread child results; no tracked subsessions are working. Continuing." }],
+            content: [{ type: "text", text: "No unread child lifecycle notices; no tracked subsessions are working. Continuing." }],
             details: result,
           };
         }
@@ -478,5 +522,5 @@ export function createSubsessionToolDefinitions(spawningCwd: string, deps: Subse
     },
   });
 
-  return [spawnTool, listTool, checkTool, readTool, manageTool, yieldTool, waitTool];
+  return [spawnTool, listTool, checkTool, readTool, steerTool, manageTool, yieldTool, waitTool];
 }

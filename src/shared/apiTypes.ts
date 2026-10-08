@@ -218,9 +218,10 @@ export interface PiWebConfigValues {
   sessionMessages?: boolean;
   /**
    * When true, LLMs can start, inspect, stop, resume, and archive tracked
-   * child sessions through the subsession tools.
-   * On by default; set to `false` to disable. Requires spawnSessions
-   * to be enabled.
+   * child sessions through the subsession tools, including
+   * spawn_subsession / list_subsessions / check_subsession / read_subsession /
+   * steer_subsession. On by default; set to `false` to disable. Requires
+   * spawnSessions to be enabled.
    */
   subsessions?: boolean;
   /**
