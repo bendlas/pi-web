@@ -62,6 +62,7 @@ describe("subsession completion delivery through native Pi", () => {
         join: (...args) => hosted.joinSubsessions(...args),
         check: (...args) => hosted.checkSubsession(...args),
         read: (...args) => hosted.readSubsession(...args),
+        steer: (...args) => hosted.steerSubsession(...args),
       }), defineTool({
         name: "nested_check", label: "Nested check", description: "Read the child through a nested tool.", parameters: Type.Object({}),
         async execute(_id, _args, _signal, _onUpdate, ctx) {
