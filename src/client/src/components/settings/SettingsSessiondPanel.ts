@@ -98,7 +98,7 @@ export class SettingsSessiondPanel extends LitElement {
               <span>Allow agents to track child sessions</span>
             </label>
             <small id="subsessions-help">
-              Agents can start child sessions, check progress, and receive completion notifications with <code>spawn_subsession</code>, <code>list_subsessions</code>, <code>check_subsession</code>, and <code>read_subsession</code>.
+              Agents can start child sessions, check progress, and receive completion notifications with <code>spawn_subsession</code>, <code>list_subsessions</code>, <code>check_subsession</code>, <code>read_subsession</code>, and <code>steer_subsession</code>.
               ${!effectiveSpawn ? html`Enable “Allow agents to start sessions” first.` : html`Requires “Allow agents to start sessions”.`}
               ${subsessionsOverridden ? html`Read-only because <code>PI_WEB_SUBSESSIONS</code> overrides this setting. Change or remove it in the daemon environment to edit here.` : null}
             </small>

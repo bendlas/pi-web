@@ -108,6 +108,7 @@ describe("builtin extension factories load through DefaultResourceLoader", () =>
           ...createSubsessionToolDefinitions(directory, {
             spawn: unexpectedRunEndingCall, list: unexpectedRunEndingCall, join: unexpectedRunEndingCall,
             check: unexpectedRunEndingCall, read: unexpectedRunEndingCall,
+            steer: unexpectedRunEndingCall,
           })],
       }));
       await session.bindExtensions({ onError: (error) => errors.push(error) });
