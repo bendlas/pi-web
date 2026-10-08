@@ -46,11 +46,22 @@ export async function request<T>(url: string, parse: (value: unknown) => T, opti
     const transport = (async () => {
       const response = await fetch(requestUrl, { ...init, headers, ...(signal === undefined ? {} : { signal }) });
       if (!response.ok) {
-        const errorBody: unknown = await response.json().catch((): unknown => ({}));
-        throw new HttpRequestError(errorMessage(errorBody) ?? response.statusText, response.status);
+        // A failure body is best-effort: an unreadable or already-consumed body
+        // must not mask the HTTP status and status text.
+        const failureText = await response.text().catch(() => "");
+        throw new HttpRequestError(errorMessage(parseJson(failureText)) ?? response.statusText, response.status);
       }
-      const body: unknown = await response.json();
-      return body;
+      const text = await response.text();
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        // A 2xx non-JSON body (an app shell, login redirect, or proxy error page)
+        // must surface as a clear request failure, not a raw `SyntaxError`.
+        const contentType = response.headers.get("content-type") ?? "an unknown content type";
+        throw new HttpRequestError(`Expected a JSON response but received ${contentType}`, response.status);
+      }
+      return parsed;
     })();
     // Racing also bounds transports that do not promptly settle after abort.
     body = signal === undefined ? await transport : await Promise.race([
@@ -78,6 +89,14 @@ export async function request<T>(url: string, parse: (value: unknown) => T, opti
   }
   // Parser TypeErrors are not transport failures and must never become retryable.
   return parse(body);
+}
+
+function parseJson(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return undefined;
+  }
 }
 
 function errorMessage(value: unknown): string | undefined {
