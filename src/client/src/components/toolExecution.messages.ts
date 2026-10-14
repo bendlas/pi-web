@@ -17,4 +17,8 @@ export default {
   copied: message("Copied", "Confirmation that the full raw tool diff was copied"),
   copyDiff: message("Copy diff", "Copy the full raw tool diff including collapsed lines"),
   showAll: message<{ count: number }>("Show all {count, number} diff lines", "Expand the truncated tool diff"),
+  arguments: message("Arguments", "Arguments disclosure label in a tool card"),
+  argumentsDescription: message("Tool arguments", "Accessible name of the raw tool argument JSON"),
+  argumentLines: message<{ count: number }>("{count, plural, one {# line} other {# lines}}", "Total number of lines in a tool call's argument JSON"),
+  showAllArguments: message<{ count: number }>("Show all {count, number} argument lines", "Expand the truncated tool argument JSON"),
 };

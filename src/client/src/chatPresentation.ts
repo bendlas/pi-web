@@ -64,11 +64,27 @@ export function summarizeArgs(args: unknown, labels: ArgumentSummaryLabels = eng
 
 function shortValue(value: unknown, labels: ArgumentSummaryLabels): string {
   if (typeof value === "string") return value.length > 80 ? `${value.slice(0, 77)}…` : value;
-  if (typeof value === "number" || typeof value === "boolean") return String(value);
-  if (Array.isArray(value)) return labels.items(value.length);
-  if (typeof value === "object" && value !== null) return labels.object();
+  if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") return String(value);
+  if (value === null) return "null";
+  if (typeof value === "object") {
+    const json = compactJson(value);
+    if (json !== undefined) return json;
+    return Array.isArray(value) ? labels.items(value.length) : labels.object();
+  }
   return "";
 }
+
+/** Compact single-line JSON for nested argument values, so a one-line summary keeps its content. */
+function compactJson(value: unknown): string | undefined {
+  try {
+    const json = JSON.stringify(value);
+    return json.length > 120 ? `${json.slice(0, 117)}…` : json;
+  } catch {
+    return undefined;
+  }
+}
+
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
