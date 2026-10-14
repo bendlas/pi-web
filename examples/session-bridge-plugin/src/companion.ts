@@ -13,7 +13,9 @@ export default function companion(pi: ExtensionAPI): void {
   });
   pi.on("before_agent_start", (event) => {
     if (!active) return;
-    if (!active.started && event.prompt === active.prompt) active.started = true;
+    // Pi split this event into user and custom variants; only a user prompt can
+    // be this review's own prompt.
+    if (event.messageType === "user" && !active.started && event.prompt === active.prompt) active.started = true;
     else active.error = "Another prompt interfered with this review; findings were not saved";
   });
   pi.on("message_start", (event) => {
