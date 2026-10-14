@@ -395,14 +395,15 @@ describe("application rendering boundaries", () => {
     expect(send).not.toHaveBeenCalled();
 
     const chat = app.shadowRoot?.querySelector("chat-view");
+    const notices = app.shadowRoot?.querySelector("chat-notices");
     expect(chat?.hasAttribute("inert")).toBe(false);
     expect(chat?.shadowRoot?.textContent).not.toContain("Recently active in another PI-WEB instance");
-    expect(chat?.shadowRoot?.textContent).toContain("Ordinary runtime warning");
+    expect(notices?.shadowRoot?.textContent).toContain("Ordinary runtime warning");
     const statusBar = app.shadowRoot?.querySelector<StatusBar>("status-bar");
     expect(statusBar?.warningCount).toBe(1);
     statusBar?.shadowRoot?.querySelector<HTMLButtonElement>(".warning-toggle")?.click();
     await settle(app);
-    expect(chat?.shadowRoot?.textContent).not.toContain("Ordinary runtime warning");
+    expect(notices?.shadowRoot?.textContent).not.toContain("Ordinary runtime warning");
     expect(app.shadowRoot?.querySelector(".composer-activity-notice")).toBe(notice);
     expect(editor.disabled).toBe(true);
 

@@ -78,6 +78,7 @@ type WorkspaceCreateDraft = import("./WorkspaceCreateDialog").WorkspaceCreateDra
 import { sessionRowUnread, unreadSessionCount } from "./SessionList";
 import "./SessionCleanupDialog";
 import "./SessionTreeNavigator";
+import "./ChatNotices";
 import "./ChatView";
 import type { ChatView, ChatChromeVisibilityDetail } from "./ChatView";
 import "./PromptEditor";
@@ -4017,6 +4018,13 @@ export class PiWebApp extends LitElement {
   private chatWorkspaceContext: MarkdownWorkspaceContext | undefined;
   private chatWorkspaceContextKey: string | undefined;
 
+  /** The session warnings and notification inbox, rendered as part of the top chrome. */
+  private renderChatNotices(state: AppState): TemplateResult | null {
+    const session = state.selectedSession;
+    if (session === undefined) return null;
+    return html`<chat-notices .notificationInbox=${this.notificationView} .sessionId=${session.id} .status=${state.status} .warningsVisible=${!this.sessionWarningVisibility.collapsed} .onDismissWarning=${this.handleDismissWarning} .onDismissNotification=${this.handleDismissNotification} .onDismissAllNotifications=${this.handleDismissAllNotifications} .onToggleWarnings=${this.handleToggleWarnings}></chat-notices>`;
+  }
+
   private renderChatView(state: AppState, session: SessionInfo) {
     const treeActionPending = state.pendingTreeActions.some((action) => action.machineId === selectedMachineId(state) && action.sessionId === session.id);
     const workspaceContext = markdownWorkspaceContext(selectedMachineId(state), state.selectedWorkspace, session);
@@ -4026,12 +4034,8 @@ export class PiWebApp extends LitElement {
       this.chatWorkspaceContextKey = contextKey;
       this.chatWorkspaceContext = workspaceContext;
     }
-    if (this.notificationViewInput !== state.selectedNotificationInbox) {
-      this.notificationViewInput = state.selectedNotificationInbox;
-      this.notificationView = selectedNotificationView(state.selectedNotificationInbox);
-    }
     return html`
-      <chat-view @chat-chrome-visibility=${this.handleChatChromeVisibility} .behaviors=${this.chatBehaviors} .contentRendering=${this.plugins.getChatContentRendering(selectedMachineId(state))} .machineId=${selectedMachineId(state)} @workspace-file-open=${this.handleWorkspaceFileOpen} .workspaceContext=${this.chatWorkspaceContext} .sessionId=${session.id} .sessionCwd=${session.cwd} .chromeTopInset=${this.chatChromeTopInset} .onMessageAction=${this.handleMessageAction} .onDisplayedMessageAction=${this.handleDisplayedMessageAction} .messageActions=${this.plugins.getMessageActions(selectedMachineId(state))} .messageActionContext=${this.messageActionContext(state)} .messages=${state.messages} .messageStart=${state.messagePageStart} .messageEnd=${state.messagePageEnd} .messageTotal=${state.messagePageTotal} .hasMore=${state.messagePageStart > 0} .historyReady=${this.readyChatIdentity === selectedChatIdentity(state)} .loadingMore=${state.isLoadingEarlierMessages} .isSendingPrompt=${state.sendingPrompts[session.id] === true} .isCompacting=${state.status?.isCompacting === true} .pendingMessageCount=${state.status?.pendingMessageCount ?? 0} .clientQueuedMessages=${state.clientQueuedSessionMessages[session.id] ?? this.emptyClientQueue} .status=${state.status} .suggestedInputPending=${treeActionPending} .suppressedSuggestedInput=${state.suppressedSuggestedInputs[machineSessionKey(selectedMachineId(state), session.id)]} .onUseSuggestedInput=${session.archived === true || this.isRevertingMessage(state) ? undefined : this.handleUseSuggestedInput} .onDismissSuggestedInput=${session.archived === true ? undefined : this.handleDismissSuggestedInput} .activity=${state.activity} .pendingDialogs=${state.pendingDialogs} .closedDialogs=${state.closedDialogs} .onAnswerDialog=${this.handleAnswerDialog} .onCancelDialog=${this.handleCancelDialog} .onDismissClosedDialog=${this.handleDismissClosedDialog} .askDraftSessionId=${machineSessionKey(selectedMachineId(state), session.id)} .onSubmitAsk=${session.archived === true ? undefined : this.handleSubmitAsk} .notificationInbox=${this.notificationView} .onClearServerQueue=${this.handleClearServerQueue} .onDismissWarning=${this.handleDismissWarning} .onDismissNotification=${this.handleDismissNotification} .onDismissAllNotifications=${this.handleDismissAllNotifications} .warningsVisible=${!this.sessionWarningVisibility.collapsed} .onToggleWarnings=${this.handleToggleWarnings} .onLoadMore=${this.handleLoadEarlierMessages}></chat-view>
+      <chat-view @chat-chrome-visibility=${this.handleChatChromeVisibility} .behaviors=${this.chatBehaviors} .contentRendering=${this.plugins.getChatContentRendering(selectedMachineId(state))} .machineId=${selectedMachineId(state)} @workspace-file-open=${this.handleWorkspaceFileOpen} .workspaceContext=${this.chatWorkspaceContext} .sessionId=${session.id} .sessionCwd=${session.cwd} .chromeTopInset=${this.chatChromeTopInset} .onMessageAction=${this.handleMessageAction} .onDisplayedMessageAction=${this.handleDisplayedMessageAction} .messageActions=${this.plugins.getMessageActions(selectedMachineId(state))} .messageActionContext=${this.messageActionContext(state)} .messages=${state.messages} .messageStart=${state.messagePageStart} .messageEnd=${state.messagePageEnd} .messageTotal=${state.messagePageTotal} .hasMore=${state.messagePageStart > 0} .historyReady=${this.readyChatIdentity === selectedChatIdentity(state)} .loadingMore=${state.isLoadingEarlierMessages} .isSendingPrompt=${state.sendingPrompts[session.id] === true} .isCompacting=${state.status?.isCompacting === true} .pendingMessageCount=${state.status?.pendingMessageCount ?? 0} .clientQueuedMessages=${state.clientQueuedSessionMessages[session.id] ?? this.emptyClientQueue} .status=${state.status} .suggestedInputPending=${treeActionPending} .suppressedSuggestedInput=${state.suppressedSuggestedInputs[machineSessionKey(selectedMachineId(state), session.id)]} .onUseSuggestedInput=${session.archived === true || this.isRevertingMessage(state) ? undefined : this.handleUseSuggestedInput} .onDismissSuggestedInput=${session.archived === true ? undefined : this.handleDismissSuggestedInput} .activity=${state.activity} .pendingDialogs=${state.pendingDialogs} .closedDialogs=${state.closedDialogs} .onAnswerDialog=${this.handleAnswerDialog} .onCancelDialog=${this.handleCancelDialog} .onDismissClosedDialog=${this.handleDismissClosedDialog} .askDraftSessionId=${machineSessionKey(selectedMachineId(state), session.id)} .onSubmitAsk=${session.archived === true ? undefined : this.handleSubmitAsk} .onClearServerQueue=${this.handleClearServerQueue} .onLoadMore=${this.handleLoadEarlierMessages}></chat-view>
     `;
   }
 
@@ -4059,7 +4063,9 @@ export class PiWebApp extends LitElement {
   private measureChatChromeTop(): void {
     const height = this.chromeTop?.getBoundingClientRect().height ?? 0;
     const inset = height > 0 ? height : 0;
-    this.chatView?.style.setProperty("--pi-chat-top-inset", `${String(inset)}px`);
+    // Publish on the host so the transcript and the mobile navigation panel
+    // both reserve the floating top chrome's height.
+    this.style.setProperty("--pi-chat-top-inset", `${String(inset)}px`);
     if (this.chatChromeTopInset !== inset) this.chatChromeTopInset = inset;
   }
 
@@ -4261,6 +4267,12 @@ export class PiWebApp extends LitElement {
 
   override render() {
     const state = this.state;
+    // Compute the notification projection before the template so the top-bar
+    // notices and the transcript agree within a single render pass.
+    if (this.notificationViewInput !== state.selectedNotificationInbox) {
+      this.notificationViewInput = state.selectedNotificationInbox;
+      this.notificationView = selectedNotificationView(state.selectedNotificationInbox);
+    }
     const mainView = this.effectiveMainView();
     const activityNoticeVisible = this.unacknowledgedActivitySessionKey(state) !== undefined;
     return html`
@@ -4271,12 +4283,13 @@ export class PiWebApp extends LitElement {
           <div class="top-chrome">
             ${this.renderContextBar()}
             ${guard([...this.workspaceSurfaceInputs(), state.sessions, this.unreadSessionIds], () => this.renderMobileMainTabs())}
+            ${this.unknownRouteView() === undefined ? null : html`<div class="error warning" role="alert"><span class="error-text">Unknown view: ${this.unknownRouteView()}</span></div>`}
+            ${this.renderServerNoticeBanners()}
+            ${errorBanner(this.displayedError(), () => { this.dismissDisplayedError(); })}
+            ${this.renderBrowserErrorBanners(state)}
+            ${deprecatedAgentInputsBanner(deprecatedAgentInputsWarnings(state.machines, state.machineRuntimes))}
+            ${this.renderChatNotices(state)}
           </div>
-          ${this.unknownRouteView() === undefined ? null : html`<div class="error warning" role="alert"><span class="error-text">Unknown view: ${this.unknownRouteView()}</span></div>`}
-          ${this.renderServerNoticeBanners()}
-          ${errorBanner(this.displayedError(), () => { this.dismissDisplayedError(); })}
-          ${this.renderBrowserErrorBanners(state)}
-          ${deprecatedAgentInputsBanner(deprecatedAgentInputsWarnings(state.machines, state.machineRuntimes))}
           <div class="mobile-navigation-panel">${this.appShell.isMobileNavigationLayout ? this.renderNavigationPanel() : null}</div>
           ${state.selectedSession ? html`
             ${this.renderChatView(state, state.selectedSession)}

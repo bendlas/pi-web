@@ -20,7 +20,7 @@ describe("PiWebApp session-warning visibility wiring", () => {
     syncWarningVisibility(app);
 
     const visibleStatusBar = renderStatusBar(app, state);
-    expect(templateValueAfterMarker(renderChatView(app, state), ".warningsVisible=")).toBe(true);
+    expect(templateValueAfterMarker(renderChatNotices(app, state), ".warningsVisible=")).toBe(true);
     expect(templateValueAfterMarker(visibleStatusBar, ".warningCount=")).toBe(2);
     expect(templateValueAfterMarker(visibleStatusBar, ".warningsExpanded=")).toBe(true);
 
@@ -28,38 +28,38 @@ describe("PiWebApp session-warning visibility wiring", () => {
     toggle();
 
     const collapsedStatusBar = renderStatusBar(app, state);
-    expect(templateValueAfterMarker(renderChatView(app, state), ".warningsVisible=")).toBe(false);
+    expect(templateValueAfterMarker(renderChatNotices(app, state), ".warningsVisible=")).toBe(false);
     expect(templateValueAfterMarker(collapsedStatusBar, ".warningCount=")).toBe(2);
     expect(templateValueAfterMarker(collapsedStatusBar, ".warningsExpanded=")).toBe(false);
 
     const otherState = stateWithWarnings("session-2");
     setAppState(app, otherState);
     syncWarningVisibility(app);
-    expect(templateValueAfterMarker(renderChatView(app, otherState), ".warningsVisible=")).toBe(true);
+    expect(templateValueAfterMarker(renderChatNotices(app, otherState), ".warningsVisible=")).toBe(true);
 
     const returningState = { ...state, status: undefined };
     setAppState(app, returningState);
     syncWarningVisibility(app);
-    expect(templateValueAfterMarker(renderChatView(app, returningState), ".warningsVisible=")).toBe(true);
+    expect(templateValueAfterMarker(renderChatNotices(app, returningState), ".warningsVisible=")).toBe(true);
     expect(templateValueAfterMarker(renderStatusBar(app, returningState), ".warningCount=")).toBe(0);
 
     setAppState(app, state);
     syncWarningVisibility(app);
     const returnedStatusBar = renderStatusBar(app, state);
-    expect(templateValueAfterMarker(renderChatView(app, state), ".warningsVisible=")).toBe(false);
+    expect(templateValueAfterMarker(renderChatNotices(app, state), ".warningsVisible=")).toBe(false);
     expect(templateValueAfterMarker(returnedStatusBar, ".warningCount=")).toBe(2);
     expect(templateValueAfterMarker(returnedStatusBar, ".warningsExpanded=")).toBe(false);
 
     templateCallbackAfterMarker(returnedStatusBar, ".onToggleWarnings=")();
 
     const restoredStatusBar = renderStatusBar(app, state);
-    expect(templateValueAfterMarker(renderChatView(app, state), ".warningsVisible=")).toBe(true);
+    expect(templateValueAfterMarker(renderChatNotices(app, state), ".warningsVisible=")).toBe(true);
     expect(templateValueAfterMarker(restoredStatusBar, ".warningCount=")).toBe(2);
     expect(templateValueAfterMarker(restoredStatusBar, ".warningsExpanded=")).toBe(true);
   });
 });
 
-type RenderChatView = (this: PiWebApp, state: AppState, session: SessionInfo) => TemplateResult;
+type RenderChatNotices = (this: PiWebApp, state: AppState) => TemplateResult | null;
 type RenderStatusBar = (this: PiWebApp, state: AppState) => TemplateResult;
 type SyncWarningVisibility = (this: PiWebApp) => void;
 type WarningVisibilityCallback = () => void;
@@ -118,12 +118,12 @@ function syncWarningVisibility(app: PiWebApp): void {
   method.call(app);
 }
 
-function renderChatView(app: PiWebApp, state: AppState): TemplateResult {
-  const method: unknown = Reflect.get(app, "renderChatView");
-  if (!isRenderChatView(method)) throw new Error("PiWebApp.renderChatView is not callable");
-  const session = state.selectedSession;
-  if (session === undefined) throw new Error("Expected a selected session");
-  return method.call(app, state, session);
+function renderChatNotices(app: PiWebApp, state: AppState): TemplateResult {
+  const method: unknown = Reflect.get(app, "renderChatNotices");
+  if (!isRenderChatNotices(method)) throw new Error("PiWebApp.renderChatNotices is not callable");
+  const rendered = method.call(app, state);
+  if (rendered === null) throw new Error("Expected the top-bar notices");
+  return rendered;
 }
 
 function renderStatusBar(app: PiWebApp, state: AppState): TemplateResult {
@@ -138,7 +138,7 @@ function templateCallbackAfterMarker(template: TemplateResult, marker: string): 
   return value;
 }
 
-function isRenderChatView(value: unknown): value is RenderChatView {
+function isRenderChatNotices(value: unknown): value is RenderChatNotices {
   return typeof value === "function";
 }
 

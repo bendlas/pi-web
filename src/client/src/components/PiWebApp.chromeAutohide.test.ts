@@ -127,13 +127,11 @@ describe("PiWebApp chat chrome auto-hide wiring", () => {
   it("publishes the floating top chrome height as the transcript's top inset", () => {
     const app = createApp();
     setAppState(app, selectedSessionState());
-    const setProperty = vi.fn();
     Object.defineProperty(app, "chromeTop", { value: { getBoundingClientRect: () => ({ height: 72 }) }, configurable: true, writable: true });
-    Object.defineProperty(app, "chatView", { value: { style: { setProperty } }, configurable: true, writable: true });
 
     callAppMethod(app, "measureChatChromeTop");
 
-    expect(setProperty).toHaveBeenCalledWith("--pi-chat-top-inset", "72px");
+    expect(app.style.getPropertyValue("--pi-chat-top-inset")).toBe("72px");
     expect(Reflect.get(app, "chatChromeTopInset")).toBe(72);
   });
 });
