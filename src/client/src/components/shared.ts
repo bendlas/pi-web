@@ -193,22 +193,24 @@ export const appStyles = css`
   .composer-activity-notice-text { flex: 1 1 240px; min-width: 0; overflow-wrap: anywhere; }
   .composer-activity-notice p { margin: 0; }
   .composer-activity-notice button { flex: 0 0 auto; }
-  /* Scroll-driven chrome repositioning. The chrome keeps its layout space, so the
-     transcript never reflows mid-scroll; only its transform follows the gesture.
-     The context bar and mobile tab strip render their inner classes inside their
-     own shadow roots, so target the host elements rather than those inner classes. */
-  main app-context-bar,
-  main app-mobile-main-tabs {
-    transform: translateY(calc(-1 * var(--pi-chat-chrome-top-offset, 0px)));
-    transition: transform .12s ease-out;
+  /* Scroll-direction chrome toggle, driven by a single class and animated by CSS
+     so no per-frame JS runs during scrolling. The top group keeps its layout
+     space and slides up. The bottom group floats over the transcript: the
+     transcript keeps its full height and reserves the composer's height as
+     bottom padding, so it reaches the lower border when the composer slides away. */
+  main .top-chrome {
+    flex: 0 0 auto; display: flex; flex-direction: column; min-width: 0;
+    transition: transform .18s ease;
     will-change: transform;
   }
-  main .composer-area,
-  main status-bar {
-    transform: translateY(var(--pi-chat-chrome-bottom-offset, 0px));
-    transition: transform .12s ease-out;
+  main.chrome-hidden .top-chrome { transform: translateY(-100%); }
+  main .bottom-chrome {
+    position: absolute; left: 0; right: 0; bottom: 0; z-index: 5;
+    display: flex; flex-direction: column; min-width: 0;
+    transition: transform .18s ease;
     will-change: transform;
   }
+  main.chrome-hidden .bottom-chrome { transform: translateY(100%); }
   button { border: 1px solid var(--pi-border); border-radius: 8px; background: var(--pi-surface); color: var(--pi-text); padding: 7px 9px; cursor: pointer; }
   .empty { margin: auto; color: var(--pi-muted); }
   .error { display: flex; gap: 8px; align-items: flex-start; padding: 10px 16px; border-bottom: 1px solid var(--pi-border); color: var(--pi-danger); }
@@ -404,8 +406,8 @@ export const chatStyles = css`
     .notification-header { gap: 4px; padding-inline: 8px; }
     .notification-list { padding-inline: 8px; }
   }
-  .chat { --pi-chat-sticky-top: -26px; flex: 1 1 auto; min-width: 0; min-height: 0; overflow-x: hidden; overflow-y: auto; padding: 26px 16px 16px; box-sizing: border-box; }
-  .chat-jumps { position: absolute; right: 8px; bottom: 6px; z-index: 21; display: flex; gap: 3px; }
+  .chat { --pi-chat-sticky-top: -26px; flex: 1 1 auto; min-width: 0; min-height: 0; overflow-x: hidden; overflow-y: auto; padding: 26px 16px calc(16px + var(--pi-chat-bottom-inset, 0px)); box-sizing: border-box; }
+  .chat-jumps { position: absolute; right: 8px; bottom: calc(6px + var(--pi-chat-bottom-inset, 0px)); z-index: 21; display: flex; gap: 3px; }
   .chat-jumps button { display: inline-grid; place-items: center; width: 24px; height: 22px; padding: 0; border: 1px solid var(--pi-border); border-radius: 4px; background: var(--pi-bg); color: var(--pi-muted); font: 16px/1 system-ui, sans-serif; cursor: pointer; }
   .chat-jumps button.following { color: var(--pi-accent); border-color: var(--pi-accent); background: var(--pi-selection-bg); }
   .chat-jumps button:hover, .chat-jumps button:focus-visible { color: var(--pi-text-bright); border-color: var(--pi-accent); }
@@ -413,7 +415,7 @@ export const chatStyles = css`
   .chat-wrap.plain .msg-header, .chat-wrap.plain .event-group > summary { position: static; top: auto; }
   .chat-wrap.plain *, .chat-wrap.plain *::before, .chat-wrap.plain *::after { transition: none !important; animation: none !important; box-shadow: none !important; text-shadow: none !important; filter: none !important; backdrop-filter: none !important; transform: none !important; border-radius: 0 !important; }
   .chat-wrap.plain .chat-image { --pi-image-radius: 0; }
-  .activity-dock { position: absolute; left: 50%; bottom: 0; transform: translateX(-50%); z-index: 20; display: flex; align-items: center; gap: 6px; width: 240px; max-width: calc(100% - 32px); min-width: 0; box-sizing: border-box; border: 1px solid var(--pi-border); border-bottom: 0; border-radius: 8px 8px 0 0; background: var(--pi-bg-overlay); color: var(--pi-muted); padding: 3px 10px; font-size: 11px; line-height: 16px; pointer-events: none; backdrop-filter: blur(6px); }
+  .activity-dock { position: absolute; left: 50%; bottom: var(--pi-chat-bottom-inset, 0px); transform: translateX(-50%); z-index: 20; display: flex; align-items: center; gap: 6px; width: 240px; max-width: calc(100% - 32px); min-width: 0; box-sizing: border-box; border: 1px solid var(--pi-border); border-bottom: 0; border-radius: 8px 8px 0 0; background: var(--pi-bg-overlay); color: var(--pi-muted); padding: 3px 10px; font-size: 11px; line-height: 16px; pointer-events: none; backdrop-filter: blur(6px); }
   .activity-dock.active { border-color: var(--pi-success-border); color: var(--pi-success); background: var(--pi-success-bg-overlay); }
   .activity-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; opacity: .45; flex: 0 0 auto; }

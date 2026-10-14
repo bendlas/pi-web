@@ -17,8 +17,8 @@ import {
   chatQueuedMessageSections,
   chatQueuedSectionShowsClearAction,
   chatSessionWarningRows,
-  CHAT_CHROME_SCROLL_EVENT,
-  type ChatChromeScrollDetail,
+  CHAT_CHROME_VISIBILITY_EVENT,
+  type ChatChromeVisibilityDetail,
 } from "./ChatView";
 import { templateEventHandlerAfterMarker, templateEventHandlerNearMarker } from "../templateInspection.testSupport";
 import type { ChatLine } from "./shared";
@@ -279,62 +279,66 @@ describe("ChatView chrome scroll reporting", () => {
     throw new Error(`ChatView.${name} is not callable`);
   }
 
-  function isChromeScrollEvent(event: Event): event is CustomEvent<ChatChromeScrollDetail> {
+  function isChromeVisibilityEvent(event: Event): event is CustomEvent<ChatChromeVisibilityDetail> {
     return "detail" in event;
   }
 
-  function captureChromeScroll(view: ChatView): CustomEvent<ChatChromeScrollDetail>[] {
-    const events: CustomEvent<ChatChromeScrollDetail>[] = [];
-    view.addEventListener(CHAT_CHROME_SCROLL_EVENT, (event) => { if (isChromeScrollEvent(event)) events.push(event); });
+  function captureChromeVisibility(view: ChatView): CustomEvent<ChatChromeVisibilityDetail>[] {
+    const events: CustomEvent<ChatChromeVisibilityDetail>[] = [];
+    view.addEventListener(CHAT_CHROME_VISIBILITY_EVENT, (event) => { if (isChromeVisibilityEvent(event)) events.push(event); });
     return events;
   }
 
-  it("reports a negative delta when scrolling up", () => {
+  it("reveals the chrome when scrolling up past the threshold", () => {
     const view = new ChatView();
     installFakeChat(view, { scrollTop: 500, scrollHeight: 1000, clientHeight: 100 });
     setChromeField(view, "lastChromeScrollTop", 520);
-    const events = captureChromeScroll(view);
+    setChromeField(view, "chromeHidden", true);
+    const events = captureChromeVisibility(view);
 
-    callChromeMethod(view, "updateChromeOffsetFromScroll");
+    callChromeMethod(view, "updateChromeVisibilityFromScroll");
 
     expect(events).toHaveLength(1);
     const event = events[0];
-    expect(event?.detail).toEqual({ delta: -20, reveal: false });
+    expect(event?.detail).toEqual({ hidden: false });
     expect(event?.bubbles).toBe(true);
     expect(event?.composed).toBe(true);
   });
 
-  it("reports a positive delta when scrolling down", () => {
+  it("hides the chrome when scrolling down past the threshold", () => {
     const view = new ChatView();
     installFakeChat(view, { scrollTop: 520, scrollHeight: 1000, clientHeight: 100 });
     setChromeField(view, "lastChromeScrollTop", 500);
-    const events = captureChromeScroll(view);
+    setChromeField(view, "chromeHidden", false);
+    const events = captureChromeVisibility(view);
 
-    callChromeMethod(view, "updateChromeOffsetFromScroll");
+    callChromeMethod(view, "updateChromeVisibilityFromScroll");
 
     expect(events).toHaveLength(1);
-    expect(events[0]?.detail).toEqual({ delta: 20, reveal: false });
+    expect(events[0]?.detail).toEqual({ hidden: true });
   });
 
-  it("forces a reveal when pinned to the bottom", () => {
+  it("always reveals the chrome when pinned to the bottom", () => {
     const view = new ChatView();
     installFakeChat(view, { scrollTop: 900, scrollHeight: 1000, clientHeight: 100 });
     setChromeField(view, "lastChromeScrollTop", 1000);
-    const events = captureChromeScroll(view);
+    setChromeField(view, "chromeHidden", true);
+    const events = captureChromeVisibility(view);
 
-    callChromeMethod(view, "updateChromeOffsetFromScroll");
+    callChromeMethod(view, "updateChromeVisibilityFromScroll");
 
     expect(events).toHaveLength(1);
-    expect(events[0]?.detail).toEqual({ delta: -100, reveal: true });
+    expect(events[0]?.detail).toEqual({ hidden: false });
   });
 
-  it("does not report a stationary scroll away from the bottom", () => {
+  it("does not toggle the chrome for sub-threshold scrolls", () => {
     const view = new ChatView();
-    installFakeChat(view, { scrollTop: 500, scrollHeight: 1000, clientHeight: 100 });
+    installFakeChat(view, { scrollTop: 505, scrollHeight: 1000, clientHeight: 100 });
     setChromeField(view, "lastChromeScrollTop", 500);
-    const events = captureChromeScroll(view);
+    setChromeField(view, "chromeHidden", false);
+    const events = captureChromeVisibility(view);
 
-    callChromeMethod(view, "updateChromeOffsetFromScroll");
+    callChromeMethod(view, "updateChromeVisibilityFromScroll");
 
     expect(events).toHaveLength(0);
   });
@@ -344,9 +348,9 @@ describe("ChatView chrome scroll reporting", () => {
     installFakeChat(view, { scrollTop: 900, scrollHeight: 1000, clientHeight: 100 });
     setChromeField(view, "lastChromeScrollTop", 100);
     setChromeField(view, "suppressChromeScroll", true);
-    const events = captureChromeScroll(view);
+    const events = captureChromeVisibility(view);
 
-    callChromeMethod(view, "updateChromeOffsetFromScroll");
+    callChromeMethod(view, "updateChromeVisibilityFromScroll");
 
     expect(events).toHaveLength(0);
     expect(chromeField(view, "lastChromeScrollTop")).toBe(900);

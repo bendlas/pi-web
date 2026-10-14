@@ -79,7 +79,7 @@ import { sessionRowUnread, unreadSessionCount } from "./SessionList";
 import "./SessionCleanupDialog";
 import "./SessionTreeNavigator";
 import "./ChatView";
-import type { ChatView, ChatChromeScrollDetail } from "./ChatView";
+import type { ChatView, ChatChromeVisibilityDetail } from "./ChatView";
 import "./PromptEditor";
 import type { PromptEditor } from "./PromptEditor";
 import "./StatusBar";
@@ -148,9 +148,6 @@ interface NavigationUrlContext {
 // waiting for the user to background and resume the app.
 const SAFE_AREA_MEASURE_INTERVAL_MS = 150;
 const SAFE_AREA_MEASURE_RETRIES = 10;
-/** Slide distance used until the chrome groups have been measured, and never less
- *  than the tallest measured group, so reversing direction always responds. */
-const CHAT_CHROME_FALLBACK_HEIGHT_PX = 64;
 
 interface SessionCleanupDialogState {
   preview?: SessionCleanupPreviewResponse | undefined;
@@ -173,17 +170,12 @@ export class PiWebApp extends LitElement {
   @query("app-navigation-panel") private navigationPanel?: AppNavigationPanel;
   @query("#navigation-panel") private navigationPanelFrame?: HTMLElement;
   @query("#workspace-panel") private workspacePanelFrame?: HTMLElement;
-  @query("app-context-bar") private chromeContextBar?: HTMLElement;
-  @query("app-mobile-main-tabs") private chromeMobileTabs?: HTMLElement;
-  @query(".composer-area") private chromeComposer?: HTMLElement;
-  @query("status-bar") private chromeStatusBar?: HTMLElement;
-  /** Distance (px) the chrome has slid out of view; 0 keeps both bars fully shown. */
-  private chatChromeOffset = 0;
-  /** Measured heights of the chrome groups, used to clamp the slide distance. */
-  private chatChromeTopHeight = 0;
-  private chatChromeBottomHeight = 0;
-  private chatChromeResizeObserver: ResizeObserver | undefined;
-  private observedChatChrome: HTMLElement[] = [];
+  /** Whether the chat scroll direction has slid the header and input area out of the way. */
+  @state() private chatChromeHidden = false;
+  @query(".bottom-chrome") private chromeBottom?: HTMLElement;
+  /** Reserves the floating composer's height at the end of the transcript. */
+  private chatChromeBottomObserver: ResizeObserver | undefined;
+  private observedChatChromeBottom: HTMLElement | null = null;
 
   private readonly sessionUnread = new SessionUnreadController({
     onChange: (machineId) => {
@@ -459,7 +451,7 @@ export class PiWebApp extends LitElement {
     this.committedChatIdentity = selectedChatIdentity(this.state);
     this.syncSelectedSessionReadState();
     this.plugins.notifySelectionChanged();
-    this.observeChatChrome();
+    this.observeChatChromeBottom();
     const mainView = this.effectiveMainView();
     const chatVisible = mainView === "chat" || (mainView === "navigation" && !this.appShell.isMobileNavigationLayout) || this.isDesktopSideBySideLayout();
     if (chatVisible && !this.chatWasVisible) this.chatView?.restoreScrollPosition();
@@ -711,9 +703,9 @@ export class PiWebApp extends LitElement {
     window.removeEventListener("blur", this.resetKeyboardSequence);
     this.systemLightThemeMedia?.removeEventListener("change", this.onSystemLightThemeChange);
     this.disconnectViewportObservers();
-    this.chatChromeResizeObserver?.disconnect();
-    this.chatChromeResizeObserver = undefined;
-    this.observedChatChrome = [];
+    this.chatChromeBottomObserver?.disconnect();
+    this.chatChromeBottomObserver = undefined;
+    this.observedChatChromeBottom = null;
     this.keyboard.reset();
     // A custom element can be removed before its constructor-scheduled built-in
     // batch reaches the registration queue. The shutdown owns that rejection.
@@ -4030,67 +4022,43 @@ export class PiWebApp extends LitElement {
       this.notificationView = selectedNotificationView(state.selectedNotificationInbox);
     }
     return html`
-      <chat-view @chat-chrome-scroll=${this.handleChatChromeScroll} .behaviors=${this.chatBehaviors} .contentRendering=${this.plugins.getChatContentRendering(selectedMachineId(state))} .machineId=${selectedMachineId(state)} @workspace-file-open=${this.handleWorkspaceFileOpen} .workspaceContext=${this.chatWorkspaceContext} .sessionId=${session.id} .sessionCwd=${session.cwd} .onMessageAction=${this.handleMessageAction} .onDisplayedMessageAction=${this.handleDisplayedMessageAction} .messageActions=${this.plugins.getMessageActions(selectedMachineId(state))} .messageActionContext=${this.messageActionContext(state)} .messages=${state.messages} .messageStart=${state.messagePageStart} .messageEnd=${state.messagePageEnd} .messageTotal=${state.messagePageTotal} .hasMore=${state.messagePageStart > 0} .historyReady=${this.readyChatIdentity === selectedChatIdentity(state)} .loadingMore=${state.isLoadingEarlierMessages} .isSendingPrompt=${state.sendingPrompts[session.id] === true} .isCompacting=${state.status?.isCompacting === true} .pendingMessageCount=${state.status?.pendingMessageCount ?? 0} .clientQueuedMessages=${state.clientQueuedSessionMessages[session.id] ?? this.emptyClientQueue} .status=${state.status} .suggestedInputPending=${treeActionPending} .suppressedSuggestedInput=${state.suppressedSuggestedInputs[machineSessionKey(selectedMachineId(state), session.id)]} .onUseSuggestedInput=${session.archived === true || this.isRevertingMessage(state) ? undefined : this.handleUseSuggestedInput} .onDismissSuggestedInput=${session.archived === true ? undefined : this.handleDismissSuggestedInput} .activity=${state.activity} .pendingDialogs=${state.pendingDialogs} .closedDialogs=${state.closedDialogs} .onAnswerDialog=${this.handleAnswerDialog} .onCancelDialog=${this.handleCancelDialog} .onDismissClosedDialog=${this.handleDismissClosedDialog} .askDraftSessionId=${machineSessionKey(selectedMachineId(state), session.id)} .onSubmitAsk=${session.archived === true ? undefined : this.handleSubmitAsk} .notificationInbox=${this.notificationView} .onClearServerQueue=${this.handleClearServerQueue} .onDismissWarning=${this.handleDismissWarning} .onDismissNotification=${this.handleDismissNotification} .onDismissAllNotifications=${this.handleDismissAllNotifications} .warningsVisible=${!this.sessionWarningVisibility.collapsed} .onToggleWarnings=${this.handleToggleWarnings} .onLoadMore=${this.handleLoadEarlierMessages}></chat-view>
+      <chat-view @chat-chrome-visibility=${this.handleChatChromeVisibility} .behaviors=${this.chatBehaviors} .contentRendering=${this.plugins.getChatContentRendering(selectedMachineId(state))} .machineId=${selectedMachineId(state)} @workspace-file-open=${this.handleWorkspaceFileOpen} .workspaceContext=${this.chatWorkspaceContext} .sessionId=${session.id} .sessionCwd=${session.cwd} .onMessageAction=${this.handleMessageAction} .onDisplayedMessageAction=${this.handleDisplayedMessageAction} .messageActions=${this.plugins.getMessageActions(selectedMachineId(state))} .messageActionContext=${this.messageActionContext(state)} .messages=${state.messages} .messageStart=${state.messagePageStart} .messageEnd=${state.messagePageEnd} .messageTotal=${state.messagePageTotal} .hasMore=${state.messagePageStart > 0} .historyReady=${this.readyChatIdentity === selectedChatIdentity(state)} .loadingMore=${state.isLoadingEarlierMessages} .isSendingPrompt=${state.sendingPrompts[session.id] === true} .isCompacting=${state.status?.isCompacting === true} .pendingMessageCount=${state.status?.pendingMessageCount ?? 0} .clientQueuedMessages=${state.clientQueuedSessionMessages[session.id] ?? this.emptyClientQueue} .status=${state.status} .suggestedInputPending=${treeActionPending} .suppressedSuggestedInput=${state.suppressedSuggestedInputs[machineSessionKey(selectedMachineId(state), session.id)]} .onUseSuggestedInput=${session.archived === true || this.isRevertingMessage(state) ? undefined : this.handleUseSuggestedInput} .onDismissSuggestedInput=${session.archived === true ? undefined : this.handleDismissSuggestedInput} .activity=${state.activity} .pendingDialogs=${state.pendingDialogs} .closedDialogs=${state.closedDialogs} .onAnswerDialog=${this.handleAnswerDialog} .onCancelDialog=${this.handleCancelDialog} .onDismissClosedDialog=${this.handleDismissClosedDialog} .askDraftSessionId=${machineSessionKey(selectedMachineId(state), session.id)} .onSubmitAsk=${session.archived === true ? undefined : this.handleSubmitAsk} .notificationInbox=${this.notificationView} .onClearServerQueue=${this.handleClearServerQueue} .onDismissWarning=${this.handleDismissWarning} .onDismissNotification=${this.handleDismissNotification} .onDismissAllNotifications=${this.handleDismissAllNotifications} .warningsVisible=${!this.sessionWarningVisibility.collapsed} .onToggleWarnings=${this.handleToggleWarnings} .onLoadMore=${this.handleLoadEarlierMessages}></chat-view>
     `;
   }
 
-  private readonly handleChatChromeScroll = (event: CustomEvent<ChatChromeScrollDetail>): void => {
-    const { delta, reveal } = event.detail;
+  private readonly handleChatChromeVisibility = (event: CustomEvent<ChatChromeVisibilityDetail>): void => {
+    const hidden = event.detail.hidden;
     // Keep the input area reachable while the user is composing a message.
-    if (!reveal && this.promptEditor?.contains(document.activeElement) === true) return;
-    this.setChatChromeOffset(reveal ? 0 : this.chatChromeOffset + delta);
+    if (hidden && this.promptEditor?.contains(document.activeElement) === true) return;
+    this.chatChromeHidden = hidden;
   };
 
-  /** Slide the chrome group by the accumulated scroll distance, clamped to the
-   *  measured group height so reversing direction always moves it immediately. */
-  private setChatChromeOffset(offset: number): void {
-    const max = Math.max(this.chatChromeTopHeight, this.chatChromeBottomHeight, CHAT_CHROME_FALLBACK_HEIGHT_PX);
-    this.chatChromeOffset = Math.max(0, Math.min(offset, max));
-    this.applyChatChromeOffset();
-  }
-
-  private applyChatChromeOffset(): void {
-    // Only touch the DOM once the app is attached; node-level unit tests drive
-    // `updated()` on detached instances that have no style declaration.
-    if (!this.isConnected) return;
-    const offset = this.chatChromeOffset;
-    // A zero measurement means the group is absent or unmeasurable (e.g. tests);
-    // fall back to the full offset so the transform still tracks the gesture.
-    const top = this.chatChromeTopHeight > 0 ? Math.min(offset, this.chatChromeTopHeight) : offset;
-    const bottom = this.chatChromeBottomHeight > 0 ? Math.min(offset, this.chatChromeBottomHeight) : offset;
-    this.style.setProperty("--pi-chat-chrome-top-offset", `${String(top)}px`);
-    this.style.setProperty("--pi-chat-chrome-bottom-offset", `${String(bottom)}px`);
-  }
-
-  private observeChatChrome(): void {
+  /** Reserve the floating composer's height at the end of the transcript so the
+   *  last message still clears it when the chrome is shown. */
+  private observeChatChromeBottom(): void {
     // `@query` yields null before the referenced element renders, despite its optional type.
-    const elements = [this.chromeContextBar, this.chromeMobileTabs, this.chromeComposer, this.chromeStatusBar].filter((element): element is HTMLElement => Boolean(element));
-    const unchanged = elements.length === this.observedChatChrome.length && elements.every((element, index) => element === this.observedChatChrome[index]);
-    // Measure once when the chrome appears/changes and thereafter only on resize,
-    // so streaming renders do not force layout on every update.
-    if (unchanged) return;
-    this.chatChromeResizeObserver?.disconnect();
-    this.observedChatChrome = elements;
-    if (typeof ResizeObserver !== "undefined") {
-      this.chatChromeResizeObserver ??= new ResizeObserver(() => { this.measureChatChrome(); });
-      for (const element of elements) this.chatChromeResizeObserver.observe(element);
-    }
-    this.measureChatChrome();
+    const element = this.chromeBottom ?? null;
+    // Measure once when the composer appears and thereafter only on resize, so
+    // streaming renders do not force layout on every update.
+    if (element === this.observedChatChromeBottom) return;
+    this.chatChromeBottomObserver?.disconnect();
+    this.observedChatChromeBottom = element;
+    if (element === null || typeof ResizeObserver === "undefined") return;
+    this.chatChromeBottomObserver ??= new ResizeObserver(() => { this.measureChatChromeBottom(); });
+    this.chatChromeBottomObserver.observe(element);
+    this.measureChatChromeBottom();
   }
 
-  private measureChatChrome(): void {
-    // Sum the visible members of each stacked group (context bar + mobile tabs
-    // above, composer + status bar below) so the whole group slides by its height.
-    this.chatChromeTopHeight = [this.chromeContextBar, this.chromeMobileTabs].reduce((total, element) => total + measureElementHeight(element), 0);
-    this.chatChromeBottomHeight = [this.chromeComposer, this.chromeStatusBar].reduce((total, element) => total + measureElementHeight(element), 0);
-    this.applyChatChromeOffset();
+  private measureChatChromeBottom(): void {
+    const height = this.chromeBottom?.getBoundingClientRect().height ?? 0;
+    this.chatView?.style.setProperty("--pi-chat-bottom-inset", `${String(height > 0 ? height : 0)}px`);
   }
 
   private readonly handleChromeFocusIn = (event: FocusEvent): void => {
     const target = event.target;
     if (!(target instanceof Node)) return;
     // `@query` resolves to `null` before the child renders, even though its type is optional.
-    if (this.promptEditor?.contains(target) === true) this.setChatChromeOffset(0);
+    if (this.promptEditor?.contains(target) === true) this.chatChromeHidden = false;
   };
 
   private renderStatusBar(state: AppState) {
@@ -4269,9 +4237,11 @@ export class PiWebApp extends LitElement {
       <div class=${`${this.panelCollapse.shellClass(mainView)}${this.isDesktopSideBySideLayout() ? "" : " two-column-layout"}`} style=${this.panelResize.shellStyle({ navigation: this.resizablePanelConstraints("navigation"), workspace: this.resizablePanelConstraints("workspace") })}>
         <aside id="navigation-panel">${this.appShell.isMobileNavigationLayout ? null : this.renderNavigationPanel()}</aside>
         ${this.renderNavigationPanelEdgeControl()}
-        <main class=${mainViewClass(mainView)} @focusin=${this.handleChromeFocusIn}>
-          ${this.renderContextBar()}
-          ${guard([...this.workspaceSurfaceInputs(), state.sessions, this.unreadSessionIds], () => this.renderMobileMainTabs())}
+        <main class=${`${mainViewClass(mainView)}${this.chatChromeHidden ? " chrome-hidden" : ""}`} @focusin=${this.handleChromeFocusIn}>
+          <div class="top-chrome">
+            ${this.renderContextBar()}
+            ${guard([...this.workspaceSurfaceInputs(), state.sessions, this.unreadSessionIds], () => this.renderMobileMainTabs())}
+          </div>
           ${this.unknownRouteView() === undefined ? null : html`<div class="error warning" role="alert"><span class="error-text">Unknown view: ${this.unknownRouteView()}</span></div>`}
           ${this.renderServerNoticeBanners()}
           ${errorBanner(this.displayedError(), () => { this.dismissDisplayedError(); })}
@@ -4280,11 +4250,13 @@ export class PiWebApp extends LitElement {
           <div class="mobile-navigation-panel">${this.appShell.isMobileNavigationLayout ? this.renderNavigationPanel() : null}</div>
           ${state.selectedSession ? html`
             ${this.renderChatView(state, state.selectedSession)}
+            <div class="bottom-chrome">
             <div class="composer-area">
               <prompt-editor ?inert=${activityNoticeVisible || this.isRevertingMessage(state)} .promptChips=${this.selectedPromptChips()} .onRemoveChip=${this.handleRemovePromptChip} .shortcuts=${this.shortcutConfig} .defaultStreamingBehavior=${this.defaultStreamingBehavior} .sessionId=${state.selectedSession.id} .cwd=${state.selectedWorkspace?.path} .machineId=${selectedMachineId(state)} .projectId=${state.selectedWorkspace?.projectId} .workspaceId=${state.selectedWorkspace?.id} .attachmentsFolder=${workspaceEffectiveAttachmentsFolder(state.selectedWorkspace?.effectiveConfig, this.workspaceAttachmentsDefaultFolder)} .disabled=${isReadOnlySession(state.selectedSession) || activityNoticeVisible || this.isRevertingMessage(state)} .canSteer=${state.status?.isStreaming === true} .isCompacting=${state.status?.isCompacting === true} .canStop=${state.status?.isStreaming === true || state.status?.isBashRunning === true || state.status?.isCompacting === true || (state.status?.pendingMessageCount ?? 0) > 0} .status=${state.status} .availableThinkingLevels=${state.availableThinkingLevels} .sending=${state.sendingPrompts[state.selectedSession.id] === true} .onSend=${this.handleSendPrompt} .onStop=${this.handleStopActiveWork} .onSelectModel=${this.handleSelectModel} .onSelectThinking=${this.handleSelectThinking}></prompt-editor>
               ${this.renderSessionActivityNotice()}
             </div>
             ${this.renderStatusBar(state)}
+            </div>
             ${state.commandDialog !== undefined ? html`<command-picker .title=${state.commandDialog.title} .options=${state.commandDialog.options} .onPick=${(value: string) => this.sessions.respondToCommand(state.commandDialog?.requestId ?? "", value)} .onCancel=${() => { this.sessions.cancelCommand(); }}></command-picker>` : null}
             ${state.modelDialog !== undefined ? html`<model-picker title=${state.modelDialog.title} .options=${state.modelDialog.options} .catalog=${state.modelDialog.catalog} .defaultValue=${state.modelDialog.defaultValue} .defaultsLoading=${state.modelDialog.defaultsLoading === true} .onSetDefault=${this.handleSetDefaultModel} .selectedValue=${state.modelDialog.selectedValue} .onPick=${(value: string) => { void this.pickModel(value); }} .onToggleEnabled=${this.handleToggleModelEnabled} .onSetScope=${this.handleSetModelScope} .onCancel=${() => { this.setState({ modelDialog: undefined }); }}></model-picker>` : null}
             ${state.thinkingDialog !== undefined ? html`<command-picker title=${state.thinkingDialog.title} .options=${state.thinkingDialog.options} .defaultValue=${state.thinkingDialog.defaultValue} .defaultsLoading=${state.thinkingDialog.defaultsLoading === true} .onSetDefault=${this.handleSetDefaultThinking} .selectedValue=${state.thinkingDialog.selectedValue} .onPick=${(value: string) => { void this.pickThinking(value); }} .onCancel=${() => { this.setState({ thinkingDialog: undefined }); }}></command-picker>` : null}
@@ -4549,13 +4521,6 @@ function omitWorkspaceDeletionRun(runs: Record<string, TerminalCommandRun>, work
 
 function nextFrame(): Promise<void> {
   return new Promise((resolve) => requestAnimationFrame(() => { resolve(); }));
-}
-
-/** Rendered height of a chrome element, or 0 when it is absent or not displayed. */
-function measureElementHeight(element: HTMLElement | undefined): number {
-  if (!element) return 0;
-  const height = element.getBoundingClientRect().height;
-  return height > 0 ? height : 0;
 }
 
 function thinkingDescription(level: string): string | undefined {

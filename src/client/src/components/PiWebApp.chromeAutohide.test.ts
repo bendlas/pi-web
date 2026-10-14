@@ -3,7 +3,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { initialAppState, type AppState } from "../appState";
 import type { SessionInfo, SessionStatus } from "../api";
 import { templateText } from "../templateInspection.testSupport";
-import type { ChatChromeScrollDetail } from "./ChatView";
 import { PiWebApp } from "./PiWebApp";
 
 afterEach(() => {
@@ -13,23 +12,12 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("PiWebApp chat chrome scroll wiring", () => {
+describe("PiWebApp chat chrome auto-hide wiring", () => {
   function createApp(): PiWebApp {
     const app = new PiWebApp();
     // happy-dom has no layout, so stub the one DOM call the top-level render
     // template makes while computing resizable panel widths.
     app.getBoundingClientRect = () => ({ width: 1200, height: 800, top: 0, left: 0, right: 0, bottom: 0, x: 0, y: 0, toJSON: () => ({}) });
-    // The offset writer only touches the DOM for a connected element. Keep the app
-    // detached (so no plugin lifecycle runs) and supply the two members it reads.
-    const properties = new Map<string, string>();
-    Object.defineProperty(app, "isConnected", { value: true, configurable: true });
-    Object.defineProperty(app, "style", {
-      configurable: true,
-      value: {
-        setProperty: (name: string, value: string): void => { properties.set(name, value); },
-        getPropertyValue: (name: string): string => properties.get(name) ?? "",
-      },
-    });
     return app;
   }
 
@@ -66,8 +54,8 @@ describe("PiWebApp chat chrome scroll wiring", () => {
     return templateText(render.call(app));
   }
 
-  function emitChromeScroll(app: PiWebApp, detail: ChatChromeScrollDetail): void {
-    callAppHandler(app, "handleChatChromeScroll", { detail });
+  function emitChromeVisibility(app: PiWebApp, hidden: boolean): void {
+    callAppHandler(app, "handleChatChromeVisibility", { detail: { hidden } });
   }
 
   function callAppHandler(app: PiWebApp, handlerName: string, event: unknown): void {
@@ -76,64 +64,43 @@ describe("PiWebApp chat chrome scroll wiring", () => {
     handler.call(app, event);
   }
 
-  function topOffset(app: PiWebApp): string {
-    return app.style.getPropertyValue("--pi-chat-chrome-top-offset");
-  }
-
-  function bottomOffset(app: PiWebApp): string {
-    return app.style.getPropertyValue("--pi-chat-chrome-bottom-offset");
-  }
-
-  it("accumulates the scroll distance into a chrome slide offset", () => {
+  it("slides the chrome out of the way when the chat reports a hide", () => {
     const app = createApp();
     setAppState(app, selectedSessionState());
 
-    emitChromeScroll(app, { delta: 20, reveal: false });
-    expect(topOffset(app)).toBe("20px");
-    expect(bottomOffset(app)).toBe("20px");
+    emitChromeVisibility(app, true);
 
-    emitChromeScroll(app, { delta: 12, reveal: false });
-    expect(topOffset(app)).toBe("32px");
-    expect(bottomOffset(app)).toBe("32px");
+    expect(renderApp(app)).toContain("chrome-hidden");
   });
 
-  it("clamps the slide offset to the fallback height", () => {
+  it("brings the chrome back into view when the chat reports a reveal", () => {
     const app = createApp();
     setAppState(app, selectedSessionState());
+    emitChromeVisibility(app, true);
 
-    emitChromeScroll(app, { delta: 500, reveal: false });
+    emitChromeVisibility(app, false);
 
-    expect(topOffset(app)).toBe("64px");
-    expect(bottomOffset(app)).toBe("64px");
+    expect(renderApp(app)).not.toContain("chrome-hidden");
   });
 
-  it("reveals the chrome again when the chat reports the live tail", () => {
-    const app = createApp();
-    setAppState(app, selectedSessionState());
-    emitChromeScroll(app, { delta: 40, reveal: false });
-
-    emitChromeScroll(app, { delta: 0, reveal: true });
-
-    expect(topOffset(app)).toBe("0px");
-    expect(bottomOffset(app)).toBe("0px");
-  });
-
-  it("keeps the input area visible once the composer is focused", () => {
+  it("keeps the input area visible while the composer is focused", () => {
     const app = createApp();
     setAppState(app, selectedSessionState());
     const focusedEditor = { contains: () => true };
     Object.defineProperty(app, "promptEditor", { value: focusedEditor, configurable: true, writable: true });
-    callAppHandler(app, "handleChromeFocusIn", { target: document.createElement("span") });
-    emitChromeScroll(app, { delta: 40, reveal: false });
 
-    expect(topOffset(app)).toBe("0px");
-    expect(bottomOffset(app)).toBe("0px");
+    emitChromeVisibility(app, true);
+
+    expect(renderApp(app)).not.toContain("chrome-hidden");
   });
 
-  it("renders no legacy collapse class", () => {
+  it("floats the composer inside the bottom chrome group", () => {
     const app = createApp();
     setAppState(app, selectedSessionState());
 
-    expect(renderApp(app)).not.toContain("chrome-hidden");
+    const markup = renderApp(app);
+
+    expect(markup).toContain('class="bottom-chrome"');
+    expect(markup).toContain("composer-area");
   });
 });

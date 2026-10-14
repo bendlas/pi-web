@@ -43,15 +43,16 @@ import type { ImageOpenDetail } from "./ImagePresentation";
 const messageTimestampFormatter = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "medium" });
 const notificationTimestampFormatter = new Intl.DateTimeFormat(undefined, { timeStyle: "short" });
 
-/** Name of the event ChatView dispatches as the user scrolls the transcript. */
-export const CHAT_CHROME_SCROLL_EVENT = "chat-chrome-scroll";
+/** Minimum scroll distance (px) before the chat reverses the app-chrome visibility. */
+const CHAT_CHROME_HIDE_SCROLL_DELTA = 6;
 
-/** Detail payload for the {@link CHAT_CHROME_SCROLL_EVENT} event. */
-export interface ChatChromeScrollDetail {
-  /** Signed transcript scroll distance (px) since the previous sample; positive scrolls toward the tail. */
-  delta: number;
-  /** Force the chrome fully back into view, e.g. at the live tail or on a new session. */
-  reveal: boolean;
+/** Name of the event ChatView dispatches when the app chrome should hide/reveal. */
+export const CHAT_CHROME_VISIBILITY_EVENT = "chat-chrome-visibility";
+
+/** Detail payload for the {@link CHAT_CHROME_VISIBILITY_EVENT} event. */
+export interface ChatChromeVisibilityDetail {
+  /** Whether the header and input area should slide out of the way. */
+  hidden: boolean;
 }
 
 function renderNotificationDisclosureIcon(collapsed: boolean) {
@@ -289,12 +290,14 @@ export class ChatView extends LitElement {
   private readonly onViewportResize = () => { this.scrollFlows.onViewportResize(); };
   private readonly handleScroll = () => {
     this.scrollFlows.onScroll();
-    this.updateChromeOffsetFromScroll();
+    this.updateChromeVisibilityFromScroll();
   };
-  /** Last scroll position the chrome offset was advanced from. */
+  /** Last scroll position the chrome visibility was evaluated against. */
   private lastChromeScrollTop = 0;
   /** One-shot guard that drops the scroll sample produced by a programmatic scroll. */
   private suppressChromeScroll = false;
+  /** Whether the header and composer are currently slid out of the way. */
+  private chromeHidden = false;
   // Native details toggles do not bubble; capture layout changes independently
   // of the listener that remembers a group's disclosure choice.
   private readonly handleDisclosureToggle = {
@@ -367,8 +370,8 @@ export class ChatView extends LitElement {
     this.loadMoreRequested = false;
     // A new session starts with the chrome revealed; also reset the scroll
     // baseline so the first scroll of the next session is not read as a jump.
+    this.setChromeHidden(false);
     this.lastChromeScrollTop = this.chat?.scrollTop ?? 0;
-    this.emitChromeScroll(0, true);
   }
 
   protected override willUpdate(changed: Map<string, unknown>): void {
@@ -1111,7 +1114,7 @@ export class ChatView extends LitElement {
     return changed.has("messages") || changed.has("historyReady") || changed.has("messageEnd") || changed.has("messageTotal") || changed.has("onSubmitAsk") || changed.has("pendingDialogs") || changed.has("closedDialogs");
   }
 
-  private updateChromeOffsetFromScroll(): void {
+  private updateChromeVisibilityFromScroll(): void {
     const chat = this.chat;
     if (!chat) return;
     if (this.suppressChromeScroll) {
@@ -1119,21 +1122,26 @@ export class ChatView extends LitElement {
       this.lastChromeScrollTop = chat.scrollTop;
       return;
     }
-    const delta = chat.scrollTop - this.lastChromeScrollTop;
-    this.lastChromeScrollTop = chat.scrollTop;
     // Always reveal the app chrome when the conversation is pinned to the latest
     // messages, so the composer and header stay reachable at the live tail.
-    const reveal = this.isChatAtBottom();
-    if (delta === 0 && !reveal) return;
-    this.emitChromeScroll(delta, reveal);
+    if (this.isChatAtBottom()) {
+      this.lastChromeScrollTop = chat.scrollTop;
+      this.setChromeHidden(false);
+      return;
+    }
+    const delta = chat.scrollTop - this.lastChromeScrollTop;
+    this.lastChromeScrollTop = chat.scrollTop;
+    // Sliding the chrome away is a direction toggle, not a scroll-linked value:
+    // the CSS transition animates it and no per-frame style work is needed.
+    if (delta >= CHAT_CHROME_HIDE_SCROLL_DELTA) this.setChromeHidden(true);
+    else if (delta <= -CHAT_CHROME_HIDE_SCROLL_DELTA) this.setChromeHidden(false);
   }
 
-  /** Report the raw scroll gesture so the app shell can slide the chrome by the
-   *  same distance. Keeping this continuous (instead of a show/hide toggle) lets
-   *  the bars rest at fractional positions and removes mid-scroll layout jumps. */
-  private emitChromeScroll(delta: number, reveal: boolean): void {
-    this.dispatchEvent(new CustomEvent<ChatChromeScrollDetail>(CHAT_CHROME_SCROLL_EVENT, {
-      detail: { delta, reveal },
+  private setChromeHidden(hidden: boolean): void {
+    if (this.chromeHidden === hidden) return;
+    this.chromeHidden = hidden;
+    this.dispatchEvent(new CustomEvent<ChatChromeVisibilityDetail>(CHAT_CHROME_VISIBILITY_EVENT, {
+      detail: { hidden },
       bubbles: true,
       composed: true,
     }));

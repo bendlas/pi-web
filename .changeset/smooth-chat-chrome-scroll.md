@@ -2,4 +2,4 @@
 "@jmfederico/pi-web": patch
 ---
 
-Stop the chat header and input area from resizing the transcript as they hide. They now keep their layout space and slide out of view with a transform proportional to the scroll gesture, so the bars rest at partial positions, follow the scroll in both directions immediately, and the page no longer jumps when scrolling.
+Fix chat scrolling so the transcript no longer jumps or leaves an empty strip when the chrome hides. The composer now floats over the transcript, which keeps its full height and reserves the composer's height at the end, so the transcript reaches the lower border while the composer slides down out of view on scroll-down and returns on scroll-up or at the live tail. The hide/reveal is a direction toggle animated by CSS instead of a per-frame scroll value.
