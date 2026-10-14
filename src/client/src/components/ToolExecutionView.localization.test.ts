@@ -98,7 +98,10 @@ it("updates complete diff controls and regional counts without losing expansion,
     expect(details.open).toBe(true);
     expect(root.querySelector(".show-more")).toBe(showMore);
     expect(showMore.textContent.trim()).toBe(messages.t("showAll", { count: 201 }));
-    expect(root.querySelector("summary small")?.textContent).toBe(messages.t("lines", { count: 201 }));
+    expect(root.querySelector(".diff-details summary small")?.textContent).toBe(messages.t("lines", { count: 201 }));
+    // The arguments disclosure precedes the diff and localizes its own counts.
+    expect(root.querySelector("details.arguments summary span")?.textContent).toBe(messages.t("arguments"));
+    expect(root.querySelector("details.arguments summary small")?.textContent).toBe(messages.t("argumentLines", { count: 7 }));
     expect(root.querySelector(".diff-toolbar span")?.textContent).toBe(messages.t("showing", { visible: 180, total: 201 }));
     expect(root.querySelector(".notice")?.textContent).toBe(messages.t("mismatch"));
     expect(root.querySelector(".tool-meta > span")?.textContent).toBe(messages.t("edits", { count: 2 }));
