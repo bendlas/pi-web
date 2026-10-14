@@ -1,6 +1,8 @@
 // @vitest-environment happy-dom
 import { afterEach, expect, it, vi } from "vitest";
+import { summarizeArgs } from "../chatMessages";
 import { ToolExecutionView } from "./ToolExecutionView";
+import type { ToolExecutionPart } from "../chatTypes";
 import { writeClipboardText } from "../clipboard";
 
 vi.mock("../clipboard", () => ({ writeClipboardText: vi.fn(() => Promise.resolve(true)) }));
@@ -71,4 +73,69 @@ it("retains diff disclosure state, expands long diffs, and copies the full diff"
   await vi.advanceTimersByTimeAsync(1200);
   await view.updateComplete;
   expect(copy?.textContent).toBe("Copy diff");
+});
+
+function renderExecution(execution: ToolExecutionPart): ToolExecutionView {
+  const view = new ToolExecutionView();
+  view.execution = execution;
+  document.body.append(view);
+  return view;
+}
+
+const waitExecution: ToolExecutionPart = {
+  type: "toolExecution",
+  toolName: "tmux_wait",
+  summary: "events: 1 item \u00b7 timeout: 1800",
+  args: { events: [{ target: "build:logs", when: "match", pattern: "BUILD SUCCESS" }], timeout: 1800 },
+  status: "running",
+};
+
+it("keeps tool arguments collapsed and unbuilt until they are opened", async () => {
+  const view = renderExecution(waitExecution);
+  await view.updateComplete;
+
+  const args = requiredElement(view.renderRoot.querySelector<HTMLDetailsElement>("details.arguments"), "arguments disclosure");
+  expect(args.open).toBe(false);
+  expect(args.textContent).toMatch(/\d+ lines/);
+  // A long session renders one of these per tool call, so the JSON body only
+  // exists while a reader asked for it.
+  expect(view.renderRoot.querySelector(".arguments-json")).toBeNull();
+
+  toggle(args, true);
+  await view.updateComplete;
+
+  expect(args.open).toBe(true);
+  const body = requiredElement(view.renderRoot.querySelector(".arguments-json"), "argument body");
+  expect(body.textContent).toContain("BUILD SUCCESS");
+  expect(body.textContent).toContain("build:logs");
+
+  toggle(args, false);
+  await view.updateComplete;
+  expect(view.renderRoot.querySelector(".arguments-json")).toBeNull();
+});
+
+it("keeps arguments collapsed alongside a diff and opens them on demand", async () => {
+  const view = renderExecution({ ...waitExecution, preview: { diff: "--- a\n+++ b\n@@ -1 +1 @@\n-old\n+new" } });
+  await view.updateComplete;
+
+  const args = requiredElement(view.renderRoot.querySelector<HTMLDetailsElement>("details.arguments"), "arguments disclosure");
+  expect(args.open).toBe(false);
+  expect(view.renderRoot.querySelector(".arguments-json")).toBeNull();
+
+  toggle(args, true);
+  await view.updateComplete;
+  expect(requiredElement(view.renderRoot.querySelector(".arguments-json"), "argument body").textContent).toContain("BUILD SUCCESS");
+});
+
+it("omits the arguments section when the tool received no arguments", async () => {
+  const view = renderExecution({ type: "toolExecution", toolName: "noop", summary: "", args: {}, status: "success" });
+  await view.updateComplete;
+  expect(view.renderRoot.querySelector("details.arguments")).toBeNull();
+});
+
+it("summarizes nested argument values instead of collapsing them to a count", () => {
+  const summary = summarizeArgs(waitExecution.args);
+  expect(summary).toContain("build:logs");
+  expect(summary).toContain("BUILD SUCCESS");
+  expect(summary).toContain("timeout: 1800");
 });

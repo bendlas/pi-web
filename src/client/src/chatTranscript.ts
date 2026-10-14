@@ -171,7 +171,7 @@ function appendToolExecutionStart(messages: ChatLine[], event: Extract<SessionUi
     type: "toolExecution",
     ...(event.toolCallId === "" ? {} : { toolCallId: event.toolCallId }),
     toolName: event.toolName,
-    summary: event.summary || summarizeArgs(event.args),
+    summary: summarizeArgs(event.args) || event.summary,
     ...(event.args === undefined ? {} : { args: event.args }),
     status: "running",
   };
