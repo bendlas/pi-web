@@ -175,7 +175,7 @@ function appendToolExecutionStart(messages: ChatLine[], event: Extract<SessionUi
     type: "toolExecution",
     ...(event.toolCallId === "" ? {} : { toolCallId: event.toolCallId }),
     toolName: event.toolName,
-    summary: event.summary || summarizeArgs(event.args),
+    summary: summarizeArgs(event.args) || event.summary,
     // Core tool.start summaries are generated from these arguments by the server.
     // Keep supplied text only as compatibility data, not translation identity.
     ...argumentSummaryPresentation(event.args),
