@@ -1,4 +1,4 @@
-import { generate, parse } from "css-tree";
+import { generate, parse, walk } from "css-tree";
 import { describe, expect, it } from "vitest";
 import * as controls from "./controlStyles";
 import * as dialogs from "./dialogStyles";
@@ -63,4 +63,76 @@ describe("base theme cascade boundary", () => {
     const source = ".ui-button { border-radius: 9px; }";
     expect(baseThemeStyles(source).cssText).toBe(`@layer pi-web-base { ${source} }`);
   });
+
+  // The two-column workspace view clips its content-height main column, so an
+  // absolutely positioned top chrome leaves the layout along with the only tab
+  // strip that layout has. This guards the clip, not the cascade above.
+  it("keeps the floating top chrome in flow over the two-column workspace view", () => {
+    const ast = parse(appStyles.cssText);
+    const declarations = new Map<string, string>();
+    walk(ast, (node) => {
+      if (node.type !== "Rule") return;
+      if (generate(node.prelude).trim() !== ".shell.two-column-layout.workspace-view main .top-chrome") return;
+      node.block.children.forEach((child) => {
+        if (child.type === "Declaration") declarations.set(child.property, generate(child.value).trim());
+      });
+    });
+    expect(declarations.get("position")).toBe("static");
+  });
+
+  // Session warnings and notifications are chrome, not transcript content: they
+  // must sit inside the auto-hiding top chrome, or a visible app bar covers their
+  // controls and shifts every sticky transcript header down with them.
+  it("keeps session warnings and notifications in the shell's top chrome", () => {
+    const shellSelectors = selectorsOf(appStyles);
+    const chatSelectors = selectorsOf(chatStyles);
+
+    expect(shellSelectors).toContain(".top-notices");
+    expect(shellSelectors).toContain(".session-warnings");
+    expect(shellSelectors).toContain(".session-warning");
+    expect(chatSelectors).not.toContain(".top-notices");
+    expect(chatSelectors).not.toContain(".session-warnings");
+  });
+
+  // The transcript scrolls under the floating chrome. Its scrollbar must stay
+  // visible beside the composer instead of disappearing beneath it.
+  it("stops the floating chrome where the transcript reserves its scrollbar", () => {
+    for (const selector of ["main .top-chrome", "main .bottom-chrome"]) {
+      expect(declarationsOf(appStyles, selector).get("right")).toBe("var(--pi-chat-scrollbar-gutter, 0px)");
+    }
+  });
+
+  // A stuck header parks below the chrome while it is shown and at the viewport
+  // edge once it slides away. The inset alone, or a fixed offset, parks it
+  // mid-transcript instead.
+  it("parks sticky transcript headers against the visible chrome edge", () => {
+    const chat = declarationsOf(chatStyles, ".chat");
+    const stickyTop = chat.get("--pi-chat-sticky-top") ?? "";
+
+    expect(chat.get("scrollbar-gutter")).toBe("stable");
+    expect(stickyTop).toContain("--pi-chat-top-inset");
+    expect(stickyTop).toContain("--pi-chat-hidden-sticky-shift");
+    expect(declarationsOf(chatStyles, ".msg.event-group>summary").get("top")).toBe("var(--pi-chat-sticky-top, 0px)");
+  });
 });
+
+function selectorsOf(style: { cssText: string }): string[] {
+  const selectors: string[] = [];
+  walk(parse(style.cssText), (node) => {
+    if (node.type !== "Rule") return;
+    selectors.push(generate(node.prelude).trim());
+  });
+  return selectors;
+}
+
+function declarationsOf(style: { cssText: string }, selector: string): Map<string, string> {
+  const declarations = new Map<string, string>();
+  walk(parse(style.cssText), (node) => {
+    if (node.type !== "Rule") return;
+    if (generate(node.prelude).trim() !== selector) return;
+    node.block.children.forEach((child) => {
+      if (child.type === "Declaration") declarations.set(child.property, generate(child.value).trim());
+    });
+  });
+  return declarations;
+}

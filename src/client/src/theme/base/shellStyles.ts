@@ -68,6 +68,11 @@ export const appStyles = css`
   .two-column-layout app-mobile-main-tabs { display: block; flex: 0 0 auto; min-width: 0; }
   .two-column-layout .mobile-tabs-frame { display: flex; }
   .shell.two-column-layout.workspace-view main { grid-row: 1; min-height: auto; }
+  /* The workspace view replaces the transcript, so the floating top chrome has
+     nothing left to float over. Keep it in flow: an absolutely positioned strip
+     in this clipped, content-height column would be shaved off with the only
+     tab strip the layout has. */
+  .shell.two-column-layout.workspace-view main .top-chrome { position: static; }
   .shell.two-column-layout.workspace-view > workspace-panel { grid-column: 3; grid-row: 2; display: flex; border-left: 0; }
   .shell.two-column-layout:not(.workspace-view) > workspace-panel { display: none; }
   .two-column-layout main.workspace-view chat-view, .two-column-layout main.workspace-view .composer-area, .two-column-layout main.workspace-view status-bar,
@@ -81,7 +86,7 @@ export const appStyles = css`
     .mobile-navigation-tab { display: block; }
     main.navigation-view chat-view, main.navigation-view .composer-area, main.navigation-view status-bar,
     main.navigation-view .empty { display: none; }
-    main.navigation-view .mobile-navigation-panel { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+    main.navigation-view .mobile-navigation-panel { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; overflow: hidden; padding-top: var(--pi-chat-top-inset, 0px); }
     main.navigation-view .mobile-navigation-panel app-navigation-panel { flex: 1 1 auto; min-height: 0; }
   }
   status-bar { flex: 0 0 auto; }
@@ -94,21 +99,54 @@ export const appStyles = css`
   .composer-activity-notice-text { flex: 1 1 240px; min-width: 0; overflow-wrap: anywhere; }
   .composer-activity-notice p { margin: 0; }
   .composer-activity-notice button { flex: 0 0 auto; }
-  /* When the chat scroll direction slides the chrome out of the way, collapse
-     the header and input area so the transcript reclaims the space. */
-  /* The context bar and mobile tab strip render their .context-bar / .mobile-tabs-frame
-     classes inside their own shadow roots, so the collapse has to target the host
-     elements rather than those inner classes. The lower chrome lives in .composer-area. */
-  main app-context-bar,
-  main app-mobile-main-tabs,
-  main .composer-area {
-    transition: max-height .2s ease, opacity .2s ease, transform .2s ease;
+  /* Session warnings and notifications ride inside the floating top chrome, so the
+     scroll that slides the app bar away takes them along instead of parking them
+     underneath it. The chrome box height depends on its content, so these caps are
+     viewport-relative rather than percentages of an indefinite parent. */
+  .top-notices { box-sizing: border-box; flex: 0 0 auto; max-height: 40vh; min-height: 0; display: flex; flex-direction: column; overflow: hidden; border-bottom: 1px solid var(--pi-border); background: var(--pi-bg-overlay); }
+  /* Empty notification hosts retain live regions without leaving a visible stack boundary. */
+  .top-notices:not(:has(> .session-warnings)):has(> session-notification-tray[empty]) { border-bottom: 0; }
+  .top-notices:has(> session-notification-tray[empty]) > .session-warnings { flex: 1 1 auto; max-height: 40vh; border-bottom: 0; }
+  .session-warnings { flex: 0 1 auto; display: grid; gap: 0; max-height: 20vh; min-height: 0; overflow-y: auto; box-sizing: border-box; padding: 0; border-bottom: 1px solid var(--pi-border-muted); }
+  .session-warnings:only-child { flex: 1 1 auto; max-height: 40vh; border-bottom: 0; }
+  .session-warnings-controls { display: flex; justify-content: flex-end; padding-inline: 16px; }
+  .session-warnings-collapse-icon { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
+  .session-warning { --ui-transcript-bg: var(--pi-warning-surface); --warning-colour: var(--pi-warning); position: relative; display: grid; gap: 4px; box-sizing: border-box; border: 0; border-radius: 0; background: var(--ui-transcript-bg, transparent); min-height: 44px; padding: 10px 44px 10px 16px; color: var(--pi-text); }
+  .session-warning.error { --ui-transcript-bg: color-mix(in srgb, var(--pi-danger) 12%, var(--pi-surface)); --warning-colour: var(--pi-danger); }
+  .session-warning.info { --ui-transcript-bg: var(--pi-selection-bg); --warning-colour: var(--pi-accent); }
+  .session-warning-head { display: flex; align-items: center; gap: 8px; min-height: 16px; color: var(--warning-colour); }
+  .session-warning-icon { flex: 0 0 auto; width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .session-warning-body { min-width: 0; display: grid; gap: 3px; }
+  .session-warning-message { margin: 0; overflow-wrap: anywhere; }
+  .session-warning-path { margin: 0; color: var(--pi-muted); font-size: 12px; font-family: var(--pi-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace); overflow-wrap: anywhere; }
+  .session-warning-source { color: var(--pi-muted); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+  .session-warning-dismiss { position: absolute; top: 6px; right: 6px; font-size: 18px; }
+  @media (pointer: coarse) {
+    .session-warning { min-height: 56px; padding-right: 56px; }
   }
-  main.chrome-hidden app-context-bar,
-  main.chrome-hidden app-mobile-main-tabs,
-  main.chrome-hidden .composer-area {
-    max-height: 0; min-height: 0; padding-top: 0; padding-bottom: 0; border-top-width: 0; border-bottom-width: 0; opacity: 0; overflow: hidden; pointer-events: none;
+  /* Scroll-direction chrome toggle, driven by a single class and animated by CSS
+     so no per-frame JS runs during scrolling. Both groups float over the
+     transcript: it keeps its full height and reserves each group's height as
+     padding, so it reaches the matching border as the group slides away. */
+  main .top-chrome {
+    position: absolute; left: 0; right: var(--pi-chat-scrollbar-gutter, 0px); top: 0; z-index: 5;
+    display: flex; flex-direction: column; min-width: 0;
+    transition: transform .18s ease;
+    will-change: transform;
   }
+  main.chrome-hidden .top-chrome { transform: translateY(-100%); }
+  main .bottom-chrome {
+    position: absolute; left: 0; right: var(--pi-chat-scrollbar-gutter, 0px); bottom: 0; z-index: 5;
+    display: flex; flex-direction: column; min-width: 0;
+    transition: transform .18s ease;
+    will-change: transform;
+  }
+  main.chrome-hidden .bottom-chrome { transform: translateY(100%); }
+  /* Once the floating top chrome slides away it no longer covers the top of
+     the transcript, so its reserved inset must stop lifting the sticky chat
+     headers too -- otherwise they park at that inset and float mid-screen. */
+  main { --pi-chat-hidden-sticky-shift: 0px; }
+  main.chrome-hidden { --pi-chat-hidden-sticky-shift: var(--pi-chat-top-inset, 0px); }
   button { border: 1px solid var(--pi-border); border-radius: 8px; background: var(--pi-surface); color: var(--pi-text); padding: 7px 9px; cursor: pointer; }
   .empty { margin: auto; color: var(--pi-muted); }
   .error { display: flex; gap: 8px; align-items: flex-start; padding: 10px 16px; border-bottom: 1px solid var(--pi-border); color: var(--pi-danger); }

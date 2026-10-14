@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { initialAppState, type AppState } from "../appState";
 import type { SessionInfo, SessionStatus } from "../api";
@@ -5,21 +6,17 @@ import { templateText } from "../templateInspection.testSupport";
 import { PiWebApp } from "./PiWebApp";
 
 afterEach(() => {
+  document.body.replaceChildren();
+  localStorage.clear();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
 
 describe("PiWebApp chat chrome auto-hide wiring", () => {
   function createApp(): PiWebApp {
-    const storage = {
-      getItem: () => null,
-      setItem: () => undefined,
-      removeItem: () => undefined,
-    };
-    vi.stubGlobal("window", { location: { search: "" }, localStorage: storage });
     const app = new PiWebApp();
-    // The node test environment has no layout, so stub the one DOM call the
-    // top-level render template makes while computing resizable panel widths.
+    // happy-dom has no layout, so stub the one DOM call the top-level render
+    // template makes while computing resizable panel widths.
     app.getBoundingClientRect = () => ({ width: 1200, height: 800, top: 0, left: 0, right: 0, bottom: 0, x: 0, y: 0, toJSON: () => ({}) });
     return app;
   }
@@ -57,14 +54,27 @@ describe("PiWebApp chat chrome auto-hide wiring", () => {
     return templateText(render.call(app));
   }
 
-  function chromeHidden(app: PiWebApp): boolean {
-    return Reflect.get(app, "chatChromeHidden") === true;
+  function emitChromeVisibility(app: PiWebApp, hidden: boolean): void {
+    callAppHandler(app, "handleChatChromeVisibility", { detail: { hidden } });
   }
 
-  function emitChromeVisibility(app: PiWebApp, hidden: boolean): void {
-    const handler = Reflect.get(app, "handleChatChromeVisibility");
-    if (typeof handler !== "function") throw new Error("PiWebApp.handleChatChromeVisibility is not callable");
-    handler.call(app, { detail: { hidden } } as CustomEvent<{ hidden: boolean }>);
+  function callAppHandler(app: PiWebApp, handlerName: string, event: unknown): void {
+    const handler: unknown = Object.getOwnPropertyDescriptor(app, handlerName)?.value;
+    if (typeof handler !== "function") throw new Error(`PiWebApp.${handlerName} is not callable`);
+    handler.call(app, event);
+  }
+
+  function callAppMethod(app: PiWebApp, methodName: string): void {
+    let target: object | null = app;
+    while (target !== null) {
+      const value: unknown = Object.getOwnPropertyDescriptor(target, methodName)?.value;
+      if (typeof value === "function") {
+        value.call(app);
+        return;
+      }
+      target = Reflect.getPrototypeOf(target);
+    }
+    throw new Error(`PiWebApp.${methodName} is not callable`);
   }
 
   it("slides the chrome out of the way when the chat reports a hide", () => {
@@ -73,7 +83,6 @@ describe("PiWebApp chat chrome auto-hide wiring", () => {
 
     emitChromeVisibility(app, true);
 
-    expect(chromeHidden(app)).toBe(true);
     expect(renderApp(app)).toContain("chrome-hidden");
   });
 
@@ -81,11 +90,9 @@ describe("PiWebApp chat chrome auto-hide wiring", () => {
     const app = createApp();
     setAppState(app, selectedSessionState());
     emitChromeVisibility(app, true);
-    expect(chromeHidden(app)).toBe(true);
 
     emitChromeVisibility(app, false);
 
-    expect(chromeHidden(app)).toBe(false);
     expect(renderApp(app)).not.toContain("chrome-hidden");
   });
 
@@ -94,11 +101,37 @@ describe("PiWebApp chat chrome auto-hide wiring", () => {
     setAppState(app, selectedSessionState());
     const focusedEditor = { contains: () => true };
     Object.defineProperty(app, "promptEditor", { value: focusedEditor, configurable: true, writable: true });
-    vi.stubGlobal("document", { activeElement: {} });
 
     emitChromeVisibility(app, true);
 
-    expect(chromeHidden(app)).toBe(false);
     expect(renderApp(app)).not.toContain("chrome-hidden");
+  });
+
+  it("floats the composer inside the bottom chrome group", () => {
+    const app = createApp();
+    setAppState(app, selectedSessionState());
+
+    const markup = renderApp(app);
+
+    expect(markup).toContain('class="bottom-chrome"');
+    expect(markup).toContain("composer-area");
+  });
+
+  it("floats the context bar and mobile tabs inside the top chrome group", () => {
+    const app = createApp();
+    setAppState(app, selectedSessionState());
+
+    expect(renderApp(app)).toContain('class="top-chrome"');
+  });
+
+  it("publishes the floating top chrome height as the transcript's top inset", () => {
+    const app = createApp();
+    setAppState(app, selectedSessionState());
+    Object.defineProperty(app, "chromeTop", { value: { getBoundingClientRect: () => ({ height: 72 }) }, configurable: true, writable: true });
+
+    callAppMethod(app, "measureChatChromeTop");
+
+    expect(app.style.getPropertyValue("--pi-chat-top-inset")).toBe("72px");
+    expect(Reflect.get(app, "chatChromeTopInset")).toBe(72);
   });
 });
