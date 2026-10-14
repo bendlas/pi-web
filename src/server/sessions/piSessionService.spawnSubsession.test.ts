@@ -1294,7 +1294,7 @@ describe("PiSessionService", () => {
       });
 
       expect(parent.calls.sendCustomMessage[0]?.message.content).toBe(
-        "Subsession child-1 stopped working (idle).\n\n--- SUBSESSION OUTPUT: child-1 ---\n(no output)\n\nStill working: child-2. Continue working, or call yield_to_subsessions alone and last at the next join point. Further unread results arrive automatically; do not poll.",
+        "Subsession child-1 stopped working (idle).\n\n--- SUBSESSION OUTPUT: child-1 ---\n(no output)\n\nStill working: child-2. Continue working, or call wait_subsessions to block until a result arrives, or yield_to_subsessions alone and last to end the run. Further unread results arrive automatically; do not poll.",
       );
 
       second.session.isStreaming = false;
