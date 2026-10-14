@@ -4,6 +4,8 @@ import { writeClipboardText } from "../clipboard";
 import type { ToolExecutionPart } from "./shared";
 
 const MAX_COLLAPSED_DIFF_LINES = 180;
+/** Pretty-printed arguments longer than this start collapsed behind a "show all" button. */
+const MAX_COLLAPSED_ARG_LINES = 120;
 
 interface ToolTarget {
   label: "Command" | "File" | "Input";
@@ -16,6 +18,8 @@ export class ToolExecutionView extends LitElement {
   @state() private showFullDiff = false;
   @state() private copied = false;
   @state() private diffOpen = true;
+  @state() private argsOpen: boolean | undefined = undefined;
+  @state() private showFullArgs = false;
 
   override render() {
     const execution = this.execution;
@@ -30,6 +34,7 @@ export class ToolExecutionView extends LitElement {
     const errorText = execution.status === "error" ? execution.resultText : preview?.error;
     const bodyText = visibleDiff === undefined ? execution.resultText : undefined;
     const target = toolTarget(execution, path);
+    const argsJson = formatArgs(execution.args);
 
     return html`
       <section class=${`tool-card ${execution.status}`}>
@@ -48,9 +53,36 @@ export class ToolExecutionView extends LitElement {
 
         ${previewMismatch ? html`<p class="notice">Applied diff differs from the preview.</p>` : null}
         ${errorText === undefined || errorText === "" ? null : html`<pre class="error-text">${errorText}</pre>`}
+        ${argsJson === undefined ? null : this.renderArguments(argsJson, visibleDiff === undefined)}
         ${visibleDiff === undefined ? this.renderTextBody(bodyText, execution.status === "error", target) : this.renderDiffBody(visibleDiff, actualDiff === undefined ? "Preview diff" : "Applied diff", target)}
       </section>
     `;
+  }
+
+  /** Render the complete tool arguments so nested values (e.g. a tmux match pattern) are never dropped. */
+  private renderArguments(json: string, defaultOpen: boolean) {
+    const lines = json.split("\n");
+    const truncated = !this.showFullArgs && lines.length > MAX_COLLAPSED_ARG_LINES;
+    const visibleLines = truncated ? lines.slice(0, MAX_COLLAPSED_ARG_LINES) : lines;
+    return html`
+      <details class="arguments" ?open=${this.argsOpen ?? defaultOpen} @toggle=${(event: Event) => { this.onArgsToggle(event); }}>
+        <summary>
+          <span>Arguments</span>
+          <small>${String(lines.length)} ${lines.length === 1 ? "line" : "lines"}</small>
+        </summary>
+        <pre class="arguments-json" aria-label="Tool arguments"><code>${visibleLines.join("\n")}</code></pre>
+        ${truncated ? html`
+          <button class="show-more" type="button" @click=${() => { this.showFullArgs = true; }}>
+            Show all ${String(lines.length)} argument lines
+          </button>
+        ` : null}
+      </details>
+    `;
+  }
+
+  private onArgsToggle(event: Event): void {
+    const details = event.currentTarget;
+    if (details instanceof HTMLDetailsElement) this.argsOpen = details.open;
   }
 
   private renderHeaderTarget(target: ToolTarget | undefined) {
@@ -151,6 +183,11 @@ export class ToolExecutionView extends LitElement {
     .text-body pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--pi-text); }
     .detail-result pre { box-sizing: border-box; max-width: 100%; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; scrollbar-width: thin; border: 1px solid var(--pi-border-muted); border-radius: 7px; background: var(--pi-bg); padding: 8px; white-space: pre; overflow-wrap: normal; direction: ltr; text-align: left; unicode-bidi: isolate; }
     .detail-target-value { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--pi-accent); font: 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; direction: ltr; text-align: left; unicode-bidi: isolate; }
+    .arguments { min-width: 0; max-width: 100%; border-top: 1px solid var(--pi-border-muted); padding-top: 6px; }
+    .arguments > summary { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; min-width: 0; color: var(--pi-muted); cursor: pointer; }
+    .arguments > summary span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .arguments > summary small { flex: 0 0 auto; color: var(--pi-dim); }
+    .arguments-json { box-sizing: border-box; width: 100%; max-width: 100%; min-width: 0; margin: 8px 0 0; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; scrollbar-width: thin; border: 1px solid var(--pi-border-muted); border-radius: 7px; background: var(--pi-bg); padding: 8px; color: var(--pi-text); white-space: pre; font: 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; direction: ltr; text-align: left; unicode-bidi: isolate; }
     .diff-details { min-width: 0; max-width: 100%; border-top: 1px solid var(--pi-border-muted); padding-top: 6px; }
     .diff-details > summary { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; min-width: 0; color: var(--pi-muted); cursor: pointer; }
     .diff-details > summary span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -190,6 +227,20 @@ function editCountLabel(execution: ToolExecutionPart): string | undefined {
   if (Array.isArray(edits)) return `${String(edits.length)} edit${edits.length === 1 ? "" : "s"}`;
   if (typeof getProperty(execution.args, "oldText") === "string" && typeof getProperty(execution.args, "newText") === "string") return "1 edit";
   return undefined;
+}
+
+function formatArgs(args: unknown): string | undefined {
+  if (args === undefined || args === null) return undefined;
+  if (Array.isArray(args)) {
+    if (args.length === 0) return undefined;
+  } else if (isRecord(args) && Object.keys(args).length === 0) {
+    return undefined;
+  }
+  try {
+    return JSON.stringify(args, null, 2);
+  } catch {
+    return undefined;
+  }
 }
 
 function diffFromDetails(details: unknown): string | undefined {
