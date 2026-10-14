@@ -109,6 +109,37 @@ const SpawnSubsessionParams = Type.Object({
 
 const ListSubsessionsParams = Type.Object({});
 const YieldToSubsessionsParams = Type.Object({});
+const WaitSubsessionsParams = Type.Object({
+  timeout: Type.Optional(Type.Number({
+    description: "Seconds before the wait gives up and returns (default: 1800).",
+    minimum: 1,
+    maximum: 86400,
+  })),
+});
+
+/** How often the blocking wait re-checks for a child result. */
+const WAIT_POLL_MS = 750;
+const DEFAULT_WAIT_TIMEOUT_SECONDS = 1800;
+
+/** Sleep that rejects promptly when the tool call is aborted. */
+function abortableSleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new Error("aborted"));
+      return;
+    }
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const onAbort = (): void => {
+      if (timer !== undefined) clearTimeout(timer);
+      reject(new Error("aborted"));
+    };
+    timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
 
 const CheckSubsessionParams = Type.Object({
   sessionId: Type.String({
@@ -153,7 +184,7 @@ function statusLine(summary: SubsessionSummary): string {
 }
 
 function workingInspectionGuidance(sessionId: string): string {
-  return `Subsession ${sessionId} is working; partial output is withheld. Continue other work, or call yield_to_subsessions alone and last at the join point. Completion notices wake you; do not poll.`;
+  return `Subsession ${sessionId} is working; partial output is withheld. Continue other work, call wait_subsessions to block until a result arrives, or call yield_to_subsessions alone and last to end the run; do not poll.`;
 }
 
 function renderEntry(entry: TranscriptEntry): string {
@@ -237,7 +268,7 @@ export function createSubsessionToolDefinitions(spawningCwd: string, deps: Subse
       });
       const modelNote = result.model === undefined ? "" : ` using model ${result.model}`;
       return {
-        content: [{ type: "text", text: `Started tracked subsession ${result.sessionId} in ${result.cwd}${modelNote}. Continue other work, then join with yield_to_subsessions; do not poll.` }],
+        content: [{ type: "text", text: `Started tracked subsession ${result.sessionId} in ${result.cwd}${modelNote}. Continue other work, then block with wait_subsessions or end your turn with yield_to_subsessions; do not poll.` }],
         details: result,
       };
     },
@@ -338,5 +369,53 @@ export function createSubsessionToolDefinitions(spawningCwd: string, deps: Subse
     },
   });
 
-  return [spawnTool, listTool, checkTool, readTool, yieldTool];
+  const waitTool = defineTool<typeof WaitSubsessionsParams, SubsessionJoinResult>({
+    name: "wait_subsessions",
+    // Nested tools cannot hold the outer run for an unbounded time; keep it for the model.
+    exposure: "model-only",
+    label: "Wait for subsessions",
+    description: "Block until an unread child result arrives, then return it in this same turn. The call does not return until a child completes, the timeout elapses, or you are aborted, so it makes polling impossible. The session stays busy while blocked, so other async wake-ups are held until it returns. Use it at a join point when you have nothing else to do. To end your turn and be woken instead, use yield_to_subsessions.",
+    promptSnippet: "wait_subsessions: block until a child result arrives, then continue in the same turn",
+    promptGuidelines: [
+      "Call wait_subsessions to block until a tracked child finishes and then keep working in the same turn. It returns only when a result arrives or it times out; do not poll list_subsessions or check_subsession around it.",
+      "wait_subsessions keeps this session busy while blocked, so other async wake-ups are held until it returns. Use yield_to_subsessions when you want to end your turn and be woken instead.",
+    ],
+    parameters: WaitSubsessionsParams,
+    async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+      const parentSessionId = ctx.sessionManager.getSessionId();
+      const parentSessionFile = ctx.sessionManager.getSessionFile() ?? undefined;
+      const timeoutMs = (params.timeout ?? DEFAULT_WAIT_TIMEOUT_SECONDS) * 1000;
+      const deadline = Date.now() + timeoutMs;
+      for (;;) {
+        const result = await deps.join(parentSessionId, parentSessionFile, _toolCallId);
+        const workingIds = result.subsessions.filter(({ status }) => status === "working").map(({ sessionId }) => sessionId);
+        if (result.completions.length > 0) {
+          return {
+            content: [{ type: "text", text: renderSubsessionCompletions(result.completions, workingIds) }],
+            details: result,
+          };
+        }
+        if (workingIds.length === 0) {
+          return {
+            content: [{ type: "text", text: "No unread child results; no tracked subsessions are working. Continuing." }],
+            details: result,
+          };
+        }
+        if (signal?.aborted) throw new Error("aborted while waiting for subsessions");
+        const remaining = deadline - Date.now();
+        if (remaining <= 0) {
+          return {
+            content: [{
+              type: "text",
+              text: `wait_subsessions timed out after ${String(Math.round(timeoutMs / 1000))}s. Still working: ${workingIds.join(", ")}. Call wait_subsessions again to keep waiting, or yield_to_subsessions to end the run.`,
+            }],
+            details: result,
+          };
+        }
+        await abortableSleep(Math.min(WAIT_POLL_MS, remaining), signal);
+      }
+    },
+  });
+
+  return [spawnTool, listTool, checkTool, readTool, yieldTool, waitTool];
 }
