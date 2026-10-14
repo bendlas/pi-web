@@ -115,7 +115,7 @@ export const appStyles = css`
   aside app-navigation-panel { flex: 1 1 auto; min-height: 0; }
   header { flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 12px; border-bottom: 1px solid var(--pi-border); }
   .header-actions { display: flex; align-items: center; gap: 8px; }
-  main { grid-column: 3; display: flex; flex-direction: column; min-width: 0; min-height: 0; position: relative; }
+  main { grid-column: 3; display: flex; flex-direction: column; min-width: 0; min-height: 0; position: relative; overflow: hidden; }
   .context-bar { position: relative; flex: 0 0 auto; min-width: 0; display: none; align-items: center; gap: 0; padding: 6px 0; border-bottom: 1px solid var(--pi-border-muted); background: var(--pi-bg); max-height: 200px; transition: max-height .2s ease, opacity .2s ease, padding .2s ease, border-width .2s ease; }
   .context-bar::before, .context-bar::after { content: ""; position: absolute; top: 0; bottom: 0; z-index: 2; width: 20px; opacity: 0; pointer-events: none; transition: opacity .15s ease; }
   .context-bar::before { left: 0; background: linear-gradient(90deg, color-mix(in srgb, var(--pi-shadow-strong) 55%, transparent) 0%, transparent 100%); }
@@ -193,20 +193,21 @@ export const appStyles = css`
   .composer-activity-notice-text { flex: 1 1 240px; min-width: 0; overflow-wrap: anywhere; }
   .composer-activity-notice p { margin: 0; }
   .composer-activity-notice button { flex: 0 0 auto; }
-  /* When the chat scroll direction slides the chrome out of the way, collapse
-     the header and input area so the transcript reclaims the space. */
-  /* The context bar and mobile tab strip render their .context-bar / .mobile-tabs-frame
-     classes inside their own shadow roots, so the collapse has to target the host
-     elements rather than those inner classes. The lower chrome lives in .composer-area. */
+  /* Scroll-driven chrome repositioning. The chrome keeps its layout space, so the
+     transcript never reflows mid-scroll; only its transform follows the gesture.
+     The context bar and mobile tab strip render their inner classes inside their
+     own shadow roots, so target the host elements rather than those inner classes. */
   main app-context-bar,
-  main app-mobile-main-tabs,
-  main .composer-area {
-    transition: max-height .2s ease, opacity .2s ease, transform .2s ease;
+  main app-mobile-main-tabs {
+    transform: translateY(calc(-1 * var(--pi-chat-chrome-top-offset, 0px)));
+    transition: transform .12s ease-out;
+    will-change: transform;
   }
-  main.chrome-hidden app-context-bar,
-  main.chrome-hidden app-mobile-main-tabs,
-  main.chrome-hidden .composer-area {
-    max-height: 0; min-height: 0; padding-top: 0; padding-bottom: 0; border-top-width: 0; border-bottom-width: 0; opacity: 0; overflow: hidden; pointer-events: none;
+  main .composer-area,
+  main status-bar {
+    transform: translateY(var(--pi-chat-chrome-bottom-offset, 0px));
+    transition: transform .12s ease-out;
+    will-change: transform;
   }
   button { border: 1px solid var(--pi-border); border-radius: 8px; background: var(--pi-surface); color: var(--pi-text); padding: 7px 9px; cursor: pointer; }
   .empty { margin: auto; color: var(--pi-muted); }
