@@ -331,6 +331,20 @@ describe("ChatView chrome scroll reporting", () => {
     expect(events[0]?.detail).toEqual({ hidden: false });
   });
 
+  it("reveals the chrome within the floating top bar's height of the start", () => {
+    const view = new ChatView();
+    view.chromeTopInset = 80;
+    installFakeChat(view, { scrollTop: 40, scrollHeight: 1000, clientHeight: 100 });
+    setChromeField(view, "lastChromeScrollTop", 0);
+    setChromeField(view, "chromeHidden", true);
+    const events = captureChromeVisibility(view);
+
+    callChromeMethod(view, "updateChromeVisibilityFromScroll");
+
+    expect(events).toHaveLength(1);
+    expect(events[0]?.detail).toEqual({ hidden: false });
+  });
+
   it("does not toggle the chrome for sub-threshold scrolls", () => {
     const view = new ChatView();
     installFakeChat(view, { scrollTop: 505, scrollHeight: 1000, clientHeight: 100 });

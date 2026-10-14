@@ -64,6 +64,19 @@ describe("PiWebApp chat chrome auto-hide wiring", () => {
     handler.call(app, event);
   }
 
+  function callAppMethod(app: PiWebApp, methodName: string): void {
+    let target: object | null = app;
+    while (target !== null) {
+      const value: unknown = Object.getOwnPropertyDescriptor(target, methodName)?.value;
+      if (typeof value === "function") {
+        value.call(app);
+        return;
+      }
+      target = Reflect.getPrototypeOf(target);
+    }
+    throw new Error(`PiWebApp.${methodName} is not callable`);
+  }
+
   it("slides the chrome out of the way when the chat reports a hide", () => {
     const app = createApp();
     setAppState(app, selectedSessionState());
@@ -102,5 +115,25 @@ describe("PiWebApp chat chrome auto-hide wiring", () => {
 
     expect(markup).toContain('class="bottom-chrome"');
     expect(markup).toContain("composer-area");
+  });
+
+  it("floats the context bar and mobile tabs inside the top chrome group", () => {
+    const app = createApp();
+    setAppState(app, selectedSessionState());
+
+    expect(renderApp(app)).toContain('class="top-chrome"');
+  });
+
+  it("publishes the floating top chrome height as the transcript's top inset", () => {
+    const app = createApp();
+    setAppState(app, selectedSessionState());
+    const setProperty = vi.fn();
+    Object.defineProperty(app, "chromeTop", { value: { getBoundingClientRect: () => ({ height: 72 }) }, configurable: true, writable: true });
+    Object.defineProperty(app, "chatView", { value: { style: { setProperty } }, configurable: true, writable: true });
+
+    callAppMethod(app, "measureChatChromeTop");
+
+    expect(setProperty).toHaveBeenCalledWith("--pi-chat-top-inset", "72px");
+    expect(Reflect.get(app, "chatChromeTopInset")).toBe(72);
   });
 });

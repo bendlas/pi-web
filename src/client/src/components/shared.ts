@@ -194,12 +194,12 @@ export const appStyles = css`
   .composer-activity-notice p { margin: 0; }
   .composer-activity-notice button { flex: 0 0 auto; }
   /* Scroll-direction chrome toggle, driven by a single class and animated by CSS
-     so no per-frame JS runs during scrolling. The top group keeps its layout
-     space and slides up. The bottom group floats over the transcript: the
-     transcript keeps its full height and reserves the composer's height as
-     bottom padding, so it reaches the lower border when the composer slides away. */
+     so no per-frame JS runs during scrolling. Both groups float over the
+     transcript: it keeps its full height and reserves each group's height as
+     padding, so it reaches the matching border as the group slides away. */
   main .top-chrome {
-    flex: 0 0 auto; display: flex; flex-direction: column; min-width: 0;
+    position: absolute; left: 0; right: 0; top: 0; z-index: 5;
+    display: flex; flex-direction: column; min-width: 0;
     transition: transform .18s ease;
     will-change: transform;
   }
@@ -406,7 +406,7 @@ export const chatStyles = css`
     .notification-header { gap: 4px; padding-inline: 8px; }
     .notification-list { padding-inline: 8px; }
   }
-  .chat { --pi-chat-sticky-top: -26px; flex: 1 1 auto; min-width: 0; min-height: 0; overflow-x: hidden; overflow-y: auto; padding: 26px 16px calc(16px + var(--pi-chat-bottom-inset, 0px)); box-sizing: border-box; }
+  .chat { --pi-chat-sticky-top: -26px; flex: 1 1 auto; min-width: 0; min-height: 0; overflow-x: hidden; overflow-y: auto; padding: calc(26px + var(--pi-chat-top-inset, 0px)) 16px calc(16px + var(--pi-chat-bottom-inset, 0px)); box-sizing: border-box; }
   .chat-jumps { position: absolute; right: 8px; bottom: calc(6px + var(--pi-chat-bottom-inset, 0px)); z-index: 21; display: flex; gap: 3px; }
   .chat-jumps button { display: inline-grid; place-items: center; width: 24px; height: 22px; padding: 0; border: 1px solid var(--pi-border); border-radius: 4px; background: var(--pi-bg); color: var(--pi-muted); font: 16px/1 system-ui, sans-serif; cursor: pointer; }
   .chat-jumps button.following { color: var(--pi-accent); border-color: var(--pi-accent); background: var(--pi-selection-bg); }

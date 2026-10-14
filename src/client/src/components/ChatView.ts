@@ -250,6 +250,8 @@ export class ChatView extends LitElement {
   @property({ type: Boolean }) warningsVisible = true;
   @property({ attribute: false }) onToggleWarnings?: () => void;
   @property({ attribute: false }) onLoadMore?: () => void;
+  /** Height (px) of the floating top chrome; the transcript keeps it revealed while this close to the start. */
+  @property({ type: Number }) chromeTopInset = 0;
   @property({ attribute: false }) behaviors: ChatBehaviors = DEFAULT_CHAT_BEHAVIORS;
   @query(".chat") private chat?: HTMLDivElement;
   @query("dialog.image-zoom") private imageZoomDialog?: HTMLDialogElement;
@@ -1122,9 +1124,10 @@ export class ChatView extends LitElement {
       this.lastChromeScrollTop = chat.scrollTop;
       return;
     }
-    // Always reveal the app chrome when the conversation is pinned to the latest
-    // messages, so the composer and header stay reachable at the live tail.
-    if (this.isChatAtBottom()) {
+    // Reveal the app chrome whenever the transcript is pinned to an end: the
+    // live tail (composer reachable) or the start within the floating top
+    // chrome's height, so its reserved padding never shows as a blank strip.
+    if (this.isChatAtBottom() || chat.scrollTop <= this.chromeTopInset) {
       this.lastChromeScrollTop = chat.scrollTop;
       this.setChromeHidden(false);
       return;

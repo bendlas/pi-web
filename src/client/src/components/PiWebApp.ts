@@ -172,8 +172,13 @@ export class PiWebApp extends LitElement {
   @query("#workspace-panel") private workspacePanelFrame?: HTMLElement;
   /** Whether the chat scroll direction has slid the header and input area out of the way. */
   @state() private chatChromeHidden = false;
+  @query(".top-chrome") private chromeTop?: HTMLElement;
   @query(".bottom-chrome") private chromeBottom?: HTMLElement;
-  /** Reserves the floating composer's height at the end of the transcript. */
+  /** Height (px) of the floating top chrome, mirrored into ChatView's reveal-at-start rule. */
+  @state() private chatChromeTopInset = 0;
+  /** Reserves each floating chrome group's height at the matching end of the transcript. */
+  private chatChromeTopObserver: ResizeObserver | undefined;
+  private observedChatChromeTop: HTMLElement | null = null;
   private chatChromeBottomObserver: ResizeObserver | undefined;
   private observedChatChromeBottom: HTMLElement | null = null;
 
@@ -451,6 +456,7 @@ export class PiWebApp extends LitElement {
     this.committedChatIdentity = selectedChatIdentity(this.state);
     this.syncSelectedSessionReadState();
     this.plugins.notifySelectionChanged();
+    this.observeChatChromeTop();
     this.observeChatChromeBottom();
     const mainView = this.effectiveMainView();
     const chatVisible = mainView === "chat" || (mainView === "navigation" && !this.appShell.isMobileNavigationLayout) || this.isDesktopSideBySideLayout();
@@ -703,6 +709,9 @@ export class PiWebApp extends LitElement {
     window.removeEventListener("blur", this.resetKeyboardSequence);
     this.systemLightThemeMedia?.removeEventListener("change", this.onSystemLightThemeChange);
     this.disconnectViewportObservers();
+    this.chatChromeTopObserver?.disconnect();
+    this.chatChromeTopObserver = undefined;
+    this.observedChatChromeTop = null;
     this.chatChromeBottomObserver?.disconnect();
     this.chatChromeBottomObserver = undefined;
     this.observedChatChromeBottom = null;
@@ -4022,7 +4031,7 @@ export class PiWebApp extends LitElement {
       this.notificationView = selectedNotificationView(state.selectedNotificationInbox);
     }
     return html`
-      <chat-view @chat-chrome-visibility=${this.handleChatChromeVisibility} .behaviors=${this.chatBehaviors} .contentRendering=${this.plugins.getChatContentRendering(selectedMachineId(state))} .machineId=${selectedMachineId(state)} @workspace-file-open=${this.handleWorkspaceFileOpen} .workspaceContext=${this.chatWorkspaceContext} .sessionId=${session.id} .sessionCwd=${session.cwd} .onMessageAction=${this.handleMessageAction} .onDisplayedMessageAction=${this.handleDisplayedMessageAction} .messageActions=${this.plugins.getMessageActions(selectedMachineId(state))} .messageActionContext=${this.messageActionContext(state)} .messages=${state.messages} .messageStart=${state.messagePageStart} .messageEnd=${state.messagePageEnd} .messageTotal=${state.messagePageTotal} .hasMore=${state.messagePageStart > 0} .historyReady=${this.readyChatIdentity === selectedChatIdentity(state)} .loadingMore=${state.isLoadingEarlierMessages} .isSendingPrompt=${state.sendingPrompts[session.id] === true} .isCompacting=${state.status?.isCompacting === true} .pendingMessageCount=${state.status?.pendingMessageCount ?? 0} .clientQueuedMessages=${state.clientQueuedSessionMessages[session.id] ?? this.emptyClientQueue} .status=${state.status} .suggestedInputPending=${treeActionPending} .suppressedSuggestedInput=${state.suppressedSuggestedInputs[machineSessionKey(selectedMachineId(state), session.id)]} .onUseSuggestedInput=${session.archived === true || this.isRevertingMessage(state) ? undefined : this.handleUseSuggestedInput} .onDismissSuggestedInput=${session.archived === true ? undefined : this.handleDismissSuggestedInput} .activity=${state.activity} .pendingDialogs=${state.pendingDialogs} .closedDialogs=${state.closedDialogs} .onAnswerDialog=${this.handleAnswerDialog} .onCancelDialog=${this.handleCancelDialog} .onDismissClosedDialog=${this.handleDismissClosedDialog} .askDraftSessionId=${machineSessionKey(selectedMachineId(state), session.id)} .onSubmitAsk=${session.archived === true ? undefined : this.handleSubmitAsk} .notificationInbox=${this.notificationView} .onClearServerQueue=${this.handleClearServerQueue} .onDismissWarning=${this.handleDismissWarning} .onDismissNotification=${this.handleDismissNotification} .onDismissAllNotifications=${this.handleDismissAllNotifications} .warningsVisible=${!this.sessionWarningVisibility.collapsed} .onToggleWarnings=${this.handleToggleWarnings} .onLoadMore=${this.handleLoadEarlierMessages}></chat-view>
+      <chat-view @chat-chrome-visibility=${this.handleChatChromeVisibility} .behaviors=${this.chatBehaviors} .contentRendering=${this.plugins.getChatContentRendering(selectedMachineId(state))} .machineId=${selectedMachineId(state)} @workspace-file-open=${this.handleWorkspaceFileOpen} .workspaceContext=${this.chatWorkspaceContext} .sessionId=${session.id} .sessionCwd=${session.cwd} .chromeTopInset=${this.chatChromeTopInset} .onMessageAction=${this.handleMessageAction} .onDisplayedMessageAction=${this.handleDisplayedMessageAction} .messageActions=${this.plugins.getMessageActions(selectedMachineId(state))} .messageActionContext=${this.messageActionContext(state)} .messages=${state.messages} .messageStart=${state.messagePageStart} .messageEnd=${state.messagePageEnd} .messageTotal=${state.messagePageTotal} .hasMore=${state.messagePageStart > 0} .historyReady=${this.readyChatIdentity === selectedChatIdentity(state)} .loadingMore=${state.isLoadingEarlierMessages} .isSendingPrompt=${state.sendingPrompts[session.id] === true} .isCompacting=${state.status?.isCompacting === true} .pendingMessageCount=${state.status?.pendingMessageCount ?? 0} .clientQueuedMessages=${state.clientQueuedSessionMessages[session.id] ?? this.emptyClientQueue} .status=${state.status} .suggestedInputPending=${treeActionPending} .suppressedSuggestedInput=${state.suppressedSuggestedInputs[machineSessionKey(selectedMachineId(state), session.id)]} .onUseSuggestedInput=${session.archived === true || this.isRevertingMessage(state) ? undefined : this.handleUseSuggestedInput} .onDismissSuggestedInput=${session.archived === true ? undefined : this.handleDismissSuggestedInput} .activity=${state.activity} .pendingDialogs=${state.pendingDialogs} .closedDialogs=${state.closedDialogs} .onAnswerDialog=${this.handleAnswerDialog} .onCancelDialog=${this.handleCancelDialog} .onDismissClosedDialog=${this.handleDismissClosedDialog} .askDraftSessionId=${machineSessionKey(selectedMachineId(state), session.id)} .onSubmitAsk=${session.archived === true ? undefined : this.handleSubmitAsk} .notificationInbox=${this.notificationView} .onClearServerQueue=${this.handleClearServerQueue} .onDismissWarning=${this.handleDismissWarning} .onDismissNotification=${this.handleDismissNotification} .onDismissAllNotifications=${this.handleDismissAllNotifications} .warningsVisible=${!this.sessionWarningVisibility.collapsed} .onToggleWarnings=${this.handleToggleWarnings} .onLoadMore=${this.handleLoadEarlierMessages}></chat-view>
     `;
   }
 
@@ -4032,6 +4041,27 @@ export class PiWebApp extends LitElement {
     if (hidden && this.promptEditor?.contains(document.activeElement) === true) return;
     this.chatChromeHidden = hidden;
   };
+
+  /** Reserve the floating top chrome's height at the start of the transcript so
+   *  its first line clears the group while it is shown, and mirror the height
+   *  into ChatView so it keeps the group revealed near the transcript start. */
+  private observeChatChromeTop(): void {
+    const element = this.chromeTop ?? null;
+    if (element === this.observedChatChromeTop) return;
+    this.chatChromeTopObserver?.disconnect();
+    this.observedChatChromeTop = element;
+    if (element === null || typeof ResizeObserver === "undefined") return;
+    this.chatChromeTopObserver ??= new ResizeObserver(() => { this.measureChatChromeTop(); });
+    this.chatChromeTopObserver.observe(element);
+    this.measureChatChromeTop();
+  }
+
+  private measureChatChromeTop(): void {
+    const height = this.chromeTop?.getBoundingClientRect().height ?? 0;
+    const inset = height > 0 ? height : 0;
+    this.chatView?.style.setProperty("--pi-chat-top-inset", `${String(inset)}px`);
+    if (this.chatChromeTopInset !== inset) this.chatChromeTopInset = inset;
+  }
 
   /** Reserve the floating composer's height at the end of the transcript so the
    *  last message still clears it when the chrome is shown. */
