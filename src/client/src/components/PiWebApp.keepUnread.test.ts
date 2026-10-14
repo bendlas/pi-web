@@ -3,6 +3,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Project, SessionInfo, SessionUnreadEvent, SessionUnreadSummary, Workspace } from "../api";
 import { initialAppState, type AppState } from "../appState";
 import { loadKeepUnreadIds } from "../keepUnreadSessions";
+import { machineStatusSnapshot } from "../machineStatus.testSupport";
+import { CORE_STATUS_FLAGS } from "../../../shared/machineStatus";
 import type { BrowserRealtimeEvent } from "../sessionSocket";
 // Template inspection is proportionate here because this node-environment test
 // verifies only PiWebApp's keep-unread property/callback wiring into navigation.
@@ -130,14 +132,58 @@ describe("PiWebApp keep-conversation-unread", () => {
     navigationToggleKeepUnread(app)(pinned);
     expect([...navigationKeepUnreadSessionIds(app)]).toEqual(["pinned"]);
 
-    // The workspace (and so its sessions) is removed from the topology.
-    setAppState(app, { ...initialAppState(), workspacesByProjectId: {}, projects: [], sessions: [] });
+    // The workspace (and so its sessions) is removed from the topology: the
+    // project remains listed and its workspace list has loaded, now empty.
+    setAppState(app, { ...initialAppState(), workspacesByProjectId: { "proj-1": [] }, projects: [project], sessions: [] });
     const reconcile: unknown = Reflect.get(app, "reconcileKeepUnread");
     if (!isReconcileKeepUnread(reconcile)) throw new Error("Expected PiWebApp.reconcileKeepUnread to be callable");
     reconcile.call(app, new Set<string>());
 
     expect([...navigationKeepUnreadSessionIds(app)]).toEqual([]);
     expect([...loadKeepUnreadIds("local")]).toEqual([]);
+  });
+
+  it("lights the workspace and project badges for a pinned conversation", () => {
+    stubJsonFetch({ catalogId: "catalog-a", catalogRevision: 2, sessions: [] });
+    const app = createApp();
+    const pinned = session("pinned");
+    const workspace: Workspace = { id: "ws-1", projectId: "proj-1", path: "/repo", label: "ws", isMain: false, effectiveConfig: {} };
+    const project: Project = { id: "proj-1", name: "proj", path: "/repo", createdAt: "2026-07-20T00:00:00.000Z" };
+    setAppState(app, {
+      ...initialAppState(),
+      sessions: [pinned],
+      selectedSession: pinned,
+      selectedWorkspace: workspace,
+      workspacesByProjectId: { "proj-1": [workspace] },
+      projects: [project],
+      machineStatusSnapshots: { local: machineStatusSnapshot() },
+      mainView: "chat",
+    });
+
+    navigationToggleKeepUnread(app)(pinned);
+
+    const snapshots = augmentedSnapshots(app);
+    expect(snapshots["local"]?.workspaces["ws-1"]?.[CORE_STATUS_FLAGS.unread]).toBe(true);
+    expect(snapshots["local"]?.projects["proj-1"]?.[CORE_STATUS_FLAGS.unread]).toBe(true);
+    expect(snapshots["local"]?.machine[CORE_STATUS_FLAGS.unread]).toBe(true);
+  });
+
+  it("keeps a pin across the reload gap between projects and their workspaces", () => {
+    stubJsonFetch({ catalogId: "catalog-a", catalogRevision: 2, sessions: [] });
+    const storedValues = new Map<string, string>();
+    const project: Project = { id: "proj-1", name: "proj", path: "/repo", createdAt: "2026-07-20T00:00:00.000Z" };
+    // A reload starts with the pin already persisted from the previous visit.
+    storedValues.set("pi-web.keep-unread.v1", JSON.stringify({
+      local: [{ id: "pinned", cwd: "/repo", workspaceId: "ws-1", projectId: "proj-1" }],
+    }));
+    const app = createApp({ storedValues });
+    expect([...loadKeepUnreadIds("local")]).toEqual(["pinned"]);
+
+    // ProjectController.loadProjects publishes the project list before any
+    // project's workspaces are fetched, so `workspacesByProjectId` is empty here.
+    invokeSetState(app, { projects: [project], workspacesByProjectId: {} });
+
+    expect([...loadKeepUnreadIds("local")]).toEqual(["pinned"]);
   });
 });
 
@@ -184,6 +230,29 @@ function createApp(options: { storedValues?: Map<string, string> } = {}): PiWebA
 
 function setAppState(app: PiWebApp, state: AppState): void {
   if (!Reflect.set(app, "state", state)) throw new Error("Could not set PiWebApp state");
+}
+
+type InvokeSetState = (this: PiWebApp, patch: Partial<AppState>) => void;
+type AugmentedSnapshots = Record<string, ReturnType<typeof machineStatusSnapshot>>;
+
+function invokeSetState(app: PiWebApp, patch: Partial<AppState>): void {
+  const method: unknown = Reflect.get(app, "setState");
+  if (!isInvokeSetState(method)) throw new Error("PiWebApp.setState is not callable");
+  method.call(app, patch);
+}
+
+function isInvokeSetState(value: unknown): value is InvokeSetState {
+  return typeof value === "function";
+}
+
+function augmentedSnapshots(app: PiWebApp): AugmentedSnapshots {
+  const value: unknown = Reflect.get(app, "augmentedMachineStatusSnapshots");
+  if (!isAugmentedSnapshots(value)) throw new Error("augmentedMachineStatusSnapshots is unavailable");
+  return value;
+}
+
+function isAugmentedSnapshots(value: unknown): value is AugmentedSnapshots {
+  return typeof value === "object" && value !== null;
 }
 
 function handleRealtimeEvent(app: PiWebApp, event: BrowserRealtimeEvent): void {

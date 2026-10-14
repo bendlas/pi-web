@@ -603,6 +603,8 @@ export class PiWebApp extends LitElement {
     );
     const surviving = reconcileKeepUnreadEntries(this.keepUnreadEntries, {
       liveWorkspaceIds,
+      knownProjectIds: new Set(this.state.projects.map((project) => project.id)),
+      loadedWorkspaceProjectIds: new Set(Object.keys(this.state.workspacesByProjectId)),
       selectedWorkspaceId,
       selectedWorkspaceSessionIds,
       selectedWorkspaceArchivedIds,
@@ -2251,8 +2253,10 @@ export class PiWebApp extends LitElement {
     const selectedWorkspaceJustified = this.keepUnreadNodeIds.has(selectedWorkspaceId)
       || (selectedWorkspaceId !== "" && this.state.sessions.some((session) => sessionRowUnread(session, this.unreadSessionIds)));
     const reconciled = reconcileVisibleUnread(augmented, selectedWorkspaceId, this.state.workspacesByProjectId, selectedWorkspaceJustified);
-    if (reconciled === undefined || reconciled === augmented) return this.state.machineStatusSnapshots;
-    return { ...this.state.machineStatusSnapshots, [machineId]: reconciled };
+    // `augmented` already carries the keep-unread flags, so it must be published
+    // even when `reconcileVisibleUnread` finds nothing to correct. Only the exact
+    // original snapshot can be returned unchanged.
+    return { ...this.state.machineStatusSnapshots, [machineId]: reconciled ?? augmented };
   }
 
   private renderNavigationPanel() {

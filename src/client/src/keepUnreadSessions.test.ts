@@ -122,6 +122,8 @@ function owned(id: string, workspaceId: string, projectId: string): KeepUnreadEn
 describe("reconcileKeepUnreadEntries", () => {
   const baseContext = (overrides: Partial<KeepUnreadReconcileContext> = {}): KeepUnreadReconcileContext => ({
     liveWorkspaceIds: new Set(["ws-1", "ws-2"]),
+    knownProjectIds: new Set(["proj-1", "proj-2"]),
+    loadedWorkspaceProjectIds: new Set(["proj-1", "proj-2"]),
     selectedWorkspaceId: "ws-1",
     selectedWorkspaceSessionIds: new Set(["alpha", "beta"]),
     selectedWorkspaceArchivedIds: new Set(),
@@ -180,6 +182,32 @@ describe("reconcileKeepUnreadEntries", () => {
     const other = owned("gamma", "ws-2", "proj-2");
     expect(reconcileKeepUnreadEntries([other], baseContext({ selectedWorkspaceSessionIds: new Set(["beta"]) })))
       .toEqual([other]);
+  });
+
+  it("keeps pins while the project catalog has not loaded yet", () => {
+    // On reload the projects and their workspaces arrive in separate updates;
+    // an empty catalog must not be read as "every workspace was removed".
+    const pinned = owned("alpha", "ws-1", "proj-1");
+    expect(reconcileKeepUnreadEntries([pinned], baseContext({
+      knownProjectIds: new Set(),
+      loadedWorkspaceProjectIds: new Set(),
+      liveWorkspaceIds: new Set(),
+    }))).toEqual([pinned]);
+  });
+
+  it("keeps pins for a known project whose workspace list is still loading", () => {
+    const pinned = owned("alpha", "ws-1", "proj-1");
+    expect(reconcileKeepUnreadEntries([pinned], baseContext({
+      loadedWorkspaceProjectIds: new Set(),
+      liveWorkspaceIds: new Set(),
+    }))).toEqual([pinned]);
+  });
+
+  it("drops pins for a project that is no longer listed", () => {
+    const gone = owned("alpha", "ws-1", "proj-gone");
+    const live = owned("beta", "ws-1", "proj-1");
+    const kept = reconcileKeepUnreadEntries([gone, live], baseContext());
+    expect(kept).toEqual([live]);
   });
 
   it("never drops a legacy id-only pin unless its session was deleted", () => {

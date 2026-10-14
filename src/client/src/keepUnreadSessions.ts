@@ -66,9 +66,18 @@ export function setKeepUnread(machineId: string, entry: KeepUnreadEntry, keep: b
  * What the client knows about the current topology, used to drop pins that can
  * no longer justify a marker.
  *
- * - `liveWorkspaceIds`: every workspace id the client currently tracks. A pin
- *   whose `workspaceId` is missing here points at a removed workspace, so the
- *   session it pins is gone and the pin must not keep lighting its project.
+ * - `liveWorkspaceIds`: the union of every workspace the client has loaded.
+ *   Used to confirm that a pin whose project's workspace list is *loaded* still
+ *   has its workspace.
+ * - `knownProjectIds`: every project the client currently lists. An empty set
+ *   means the project catalog has not loaded yet, so no pin can be judged
+ *   removed; a pin whose project is absent from a non-empty set points at a
+ *   removed project and is dropped.
+ * - `loadedWorkspaceProjectIds`: projects whose workspace list has actually been
+ *   fetched (the keys of the client's `workspacesByProjectId`). Only these can
+ *   invalidate a pin's workspace: a project that is known but whose workspaces
+ *   are still loading (or was never visited) must keep its pins, because an
+ *   absent workspace there means "not loaded yet", not "removed".
  * - `selectedWorkspaceId` / `selectedWorkspaceSessionIds` / `selectedWorkspaceArchivedIds`:
  *   the workspace the client is currently looking at and the sessions (including
  *   archived ones) it lists there. A pin attributed to the selected workspace is
@@ -83,6 +92,8 @@ export function setKeepUnread(machineId: string, entry: KeepUnreadEntry, keep: b
  */
 export interface KeepUnreadReconcileContext {
   liveWorkspaceIds: ReadonlySet<string>;
+  knownProjectIds: ReadonlySet<string>;
+  loadedWorkspaceProjectIds: ReadonlySet<string>;
   selectedWorkspaceId: string;
   selectedWorkspaceSessionIds: ReadonlySet<string>;
   selectedWorkspaceArchivedIds: ReadonlySet<string>;
@@ -99,17 +110,20 @@ export interface KeepUnreadReconcileContext {
  * the daemon fix had eliminated for daemon-owned unread.
  *
  * A pin is orphaned when:
- * - its `workspaceId` is set but no longer tracked (the workspace was removed),
+ * - its project was removed (its `projectId` is absent from a non-empty
+ *   `knownProjectIds`),
+ * - its `workspaceId` is set and its project's workspace list is loaded, but no
+ *   longer contains that workspace (the workspace was removed), or
  * - its `id` was explicitly deleted, or
  * - it is attributed to the *selected* workspace and its session was archived
  *   (it can never show a row marker) or has vanished from that workspace's list.
  *
- * Pins for other (unloaded) workspaces survive, because the client cannot see
- * their sessions and the keep-unread feature intentionally lights badges across
- * workspaces; visiting that workspace later reconciles them. Legacy id-only pins
- * (`workspaceId`/`projectId` empty) survive unless their `id` was deleted,
- * because they carry no workspace to invalidate against and only ever affect
- * the session row, never the parent badges.
+ * Pins survive whenever the client lacks the information to judge them: while
+ * the project catalog is empty, and for a project whose workspace list has not
+ * been loaded. This matters on every reload and machine switch, where the
+ * project list and then each workspace list arrive in separate state updates —
+ * an earlier version dropped all owner-carrying pins in the gap, so a pin
+ * vanished after reload and never lit its workspace/project badge.
  */
 export function reconcileKeepUnreadEntries(
   entries: readonly KeepUnreadEntry[],
@@ -117,13 +131,20 @@ export function reconcileKeepUnreadEntries(
 ): KeepUnreadEntry[] {
   const {
     liveWorkspaceIds,
+    knownProjectIds,
+    loadedWorkspaceProjectIds,
     selectedWorkspaceId,
     selectedWorkspaceSessionIds,
     selectedWorkspaceArchivedIds,
     deletedSessionIds,
   } = context;
   return entries.filter((entry) => {
-    if (entry.workspaceId !== "" && !liveWorkspaceIds.has(entry.workspaceId)) return false;
+    // A pin can only be judged against the project catalog once it has loaded.
+    if (entry.workspaceId !== "" && knownProjectIds.size > 0) {
+      if (entry.projectId !== "" && !knownProjectIds.has(entry.projectId)) return false;
+      const workspacesLoaded = entry.projectId === "" || loadedWorkspaceProjectIds.has(entry.projectId);
+      if (workspacesLoaded && !liveWorkspaceIds.has(entry.workspaceId)) return false;
+    }
     if (deletedSessionIds.has(entry.id)) return false;
     if (entry.workspaceId !== "" && entry.workspaceId === selectedWorkspaceId) {
       if (selectedWorkspaceArchivedIds.has(entry.id)) return false;
