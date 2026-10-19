@@ -1,0 +1,13 @@
+{
+  "name": "@pi-web/nix-plugin",
+  "private": true,
+  "type": "module",
+  "piWeb": {
+    "plugins": [{
+      "id": "nix",
+      "browserRoot": "browser",
+      "module": "browser/pi-web-plugin.js",
+      "machineSpecific": false
+    }]
+  }
+}
