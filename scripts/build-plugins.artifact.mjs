@@ -207,6 +207,23 @@ describe("plugin delivery artifacts", () => {
     }));
   });
 
+  it("ships Nix highlighting as a self-contained, enabled portable browser plugin", async () => {
+    const target = join(repoRoot, "dist/pi-web-plugins/nix");
+    expect(await recursiveFiles(target)).toEqual(["browser/pi-web-plugin.js", "package.json"]);
+    const entry = await readFile(join(target, "browser/pi-web-plugin.js"), "utf8");
+    expect(moduleSpecifiers(entry)).toEqual([]);
+    expect(Buffer.byteLength(entry)).toBeLessThan(PI_WEB_PLUGIN_ARTIFACT_MAX_BYTES);
+    const catalog = new PiWebPluginCatalog({
+      roots: [{ path: join(repoRoot, "dist/pi-web-plugins"), source: "bundled", scope: "bundled" }],
+      packageProvider: { listPackages: () => [], getInstalledPath: () => undefined },
+    });
+    const snapshot = await catalog.snapshot();
+    expect(snapshot.diagnostics).toEqual([]);
+    expect(snapshot.plugins).toContainEqual(expect.objectContaining({
+      id: "nix", enabled: true, machineSpecific: false,
+    }));
+  });
+
   describe("Mermaid browser package build", () => {
     it("ships a self-contained sandbox engine and browser entry within artifact limits", { timeout: 60_000 }, async () => {
       const target = join(repoRoot, "dist/pi-web-plugins/mermaid");
