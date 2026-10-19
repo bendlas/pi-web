@@ -416,7 +416,7 @@ describe.skipIf(process.platform === "win32")("TerminalService command runs", ()
 describe.skipIf(process.platform === "win32")("terminal close process handling", () => {
   it("terminates a running command's child when the terminal is closed", async () => {
     const dir = await mkdtemp(join(tmpdir(), "pi-web-term-close-run-"));
-    const service = new TerminalService();
+    const service = new TerminalService(createDefaultPtyProvider());
     let childPid: number | undefined;
     try {
       const run = service.runCommand({
@@ -442,9 +442,37 @@ describe.skipIf(process.platform === "win32")("terminal close process handling",
     }
   });
 
+  it("terminates a command's child when the shell ignores the hangup", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "pi-web-term-close-hup-"));
+    const service = new TerminalService(createDefaultPtyProvider());
+    let childPid: number | undefined;
+    try {
+      const run = service.runCommand({
+        origin: "core",
+        projectId: "p1",
+        workspaceId: "w1",
+        cwd: process.cwd(),
+        title: "Stubborn command",
+        // Ignore SIGHUP so the hangup alone cannot reach the backgrounded child;
+        // the process-group fallback has to stop it.
+        command: `trap '' HUP; ${longRunningChildCommand(join(dir, "child.pid"))} & wait`,
+      });
+      childPid = await readChildPid(join(dir, "child.pid"));
+      expect(processIsAlive(childPid)).toBe(true);
+
+      service.close(scope(), run.terminalId);
+
+      await expectProcessExit(childPid);
+    } finally {
+      killIfAlive(childPid);
+      service.dispose();
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it("terminates a foreground process when an interactive terminal is closed", async () => {
     const dir = await mkdtemp(join(tmpdir(), "pi-web-term-close-fg-"));
-    const service = new TerminalService();
+    const service = new TerminalService(createDefaultPtyProvider());
     let childPid: number | undefined;
     try {
       const terminal = await openInteractiveTerminal(service);
@@ -464,7 +492,7 @@ describe.skipIf(process.platform === "win32")("terminal close process handling",
 
   it("terminates a backgrounded process when an interactive terminal is closed", async () => {
     const dir = await mkdtemp(join(tmpdir(), "pi-web-term-close-bg-"));
-    const service = new TerminalService();
+    const service = new TerminalService(createDefaultPtyProvider());
     let childPid: number | undefined;
     try {
       const terminal = await openInteractiveTerminal(service);
@@ -486,7 +514,7 @@ describe.skipIf(process.platform === "win32")("terminal close process handling",
 
   it("leaves a disowned process running when an interactive terminal is closed", async () => {
     const dir = await mkdtemp(join(tmpdir(), "pi-web-term-close-disown-"));
-    const service = new TerminalService();
+    const service = new TerminalService(createDefaultPtyProvider());
     let childPid: number | undefined;
     try {
       const terminal = await openInteractiveTerminal(service);
