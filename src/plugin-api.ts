@@ -18,6 +18,7 @@ export type {
   PluginPeerChannel,
   MachineKind,
   PiWebComponentStatus,
+  PiWebRuntimeIdentity,
   PiWebDockerMode,
   PiWebInstallationInfo,
   PiWebInstallationKind,

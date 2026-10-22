@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { ServerPluginNoticeInput } from "@jmfederico/pi-web/server-plugin-api";
 import { interactiveShellArgs, TerminalService, type TerminalActivitySink, type TerminalInfo, type TerminalWorkspaceScope } from "./terminalService";
+import { createDefaultPtyProvider } from "./ptyComposition.js";
 
 describe("interactive shell arguments", () => {
   it.each([
@@ -25,7 +26,7 @@ describe("interactive shell arguments", () => {
 // so these tests are skipped there rather than asserting Unix shell behavior.
 describe.skipIf(process.platform === "win32")("TerminalService command runs", () => {
   it("closes all terminal records for a cwd", () => {
-    const service = new TerminalService();
+    const service = new TerminalService(createDefaultPtyProvider());
     try {
       const terminal = service.create(scope());
       let closed = 0;
@@ -46,7 +47,7 @@ describe.skipIf(process.platform === "win32")("TerminalService command runs", ()
   });
 
   it("closes all terminals only in the requested workspace when cwd values match", () => {
-    const service = new TerminalService();
+    const service = new TerminalService(createDefaultPtyProvider());
     const firstScope = scope();
     const secondScope = { ...firstScope, projectId: "p2", workspaceId: "w2" };
     try {
@@ -71,7 +72,7 @@ describe.skipIf(process.platform === "win32")("TerminalService command runs", ()
 
   it("loads login-profile PATH entries in new interactive terminals", async () => {
     await withBashLoginProfile(async () => {
-      const service = new TerminalService();
+      const service = new TerminalService(createDefaultPtyProvider());
       try {
         const terminal = service.create(scope());
         const exit = terminalExit(service, terminal.id);
@@ -87,7 +88,7 @@ describe.skipIf(process.platform === "win32")("TerminalService command runs", ()
 
   it("loads login-profile PATH entries in continued interactive terminals", async () => {
     await withBashLoginProfile(async () => {
-      const service = new TerminalService();
+      const service = new TerminalService(createDefaultPtyProvider());
       try {
         const run = service.runCommand({
           origin: "core",
@@ -129,7 +130,7 @@ describe.skipIf(process.platform === "win32")("TerminalService command runs", ()
     });
 
     it("sets PI_WEB_TERMINAL for terminal commands", async () => {
-      const service = new TerminalService();
+      const service = new TerminalService(createDefaultPtyProvider());
       try {
         const frame = "__PI_WEB_RUN_ENV_7F3A9C__";
         const run = service.runCommand({
@@ -148,7 +149,7 @@ describe.skipIf(process.platform === "win32")("TerminalService command runs", ()
     });
 
     it("sets PI_WEB_TERMINAL in a continued interactive shell", async () => {
-      const service = new TerminalService();
+      const service = new TerminalService(createDefaultPtyProvider());
       try {
         const run = service.runCommand({
           origin: "core",
@@ -182,7 +183,7 @@ describe.skipIf(process.platform === "win32")("TerminalService command runs", ()
   });
 
   it("tracks dedicated terminal command runs through completion", async () => {
-    const service = new TerminalService();
+    const service = new TerminalService(createDefaultPtyProvider());
     try {
       const run = service.runCommand({
         origin: "core",
@@ -210,7 +211,7 @@ describe.skipIf(process.platform === "win32")("TerminalService command runs", ()
   });
 
   it("marks failed command runs when the command exits non-zero", async () => {
-    const service = new TerminalService();
+    const service = new TerminalService(createDefaultPtyProvider());
     try {
       const run = service.runCommand({
         origin: "core",
@@ -231,7 +232,7 @@ describe.skipIf(process.platform === "win32")("TerminalService command runs", ()
 
   it("records one host-attributed intent when a command fails", async () => {
     const records: ServerPluginNoticeInput[] = [];
-    const service = new TerminalService((input) => { records.push(input); });
+    const service = new TerminalService(createDefaultPtyProvider(), (input) => { records.push(input); });
     try {
       const run = service.runCommand({
         origin: "core",
@@ -266,7 +267,7 @@ describe.skipIf(process.platform === "win32")("TerminalService command runs", ()
 
   it("does not record a failure intent for a successful command", async () => {
     const records: ServerPluginNoticeInput[] = [];
-    const service = new TerminalService((input) => { records.push(input); });
+    const service = new TerminalService(createDefaultPtyProvider(), (input) => { records.push(input); });
     try {
       const run = service.runCommand({
         origin: "core",
@@ -292,7 +293,7 @@ describe.skipIf(process.platform === "win32")("TerminalService command runs", ()
 
   it("publishes workspace activity updates across the terminal lifecycle", async () => {
     const workspaceActivity = createWorkspaceActivityRecorder();
-    const service = new TerminalService();
+    const service = new TerminalService(createDefaultPtyProvider());
     service.bindActivitySink(workspaceActivity);
     const cwd = process.cwd();
     try {

@@ -385,11 +385,12 @@
             <article id="model-response-terminated" class="faq-item">
               <h2>Model responses fail with 'terminated' after about 5 minutes</h2>
               <p>
-                A session transcript line like <code>(SYSTEM) Model response failed: terminated</code> at roughly
+                On Node.js, a session transcript line like <code>(SYSTEM) Model response failed: terminated</code> at roughly
                 the five-minute mark means a model stream stayed idle longer than the HTTP idle timeout governed by
                 Pi's <code>httpIdleTimeoutMs</code> agent setting (five minutes by default). Slow backends such as a
                 local vLLM server that emits one large final chunk can exceed it.
               </p>
+              <p>Bun session daemons do not apply <code>httpIdleTimeoutMs</code>. Startup logs report this limitation; Bun's native timeout and proxy behavior remain unchanged. Use Node.js if you need this setting. The steps below apply to Node.js.</p>
               <p>
                 Raise or disable the timeout in the active agent profile's <code>settings.json</code>
                 (<code>~/.pi/agent/settings.json</code> by default); the

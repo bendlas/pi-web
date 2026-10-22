@@ -15,6 +15,7 @@ import {
   TERMINAL_SERVICE_CAPABILITY,
   terminalOutputFrames,
 } from "./server-plugin.js";
+import { createDefaultPtyProvider } from "./ptyComposition.js";
 import { TerminalService } from "./terminalService.js";
 
 const services: TerminalService[] = [];
@@ -192,7 +193,7 @@ describe.skipIf(process.platform === "win32")("Terminal peer server entry", () =
 });
 
 function trackedService(): TerminalService {
-  const service = new TerminalService();
+  const service = new TerminalService(createDefaultPtyProvider());
   services.push(service);
   return service;
 }
