@@ -80,7 +80,7 @@ describe("ask-user-card live form", () => {
     await Promise.resolve();
 
     const textarea = requiredElement(root.querySelector("textarea"), "custom textarea");
-    const label = requiredElement(textarea.closest("label"), "custom label");
+    const label = fieldLabel(root, textarea);
     expect(label.textContent).toContain("Custom answer");
     expect(textarea.classList.contains("ui-input")).toBe(true);
     expect(root.activeElement).toBe(textarea);
@@ -105,7 +105,10 @@ describe("ask-user-card live form", () => {
     const textarea = requiredElement(root.querySelector("textarea"), "custom textarea");
 
     expect(root.querySelector("input")).toBeNull();
-    expect(requiredElement(textarea.closest("label"), "custom label").textContent).toContain("Custom answer");
+    expect(root.textContent).not.toContain("Add a comment");
+    expect(root.querySelectorAll("textarea")).toHaveLength(1);
+    expect(commentTextareas(root)).toHaveLength(0);
+    expect(fieldLabel(root, textarea).textContent).toContain("Custom answer");
     textarea.value = "Keep the first version small.";
     textarea.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
     await card.updateComplete;
@@ -137,10 +140,25 @@ describe("ask-user-card live form", () => {
       question("editor", "Choose an editor", [option("vim", "Vim"), option("code", "VS Code")]),
     ]), onSubmit);
     const root = renderRoot(card);
-    const comment = commentTextarea(root, 0);
-
-    expect(requiredElement(comment.closest("label"), "comment label").getAttribute("for")).toBe(comment.id);
+    expect(root.querySelectorAll("textarea")).toHaveLength(0);
+    expect(root.textContent).not.toContain("Add a comment");
     inputWithValue(root, "vim").click();
+    await card.updateComplete;
+    expect(root.querySelectorAll("textarea")).toHaveLength(0);
+    const addComment = buttonWithText(root, "Add a comment");
+    addComment.focus();
+    expect(root.activeElement).toBe(addComment);
+    addComment.click();
+    await card.updateComplete;
+    const comment = commentTextarea(root, 0);
+    expect(root.activeElement).toBe(comment);
+    expect(onSubmit).not.toHaveBeenCalled();
+
+    expect(root.querySelectorAll("textarea")).toHaveLength(1);
+    expect(comment.classList.contains("ui-input")).toBe(true);
+    expect(fieldLabel(root, comment).getAttribute("for")).toBe(comment.id);
+    expect(fieldLabel(root, comment).textContent).toContain("Comment (optional)");
+    expect(root.textContent).not.toContain("Add a comment");
     typeInto(comment, "Only for quick edits.");
     await card.updateComplete;
     // Changing the selection afterwards must not discard the comment.
@@ -157,22 +175,212 @@ describe("ask-user-card live form", () => {
     });
   });
 
-  it("offers a comment box per question and keeps a comment alone as an unanswered draft", async () => {
+  it("hides but retains the comment when the last offered checkbox is cleared", async () => {
     const card = await mountOpenAsk(openAsk([
-      question("editor", "Choose an editor", [option("vim", "Vim")]),
-      question("platforms", "Target platforms", [option("web", "Web")], { multiple: true }),
+      question("platforms", "Target platforms", [option("web", "Web"), option("desktop", "Desktop")], { multiple: true }),
     ]));
     const root = renderRoot(card);
-    const comment = commentTextarea(root, 1);
+    expect(root.querySelectorAll("textarea")).toHaveLength(0);
 
-    expect(commentTextareas(root)).toHaveLength(2);
-    expect(requiredElement(comment.closest("label"), "comment label").textContent).toContain("Add a comment (optional)");
-    typeInto(comment, "Desktop later, maybe.");
+    inputWithValue(root, "web").click();
+    inputWithValue(root, "desktop").click();
+    await card.updateComplete;
+    buttonWithText(root, "Add a comment").click();
+    await card.updateComplete;
+    typeInto(commentTextarea(root, 0), "Desktop later, maybe.");
+    await card.updateComplete;
+    inputWithValue(root, "desktop").click();
+    await card.updateComplete;
+    expect(commentTextarea(root, 0).value).toBe("Desktop later, maybe.");
+
+    inputWithValue(root, "web").click();
+    await card.updateComplete;
+    expect(root.querySelectorAll("textarea")).toHaveLength(0);
+    expect(root.querySelector("[aria-live='polite']")?.textContent).toContain("0 of 1 answered");
+    expect(loadAskDraft("local:session-1", "ask-1")).toEqual({
+      platforms: { values: [], comment: "Desktop later, maybe.", commentOpen: true },
+    });
+
+    inputWithValue(root, "web").click();
+    await card.updateComplete;
+    expect(commentTextarea(root, 0).value).toBe("Desktop later, maybe.");
+  });
+
+  it.each([false, true])("replaces a comment with a separate custom answer (multiple: %s)", async (multiple) => {
+    const onSubmit = vi.fn<AskUserSubmitCallback>();
+    const card = await mountOpenAsk(openAsk([
+      question("editor", "Choose an editor", [option("vim", "Vim")], { multiple }),
+    ]), onSubmit);
+    const root = renderRoot(card);
+    inputWithValue(root, "vim").click();
+    await card.updateComplete;
+    buttonWithText(root, "Add a comment").click();
+    await card.updateComplete;
+    typeInto(commentTextarea(root, 0), "Only for quick edits.");
     await card.updateComplete;
 
-    expect(root.querySelector("[aria-live='polite']")?.textContent).toContain("0 of 2 answered");
-    expect(commentTextarea(root, 1).value).toBe("Desktop later, maybe.");
-    expect(loadAskDraft("local:session-1", "ask-1")).toEqual({ platforms: { values: [], comment: "Desktop later, maybe." } });
+    inputWithValue(root, "__pi_web_other__").click();
+    await card.updateComplete;
+    const custom = requiredElement(root.querySelector("textarea"), "custom textarea");
+    expect(root.querySelectorAll("textarea")).toHaveLength(1);
+    expect(commentTextareas(root)).toHaveLength(0);
+    expect(root.textContent).not.toContain("Add a comment");
+    expect(fieldLabel(root, custom).textContent).toContain("Custom answer");
+    expect(custom.value).toBe("");
+    expect(root.activeElement).toBe(custom);
+    typeInto(custom, "Emacs");
+    await card.updateComplete;
+    expect(loadAskDraft("local:session-1", "ask-1")).toEqual({
+      editor: {
+        values: multiple ? ["vim"] : [], otherText: "Emacs", customSelected: true,
+        comment: "Only for quick edits.", commentOpen: true,
+      },
+    });
+
+    buttonWithText(root, "Send answers").click();
+    await Promise.resolve();
+    expect(onSubmit).toHaveBeenCalledWith("ask-1", {
+      answers: [{ id: "editor", values: multiple ? ["vim"] : [], otherText: "Emacs" }],
+    });
+  });
+
+  it.each([false, true])("does not reinterpret a custom answer as a comment (multiple: %s)", async (multiple) => {
+    const card = await mountOpenAsk(openAsk([
+      question("editor", "Choose an editor", [option("vim", "Vim")], { multiple }),
+    ]));
+    const root = renderRoot(card);
+    inputWithValue(root, "__pi_web_other__").click();
+    await card.updateComplete;
+    typeInto(requiredElement(root.querySelector("textarea"), "custom textarea"), "Emacs");
+    await card.updateComplete;
+
+    inputWithValue(root, "vim").click();
+    await card.updateComplete;
+    if (multiple) {
+      expect(commentTextareas(root)).toHaveLength(0);
+      expect(requiredElement(root.querySelector("textarea"), "custom textarea").value).toBe("Emacs");
+      inputWithValue(root, "__pi_web_other__").click();
+      await card.updateComplete;
+    }
+    expect(root.querySelectorAll("textarea")).toHaveLength(0);
+    expect(buttonWithText(root, "Add a comment")).toBeDefined();
+  });
+
+  it("closes a comment without sending or losing its draft, including across reloads", async () => {
+    const ask = openAsk([question("editor", "Choose an editor", [option("vim", "Vim")])]);
+    const card = await mountOpenAsk(ask);
+    const root = renderRoot(card);
+    inputWithValue(root, "vim").click();
+    await card.updateComplete;
+    buttonWithText(root, "Add a comment").click();
+    await card.updateComplete;
+    typeInto(commentTextarea(root, 0), "Only for quick edits.");
+    await card.updateComplete;
+    const close = requiredElement(root.querySelector<HTMLButtonElement>('button[aria-label="Close comment"]'), "close comment");
+    close.click();
+    await card.updateComplete;
+    expect(commentTextareas(root)).toHaveLength(0);
+    expect(root.activeElement).toBe(buttonWithText(root, "Add a comment"));
+    expect(loadAskDraft("local:session-1", "ask-1")).toMatchObject({
+      editor: { comment: "Only for quick edits.", commentOpen: false },
+    });
+
+    card.remove();
+    const onSubmit = vi.fn<AskUserSubmitCallback>();
+    const reloaded = await mountOpenAsk(ask, onSubmit);
+    const reloadedRoot = renderRoot(reloaded);
+    expect(commentTextareas(reloadedRoot)).toHaveLength(0);
+    buttonWithText(reloadedRoot, "Send answers").click();
+    await Promise.resolve();
+    expect(onSubmit).toHaveBeenCalledWith("ask-1", { answers: [{ id: "editor", values: ["vim"] }] });
+    buttonWithText(reloadedRoot, "Add a comment").click();
+    await reloaded.updateComplete;
+    expect(commentTextarea(reloadedRoot, 0).value).toBe("Only for quick edits.");
+  });
+
+  it.each([false, true])("restores separate custom and comment buffers when switching and reloading (multiple: %s)", async (multiple) => {
+    const ask = openAsk([question("editor", "Choose an editor", [option("vim", "Vim")], { multiple })]);
+    const card = await mountOpenAsk(ask);
+    const root = renderRoot(card);
+    inputWithValue(root, "vim").click();
+    await card.updateComplete;
+    buttonWithText(root, "Add a comment").click();
+    await card.updateComplete;
+    typeInto(commentTextarea(root, 0), "Only for quick edits.");
+    await card.updateComplete;
+    inputWithValue(root, "__pi_web_other__").click();
+    await card.updateComplete;
+    typeInto(requiredElement(root.querySelector("textarea"), "custom textarea"), "Emacs");
+    await card.updateComplete;
+    card.remove();
+
+    const onSubmit = vi.fn<AskUserSubmitCallback>();
+    const reloaded = await mountOpenAsk(ask, onSubmit);
+    const reloadedRoot = renderRoot(reloaded);
+    expect(inputWithValue(reloadedRoot, "__pi_web_other__").checked).toBe(true);
+    expect(requiredElement(reloadedRoot.querySelector("textarea"), "custom textarea").value).toBe("Emacs");
+    expect(commentTextareas(reloadedRoot)).toHaveLength(0);
+    inputWithValue(reloadedRoot, multiple ? "__pi_web_other__" : "vim").click();
+    await reloaded.updateComplete;
+    expect(commentTextarea(reloadedRoot, 0).value).toBe("Only for quick edits.");
+    buttonWithText(reloadedRoot, "Send answers").click();
+    await Promise.resolve();
+    expect(onSubmit).toHaveBeenCalledWith("ask-1", {
+      answers: [{ id: "editor", values: ["vim"], comment: "Only for quick edits." }],
+    });
+    inputWithValue(reloadedRoot, "__pi_web_other__").click();
+    await reloaded.updateComplete;
+    expect(requiredElement(reloadedRoot.querySelector("textarea"), "custom textarea").value).toBe("Emacs");
+  });
+
+  it("keeps an opened empty comment between offered choices without submitting it", async () => {
+    const onSubmit = vi.fn<AskUserSubmitCallback>();
+    const card = await mountOpenAsk(openAsk([
+      question("editor", "Choose an editor", [option("vim", "Vim"), option("code", "VS Code")]),
+    ]), onSubmit);
+    const root = renderRoot(card);
+    inputWithValue(root, "vim").click();
+    await card.updateComplete;
+    buttonWithText(root, "Add a comment").click();
+    await card.updateComplete;
+    inputWithValue(root, "code").click();
+    await card.updateComplete;
+    expect(commentTextarea(root, 0).value).toBe("");
+    buttonWithText(root, "Send answers").click();
+    await Promise.resolve();
+    expect(onSubmit).toHaveBeenCalledWith("ask-1", { answers: [{ id: "editor", values: ["code"] }] });
+  });
+
+  it("restores a visible comment with its selection after a reload", async () => {
+    saveAskDraft("local:session-1", "ask-1", { editor: { values: ["vim"], comment: "Only for quick edits." } });
+    const onSubmit = vi.fn<AskUserSubmitCallback>();
+    const card = await mountOpenAsk(openAsk([
+      question("editor", "Choose an editor", [option("vim", "Vim")]),
+    ]), onSubmit);
+    const root = renderRoot(card);
+    expect(inputWithValue(root, "vim").checked).toBe(true);
+    expect(commentTextarea(root, 0).value).toBe("Only for quick edits.");
+    buttonWithText(root, "Send answers").click();
+    await Promise.resolve();
+    expect(onSubmit).toHaveBeenCalledWith("ask-1", {
+      answers: [{ id: "editor", values: ["vim"], comment: "Only for quick edits." }],
+    });
+  });
+
+  it.each([
+    { values: [], otherText: "Emacs" },
+    { values: [] },
+    { values: ["removed"] },
+  ])("retains a hidden comment until an offered option is selected (case %#)", async (draft) => {
+    saveAskDraft("local:session-1", "ask-1", { editor: { ...draft, comment: "Old comment" } });
+    const card = await mountOpenAsk(openAsk([
+      question("editor", "Choose an editor", [option("vim", "Vim")]),
+    ]));
+    const root = renderRoot(card);
+    expect(commentTextareas(root)).toHaveLength(0);
+    inputWithValue(root, "vim").click();
+    await card.updateComplete;
+    expect(commentTextarea(root, 0).value).toBe("Old comment");
   });
 
   it("names unanswered questions before allowing a partial submit", async () => {
@@ -331,10 +539,13 @@ function renderRoot(card: AskUserCard): ShadowRoot {
   return requiredElement(card.shadowRoot, "ask-user-card shadow root");
 }
 
+function fieldLabel(root: ShadowRoot, textarea: HTMLTextAreaElement): HTMLLabelElement {
+  return requiredElement(root.querySelector<HTMLLabelElement>(`label[for="${textarea.id}"]`), "textarea label");
+}
+
 function commentTextareas(root: ShadowRoot): HTMLTextAreaElement[] {
-  return [...root.querySelectorAll("label")]
-    .filter((label) => label.textContent.includes("Add a comment"))
-    .map((label) => requiredElement(label.querySelector("textarea"), "comment textarea"));
+  return [...root.querySelectorAll<HTMLTextAreaElement>("textarea")]
+    .filter((textarea) => fieldLabel(root, textarea).textContent.includes("Comment (optional)"));
 }
 
 function commentTextarea(root: ShadowRoot, index: number): HTMLTextAreaElement {

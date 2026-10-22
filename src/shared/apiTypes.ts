@@ -821,7 +821,7 @@ export interface AskUserAnswer {
   values: string[];
   /** Free text typed as the question's custom answer. */
   otherText?: string;
-  /** Free text the user added alongside the selection, without replacing it. */
+  /** Optional context for offered selections; omitted for custom answers. */
   comment?: string;
 }
 

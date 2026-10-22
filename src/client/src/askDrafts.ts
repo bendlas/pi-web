@@ -14,12 +14,25 @@ import {
 export interface AskDraftAnswer {
   values: string[];
   otherText?: string;
+  /** Selection state is independent of the retained Custom text buffer. */
+  customSelected?: boolean;
   /** Free text typed alongside the selection rather than instead of it. */
   comment?: string;
+  /** Visibility is independent of the retained comment buffer. */
+  commentOpen?: boolean;
 }
 
 /** Draft answers of one ask, keyed by question id. */
 export type AskDraftAnswers = Record<string, AskDraftAnswer>;
+
+export function isCustomAnswerSelected(question: AskUserQuestion, answer: AskDraftAnswer | undefined): boolean {
+  if (question.options.length === 0) return true;
+  return answer?.customSelected ?? (answer?.otherText !== undefined && (question.multiple === true || answer.values.length === 0));
+}
+
+export function isCommentOpen(answer: AskDraftAnswer | undefined): boolean {
+  return answer?.commentOpen ?? (answer?.comment !== undefined);
+}
 
 const draftStoragePrefix = "pi-web:ask-draft:";
 
@@ -52,7 +65,8 @@ export function loadAskDraft(sessionId: string, askId: string, storage = browser
 export function saveAskDraft(sessionId: string, askId: string, answers: AskDraftAnswers, storage = browserStorage()): void {
   try {
     const entries = Object.entries(answers).filter(
-      ([, answer]) => answer.values.length > 0 || (answer.otherText ?? "") !== "" || (answer.comment ?? "") !== "",
+      ([, answer]) => answer.values.length > 0 || answer.otherText !== undefined || answer.comment !== undefined
+        || answer.customSelected !== undefined || answer.commentOpen !== undefined,
     );
     if (entries.length === 0) storage?.removeItem(draftStorageKey(sessionId, askId));
     else storage?.setItem(draftStorageKey(sessionId, askId), JSON.stringify(Object.fromEntries(entries)));
@@ -86,13 +100,19 @@ function draftAnswerFromValue(value: unknown): AskDraftAnswer | undefined {
   const values = record["values"];
   const otherText = record["otherText"];
   const comment = record["comment"];
+  const customSelected = record["customSelected"];
+  const commentOpen = record["commentOpen"];
   if (!Array.isArray(values) || !values.every((entry) => typeof entry === "string")) return undefined;
   if (otherText !== undefined && typeof otherText !== "string") return undefined;
   if (comment !== undefined && typeof comment !== "string") return undefined;
+  if (customSelected !== undefined && typeof customSelected !== "boolean") return undefined;
+  if (commentOpen !== undefined && typeof commentOpen !== "boolean") return undefined;
   return {
     values: [...values],
     ...(otherText === undefined ? {} : { otherText }),
     ...(comment === undefined ? {} : { comment }),
+    ...(customSelected === undefined ? {} : { customSelected }),
+    ...(commentOpen === undefined ? {} : { commentOpen }),
   };
 }
 
@@ -132,16 +152,18 @@ export function toSubmission(questions: readonly AskUserQuestion[], answers: Ask
  * single-select question keeps only its first selection rather than sending a
  * submission the daemon would reject as a whole.
  *
- * A comment rides along with whatever the question was answered with; on its own
- * it does not make a question answered, so "answered" keeps meaning "the user
- * chose something".
+ * A comment accompanies only offered selections while Custom is inactive. Hidden
+ * draft comments never enter the submission or make a question answered.
  */
 function submittableAnswer(question: AskUserQuestion, answer: AskDraftAnswer | undefined): AskUserAnswer | undefined {
   if (answer === undefined) return undefined;
   const offered = new Set(question.options.map((option) => option.value));
-  const values = [...new Set(answer.values)].filter((value) => offered.has(value));
-  const otherText = normalizedOtherText(answer.otherText);
-  const comment = normalizeComment(answer.comment);
+  const customSelected = isCustomAnswerSelected(question, answer);
+  const values = question.multiple !== true && answer.customSelected === true
+    ? []
+    : [...new Set(answer.values)].filter((value) => offered.has(value));
+  const otherText = customSelected ? normalizedOtherText(answer.otherText) : undefined;
+  const comment = isCommentOpen(answer) && !customSelected && values.length > 0 ? normalizeComment(answer.comment) : undefined;
   const commented = (submittable: AskUserAnswer): AskUserAnswer => (comment === undefined ? submittable : { ...submittable, comment });
   if (question.multiple !== true && values.length + (otherText === undefined ? 0 : 1) > 1) {
     const single = values[0];

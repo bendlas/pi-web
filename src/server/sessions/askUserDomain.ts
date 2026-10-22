@@ -203,7 +203,7 @@ function validateAnswer(question: AskUserQuestion, answer: Record<string, unknow
     id: question.id,
     values,
     ...(otherText === undefined ? {} : { otherText }),
-    ...(comment === undefined ? {} : { comment }),
+    ...(comment === undefined || answer["otherText"] !== undefined || values.length === 0 ? {} : { comment }),
   };
 }
 

@@ -129,6 +129,46 @@ describe("ask outcomes", () => {
     expect(outcome).toMatchObject({ answeredCount: 1, unansweredIds: ["q2"] });
   });
 
+  it.each([
+    { multiple: false, values: [], otherText: "custom" },
+    { multiple: true, values: ["yes", "no"], otherText: "custom" },
+    { multiple: true, values: ["yes"], otherText: "" },
+    { multiple: true, values: ["yes"], otherText: "   " },
+  ])("drops hidden comments when custom text is supplied: %j", ({ multiple, values, otherText }) => {
+    const outcome = createAskUserOutcome(request([question("q1", { multiple })]), {
+      answers: [{ id: "q1", values, otherText, comment: "hidden comment" }],
+    }, closedAt);
+
+    expect(outcome.questions[0]).toEqual({
+      question: question("q1", multiple ? { multiple: true } : {}),
+      answered: true, values,
+      ...(otherText.trim() === "" ? {} : { otherText }),
+    });
+    expect(renderAskUserAnswersText(outcome)).not.toContain("hidden comment");
+  });
+
+  it.each([undefined, "a note", "   "])("drops comments on optionless questions (%j)", (otherText) => {
+    const outcome = createAskUserOutcome(request([question("q1", { options: [] })]), {
+      answers: [{ id: "q1", values: [], otherText, comment: "hidden comment" }],
+    }, closedAt);
+
+    expect(outcome.questions[0]).toMatchObject({ answered: otherText === "a note", values: [] });
+    expect(outcome.questions[0]).not.toHaveProperty("comment");
+  });
+
+  it.each([
+    { values: [], otherText: "custom" },
+    { values: [] },
+    { values: ["yes"], otherText: "" },
+  ])("still validates hidden comments: %j", (answer) => {
+    const ask = request();
+    for (const comment of [3, "x".repeat(ASK_USER_COMMENT_MAX_LENGTH + 1)]) {
+      expect(() => createAskUserOutcome(ask, {
+        answers: [{ id: "q1", ...answer, comment }],
+      }, closedAt)).toThrow(AskUserValidationError);
+    }
+  });
+
   it("answers optionless questions with custom text", () => {
     expect(createAskUserOutcome(request([question("q1", { options: [] })]), { answers: [{ id: "q1", values: [], otherText: "a note" }] }, closedAt))
       .toMatchObject({ questions: [{ answered: true, values: [], otherText: "a note" }] });

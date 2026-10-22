@@ -1,5 +1,5 @@
 ---
-"@jmfederico/pi-web": minor
+"@jmfederico/pi-web": patch
 ---
 
-Add an optional "Add a comment" box to each question in an Ask User card. The comment rides alongside the answer — a selection or custom "Other" text — instead of replacing it, and is sent back to the agent with the submission. A comment on its own does not count as an answer, so unanswered-question gating, the answered count, and the record's "Answered" flag ignore it; it is still kept as a draft for the next reload. Comments are length-bounded (4,000 chars) and validated on submit, and a comment typed beside a pre-filled selection survives switching the selection.
+Allow optional comments on selected Ask User options through a subtle Add a comment button, with a close control to exclude the comment. Preserve custom answers and comments while switching choices or reloading, including closed comments. Each question shows at most one text field, and only active answers and open comments are sent.
