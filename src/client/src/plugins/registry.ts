@@ -1020,6 +1020,8 @@ export class PluginRegistry {
         && (panel.visible?.(scopedContext(context)) ?? true),
       ...(panel.badge === undefined ? {} : { badge: (context: ApplicationPanelContext) => this.isContributionActive(pluginId, machineId, context.machine.id, sourcePluginId)
         ? panel.badge?.(scopedContext(context)) : undefined }),
+      ...(panel.onInvalidate === undefined ? {} : { onInvalidate: (context: ApplicationPanelContext) => this.isContributionActive(pluginId, machineId, context.machine.id, sourcePluginId)
+        ? panel.onInvalidate?.(scopedContext(context)) : undefined }),
       render: (context) => this.isContributionActive(pluginId, machineId, context.machine.id, sourcePluginId)
         ? panel.render(scopedContext(context)) : html``,
     };
@@ -1464,10 +1466,11 @@ function withV5Services(
       ...(disabledReason === undefined ? {} : { disabledReason: wrap(disabledReason) }),
       run: wrap(run),
     })) }),
-    ...(contributions.applicationPanels === undefined ? {} : { applicationPanels: contributions.applicationPanels.map(({ visible, badge, render, ...panel }) => ({
+    ...(contributions.applicationPanels === undefined ? {} : { applicationPanels: contributions.applicationPanels.map(({ visible, badge, onInvalidate, render, ...panel }) => ({
       ...panel,
       ...(visible === undefined ? {} : { visible: wrap(visible) }),
       ...(badge === undefined ? {} : { badge: wrap(badge) }),
+      ...(onInvalidate === undefined ? {} : { onInvalidate: wrap(onInvalidate) }),
       render: wrap(render),
     })) }),
     ...(contributions.workspacePanels === undefined ? {} : { workspacePanels: contributions.workspacePanels.map(({ visible, fileOpenQuery, badge, onInvalidate, render, ...panel }) => ({

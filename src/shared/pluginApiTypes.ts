@@ -166,11 +166,9 @@ export interface MoveWorkspaceFileResponse {
 
 export type TerminalCommandRunStatus = "queued" | "running" | "succeeded" | "failed";
 
-export interface TerminalCommandRun {
+interface TerminalCommandRunFields {
   id: string;
   origin: string;
-  projectId: string;
-  workspaceId: string;
   terminalId: string;
   title: string;
   command: string;
@@ -182,9 +180,23 @@ export interface TerminalCommandRun {
   metadata: Record<string, string>;
 }
 
-export interface TerminalCommandRunHandle {
-  run: TerminalCommandRun;
-  completed: Promise<TerminalCommandRun>;
+export interface TerminalCommandRun extends TerminalCommandRunFields {
+  scope?: "workspace";
+  projectId: string;
+  workspaceId: string;
+}
+
+export interface MaintenanceTerminalCommandRun extends TerminalCommandRunFields {
+  scope: "maintenance";
+  projectId?: never;
+  workspaceId?: never;
+}
+
+export type AnyTerminalCommandRun = TerminalCommandRun | MaintenanceTerminalCommandRun;
+
+export interface TerminalCommandRunHandle<Run extends AnyTerminalCommandRun = TerminalCommandRun> {
+  run: Run;
+  completed: Promise<Run>;
 }
 
 export type PiWebServiceComponent = "web" | "sessiond";

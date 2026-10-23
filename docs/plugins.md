@@ -70,7 +70,9 @@ For entry declarations and lifecycle details, use the [public contracts and exam
 
 Application panels can show machine dashboards before a project, workspace, or session is selected. Workspace panels require a selected workspace. Both appear in the tool tabs and follow selection changes; terminal-backed actions also require an available Terminal provider.
 
-Older hosts may omit application tabs; update PI WEB to use them.
+Application-panel command helpers keep their execution scope explicit. `context.terminal` targets the selected workspace and returns workspace run records. `context.maintenanceTerminal` targets the machine's maintenance directory and returns maintenance run records, without workspace identity. Use the latter only for an explicit application action, such as Update; viewing Terminal does not create a maintenance shell.
+
+Older hosts may omit application tabs or maintenance commands; update PI WEB to use them.
 
 ### Follow selection while a tab is closed
 
@@ -262,13 +264,13 @@ Keep gateways and targets compatible. During this plugin API transition, upgrade
 
 ## Included tools and optional packages
 
-- **Terminal** supplies terminals and command runs. It is required in normal operation; disable it only through emergency safe start.
+- **Terminal** supplies terminals and command runs in one tab. With a workspace selected, it lists that workspace's terminals alongside existing maintenance terminals on the same machine. Without a workspace, it lists only maintenance terminals. **New terminal** creates workspace shells only; maintenance terminals start through actions such as Update and can be continued interactively after completion. Closing a maintenance terminal removes it from every workspace view. Terminal is required in normal operation; disable it only through emergency safe start.
 - **Files** supplies file browsing, previews, and uploads. Disabling its panel does not remove other plugins' file helpers.
 - **Git** discovers Git workspaces and provides status/diff, including [automatic discovery of new worktrees](#automatic-git-worktree-discovery) on supported Git builds. Disabling it leaves the project-folder workspace available unless another provider takes over.
 - **Mermaid** uses the default manual mode: choose **Render** to preview `mermaid` fences and `.mmd`/`.mermaid` text files. Its bundled engine runs locally in an opaque-origin sandbox with network access blocked; no diagram service receives your source. Interactive links and external resources are intentionally unavailable. Disable Mermaid in plugin Settings to keep plain code rendering. Only a browser reload is needed after changing this browser-only plugin.
 - **Code highlighting** colours completed chat code fences in common languages automatically, including JavaScript/TypeScript, Python, shell, HTML/CSS, JSON, Go, Rust, SQL, and diff. Choose **Raw** to view plain source or **Preview** to restore colours; Copy always copies the source. Unsupported, unlabelled, incomplete, and oversized blocks stay plain. Highlighting runs locally without executing code. Disable Code highlighting in plugin Settings to keep plain code rendering; reload the browser after changing this browser-only plugin.
 - **Info** displays machine and PI WEB status without requiring a workspace, adds workspace details when selected, and provides copyable diagnostics.
-- **Updates** shows update/restart guidance when relevant and offers a manual update check. Guidance and Copy work without a workspace; Run requires a selected workspace with an available Terminal provider on that machine.
+- **Updates** shows update/restart guidance when relevant and offers a manual update check. Run uses the selected machine's maintenance terminal in `$PI_WEB_DATA_DIR/maintenance` (default `~/.pi-web/maintenance`), whether or not a workspace is selected. It requires an available Terminal provider on that machine; guidance and Copy remain available without one.
 - **Workspace Tasks** turns project commands into runnable buttons.
 
 ### Automatic Git worktree discovery

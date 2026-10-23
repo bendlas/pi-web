@@ -639,7 +639,7 @@
 <th scope="row"><span id="managed-data-directory" class="reference-anchor"></span>PI WEB state<br><code>PI_WEB_DATA_DIR</code></th>
 <td>PI WEB machine</td>
 <td><code>~/.pi-web</code></td>
-<td>Registries, plugins, daemon socket, and session archives.</td>
+<td>Registries, plugins, daemon socket, session archives, and the <code>maintenance</code> working directory. Updates uses that directory on the selected machine, independently of workspace selection; it is created when needed and is not registered as a project.</td>
 <td>Stop services before switching; then restart</td>
 </tr>
 <tr>

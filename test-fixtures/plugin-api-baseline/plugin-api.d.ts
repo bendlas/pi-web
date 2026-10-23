@@ -1,6 +1,6 @@
 import type { ReactiveControllerHost, TemplateResult } from "lit";
-import type { DeleteWorkspaceFileResponse, FileContentResponse, FileTreeResponse, MachineKind, PluginBackend, PluginPeer, MoveWorkspaceFileOptions, MoveWorkspaceFileResponse, PiWebStatusResponse, PluginCapability, PluginCapabilityProvision, TerminalCommandRunHandle, WorkspaceProviderMetadata, WorkspaceRemovalPresentation, WriteWorkspaceFileOptions, WriteWorkspaceFileResponse } from "./shared/pluginApiTypes.js";
-export type { FileContentMediaType, FileContentResponse, FileTreeEntry, FileTreeResponse, JsonObject, JsonPrimitive, JsonValue, PluginBackend, PluginBackendScope, PluginPeer, PluginPeerRequestOptions, PluginPeerChannelOptions, PluginPeerChannelClose, PluginPeerChannel, MachineKind, PiWebComponentStatus, PiWebRuntimeIdentity, PiWebDockerMode, PiWebInstallationInfo, PiWebInstallationKind, PiWebReleaseStatus, PiWebServiceComponent, PiWebStatusMessage, PiWebStatusResponse, PiWebStatusSeverity, PiWebVersionResponse, PluginCapability, PluginCapabilityProvision, SessionUiMetadata, TerminalCommandRun, TerminalCommandRunHandle, TerminalCommandRunStatus, WorkspaceProviderCapabilities, WorkspaceProviderMetadata, WorkspaceRemovalPresentation, WriteWorkspaceFileOptions, WriteWorkspaceFileResponse, DeleteWorkspaceFileResponse, MoveWorkspaceFileOptions, MoveWorkspaceFileResponse, } from "./shared/pluginApiTypes.js";
+import type { DeleteWorkspaceFileResponse, FileContentResponse, FileTreeResponse, MachineKind, PluginBackend, PluginPeer, MoveWorkspaceFileOptions, MoveWorkspaceFileResponse, PiWebStatusResponse, PluginCapability, PluginCapabilityProvision, MaintenanceTerminalCommandRun, TerminalCommandRunHandle, WorkspaceProviderMetadata, WorkspaceRemovalPresentation, WriteWorkspaceFileOptions, WriteWorkspaceFileResponse } from "./shared/pluginApiTypes.js";
+export type { FileContentMediaType, FileContentResponse, FileTreeEntry, FileTreeResponse, JsonObject, JsonPrimitive, JsonValue, PluginBackend, PluginBackendScope, PluginPeer, PluginPeerRequestOptions, PluginPeerChannelOptions, PluginPeerChannelClose, PluginPeerChannel, MachineKind, PiWebComponentStatus, PiWebRuntimeIdentity, PiWebDockerMode, PiWebInstallationInfo, PiWebInstallationKind, PiWebReleaseStatus, PiWebServiceComponent, PiWebStatusMessage, PiWebStatusResponse, PiWebStatusSeverity, PiWebVersionResponse, PluginCapability, PluginCapabilityProvision, SessionUiMetadata, AnyTerminalCommandRun, MaintenanceTerminalCommandRun, TerminalCommandRun, TerminalCommandRunHandle, TerminalCommandRunStatus, WorkspaceProviderCapabilities, WorkspaceProviderMetadata, WorkspaceRemovalPresentation, WriteWorkspaceFileOptions, WriteWorkspaceFileResponse, DeleteWorkspaceFileResponse, MoveWorkspaceFileOptions, MoveWorkspaceFileResponse, } from "./shared/pluginApiTypes.js";
 export type { PluginCatalogV1, PluginCatalogProject, PluginCatalogWorkspace, PluginSessionSnapshot, PluginWorkspaceSelection, PluginSessionSelection, PluginCatalogReadOptions } from "./shared/pluginCatalogTypes.js";
 import type { PluginCatalogV1 } from "./shared/pluginCatalogTypes.js";
 export type PiWebPlugin = LegacyPiWebPlugin | PiWebPluginV5;
@@ -56,7 +56,8 @@ export type PluginActionV5 = Omit<PluginAction, "enabled" | "disabledReason" | "
     disabledReason?: (context: PluginRuntimeContextV5) => string | undefined;
     run: (context: PluginRuntimeContextV5) => MaybePromise<void>;
 };
-export type ApplicationPanelContributionV5 = Omit<ApplicationPanelContribution, "visible" | "badge" | "render"> & {
+export type ApplicationPanelContributionV5 = Omit<ApplicationPanelContribution, "visible" | "badge" | "render" | "onInvalidate"> & {
+    onInvalidate?: (context: ApplicationPanelContextV5) => MaybePromise<void>;
     visible?: (context: ApplicationPanelContextV5) => boolean;
     badge?: (context: ApplicationPanelContextV5) => string | number | TemplateResult | undefined;
     render: (context: ApplicationPanelContextV5) => TemplateResult;
@@ -637,6 +638,12 @@ export interface WorkspacePanelTerminal {
     }): void;
     runCommand(input: WorkspaceTerminalCommandInput): Promise<TerminalCommandRunHandle>;
 }
+export interface MaintenanceTerminal {
+    open(options?: {
+        terminalId?: string | undefined;
+    }): void;
+    runCommand(input: WorkspaceTerminalCommandInput): Promise<TerminalCommandRunHandle<MaintenanceTerminalCommandRun>>;
+}
 export type ContributionQueryValue = string | number | boolean | readonly (string | number | boolean)[];
 export interface WorkspacePanelNavigationV1 {
     readonly version: 1;
@@ -664,6 +671,10 @@ export interface ApplicationPanelContext {
     workspace?: Workspace;
     /** Workspace-bound terminal; present only with a selected workspace and an available Terminal provider. */
     terminal?: WorkspacePanelTerminal;
+    /** Runs on this machine in PI WEB's maintenance directory, independent of workspace selection. Omitted by older hosts. */
+    maintenanceTerminal?: MaintenanceTerminal;
+    /** Contribution-scoped workspace queries; present only when a workspace is selected. */
+    navigation?: WorkspacePanelNavigationV1;
     navigate: PluginNavigate;
     prompt: PluginPromptEditor;
     host: WorkspaceHost;
@@ -676,6 +687,8 @@ export interface ApplicationPanelContribution {
     order?: number;
     visible?: (context: ApplicationPanelContext) => boolean;
     badge?: (context: ApplicationPanelContext) => string | number | TemplateResult | undefined;
+    /** Refreshes the panel after navigation restore or manual invalidation. */
+    onInvalidate?: (context: ApplicationPanelContext) => void | Promise<void>;
     render: (context: ApplicationPanelContext) => TemplateResult;
 }
 export type WorkspacePanelIcon = TemplateResult;

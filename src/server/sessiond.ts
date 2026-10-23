@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 import { mkdir, rm } from "node:fs/promises";
 import { dirname } from "node:path";
+import { MAINTENANCE_TERMINAL_CAPABILITY } from "./terminals/maintenanceTerminalCapability.js";
+import { resolveMaintenanceExecutionContext } from "./terminals/maintenanceExecutionContext.js";
 import Fastify from "fastify";
 import fastifyWebsocket from "@fastify/websocket";
 import { registerTerminalStatusRoutes } from "./terminals/terminalStatusRoutes.js";
@@ -86,6 +88,7 @@ import { createWorkspaceProviderRuntimeSnapshot } from "./workspaces/workspaceCa
 import { WorkspaceRemovalService } from "./workspaces/workspaceRemovalService.js";
 
 const daemonEnvironment: NodeJS.ProcessEnv = Object.freeze({ ...process.env });
+const daemonLaunchCwd = process.cwd();
 const serverPluginRecovery = loadServerPluginRecoveryConfig({ env: daemonEnvironment });
 const { config, deprecatedAgentInputs } = effectivePiWebConfig({ env: daemonEnvironment });
 // The session service re-reads the config file at request time (e.g. for the
@@ -160,6 +163,9 @@ process.once("SIGTERM", (signal) => { void requestShutdown(signal); });
 // silently. The daemon keeps using the captured daemonEnvironment above; its
 // runtime stores resolve their paths from it explicitly below.
 const scrubbedEnvKeys = scrubNonAgentVisibleEnvKeys(process.env);
+// Capture the prepared child environment, not daemonEnvironment: it includes
+// the canonical active profile and nesting marker, without daemon-only keys.
+const childProcessEnvironment = Object.freeze({ ...process.env });
 app.log.info({ scrubbedEnvKeys }, "daemon-only environment keys hidden from agent processes");
 
 // Claim ownership of the instance's durable state before any runtime store can
@@ -225,6 +231,10 @@ async function createSessionDaemonRuntime() {
     }),
     noticeSink: (source, input) => { serverNotices.record({ ...input, source }); },
     dataDir: piWebDataDir(daemonEnvironment),
+    hostCapabilities: [{
+      capability: MAINTENANCE_TERMINAL_CAPABILITY,
+      value: resolveMaintenanceExecutionContext(childProcessEnvironment, daemonLaunchCwd),
+    }],
     lateHostCapabilities: [PI_WEB_HOST_WORKSPACES_CAPABILITY, PI_WEB_HOST_PI_SESSIONS_CAPABILITY, PI_WEB_HOST_PI_SESSION_EVENTS_CAPABILITY, PI_WEB_HOST_CATALOG_CAPABILITY],
   });
   let sessionsForFailedConstruction: PiSessionService | undefined;

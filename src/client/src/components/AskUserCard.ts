@@ -7,6 +7,7 @@ import { uiTranscriptStyles } from "./ui/transcriptStyles";
 import { uiTranscriptCardStyles } from "./ui/transcriptCardStyles";
 import { uiFormStyles } from "./ui/formStyles";
 import {
+  ASK_USER_COMMENT_MAX_LENGTH,
   ASK_USER_OTHER_TEXT_MAX_LENGTH,
   type AskUserOutcome,
   type AskUserQuestion,
@@ -16,6 +17,8 @@ import {
 } from "../../../shared/apiTypes";
 import {
   answeredCount,
+  isCommentOpen,
+  isCustomAnswerSelected,
   loadAskDraft,
   saveAskDraft,
   toSubmission,
@@ -29,6 +32,7 @@ export type AskUserSubmitCallback = (askId: string, submission: AskUserSubmissio
 interface DisplayedRecordAnswer {
   values: string[];
   otherText?: string;
+  comment?: string;
   fromDraft: boolean;
 }
 
@@ -113,7 +117,10 @@ export class AskUserCard extends LitElement {
     const answered = answeredCount([question], this.answers) === 1;
     const detailId = question.detail === undefined ? undefined : this.questionDetailId(index);
     const freeTextOnly = question.options.length === 0;
-    const customSelected = freeTextOnly || this.isOtherSelected(question, answer);
+    const customSelected = isCustomAnswerSelected(question, answer);
+    const commentSelected = !customSelected && question.options.some((option) => answer?.values.includes(option.value) === true);
+    const commentOpen = commentSelected && isCommentOpen(answer);
+    const textInputId = customSelected ? this.otherInputId(index) : this.commentInputId(index);
     const inputType = question.multiple === true ? "checkbox" : "radio";
     return html`
       <fieldset
@@ -155,17 +162,31 @@ export class AskUserCard extends LitElement {
               <span class="option-copy"><span class="option-label">Custom</span></span>
             </label>
           `}
-          ${customSelected ? html`
-            <label class="other-answer" for=${this.otherInputId(index)}>
-              <span>Custom answer</span>
+          ${commentSelected && !commentOpen ? html`
+            <button class="ui-button ui-button--small add-comment" type="button"
+              @click=${() => { void this.addComment(question, index); }}>Add a comment</button>
+          ` : null}
+          ${customSelected || commentOpen ? html`
+            <div class="answer-text">
+              <div class="answer-text-header">
+                <label for=${textInputId}>${customSelected ? "Custom answer" : "Comment (optional)"}</label>
+                ${customSelected ? null : html`
+                  <button class="ui-button ui-button--small ui-button--icon" type="button"
+                    aria-label="Close comment" title="Close comment (kept as draft)"
+                    @click=${() => { void this.closeComment(question, index); }}>×</button>
+                `}
+              </div>
               <textarea class="ui-input"
-                id=${this.otherInputId(index)}
-                rows="3"
-                maxlength=${String(ASK_USER_OTHER_TEXT_MAX_LENGTH)}
-                .value=${answer?.otherText ?? ""}
-                @input=${(event: Event) => { this.changeOtherText(question, event); }}
+                id=${textInputId}
+                rows=${customSelected ? "3" : "2"}
+                maxlength=${String(customSelected ? ASK_USER_OTHER_TEXT_MAX_LENGTH : ASK_USER_COMMENT_MAX_LENGTH)}
+                .value=${(customSelected ? answer?.otherText : answer?.comment) ?? ""}
+                @input=${(event: Event) => {
+                  if (customSelected) this.changeOtherText(question, event);
+                  else this.changeComment(question, event);
+                }}
               ></textarea>
-            </label>
+            </div>
           ` : null}
         </div>
       </fieldset>
@@ -271,6 +292,7 @@ export class AskUserCard extends LitElement {
               <ul class="record-answers">
                 ${answer.values.map((value) => html`<li>${this.optionLabel(record.question, value)}</li>`)}
                 ${answer.otherText === undefined ? null : html`<li><strong>Custom:</strong> <span class="other-record-text">${answer.otherText}</span></li>`}
+                ${answer.comment === undefined ? null : html`<li><strong>Comment:</strong> <span class="other-record-text">${answer.comment}</span></li>`}
               </ul>
               ${answer.fromDraft ? html`<p class="draft-note">Draft answer · not sent</p>` : null}
             `}
@@ -281,30 +303,23 @@ export class AskUserCard extends LitElement {
     const input = event.currentTarget;
     if (!(input instanceof HTMLInputElement)) return;
     if (question.multiple !== true) {
-      if (input.checked) this.setAnswer(question, { values: [value] });
+      if (input.checked) this.setAnswer(question, { values: [value], customSelected: false });
       return;
     }
     const current = this.answers[question.id];
     const values = input.checked
       ? [...new Set([...(current?.values ?? []), value])]
       : (current?.values ?? []).filter((selected) => selected !== value);
-    this.setAnswer(question, {
-      values,
-      ...(current?.otherText === undefined ? {} : { otherText: current.otherText }),
-    });
+    this.setAnswer(question, { values });
   }
 
   private changeOther(question: AskUserQuestion, index: number, event: Event): void {
     const input = event.currentTarget;
     if (!(input instanceof HTMLInputElement)) return;
-    const current = this.answers[question.id];
     if (question.multiple === true) {
-      this.setAnswer(question, {
-        values: [...(current?.values ?? [])],
-        ...(input.checked ? { otherText: current?.otherText ?? "" } : {}),
-      });
+      this.setAnswer(question, { customSelected: input.checked });
     } else if (input.checked) {
-      this.setAnswer(question, { values: [], otherText: this.isOtherSelected(question, current) ? current?.otherText ?? "" : "" });
+      this.setAnswer(question, { values: [], customSelected: true });
     }
     if (input.checked) void this.focusOtherInput(index);
   }
@@ -312,17 +327,39 @@ export class AskUserCard extends LitElement {
   private changeOtherText(question: AskUserQuestion, event: Event): void {
     const input = event.currentTarget;
     if (!(input instanceof HTMLTextAreaElement)) return;
-    const current = this.answers[question.id];
     this.setAnswer(question, {
-      values: [...(current?.values ?? [])],
       otherText: input.value.slice(0, ASK_USER_OTHER_TEXT_MAX_LENGTH),
+      customSelected: true,
     });
   }
 
-  private setAnswer(question: AskUserQuestion, answer: AskDraftAnswer): void {
-    const next: AskDraftAnswers = answer.values.length === 0 && answer.otherText === undefined
-      ? Object.fromEntries(Object.entries(this.answers).filter(([id]) => id !== question.id))
-      : { ...this.answers, [question.id]: answer };
+  private async addComment(question: AskUserQuestion, index: number): Promise<void> {
+    this.setAnswer(question, { commentOpen: true });
+    await this.updateComplete;
+    this.renderRoot.querySelector<HTMLElement>(`#${this.commentInputId(index)}`)?.focus();
+  }
+
+  private async closeComment(question: AskUserQuestion, index: number): Promise<void> {
+    this.setAnswer(question, { commentOpen: false });
+    await this.updateComplete;
+    this.renderRoot.querySelector<HTMLElement>(`#${this.questionFieldsetId(index)} .add-comment`)?.focus();
+  }
+
+  /**
+   * A comment is an addition to the answer, never a replacement for it, so it
+   * leaves the question's selection and custom text exactly as they were.
+   */
+  private changeComment(question: AskUserQuestion, event: Event): void {
+    const input = event.currentTarget;
+    if (!(input instanceof HTMLTextAreaElement)) return;
+    this.setAnswer(question, { comment: input.value.slice(0, ASK_USER_COMMENT_MAX_LENGTH), commentOpen: true });
+  }
+
+  private setAnswer(question: AskUserQuestion, patch: Partial<AskDraftAnswer>): void {
+    // Keep editing buffers independent of which controls are active. Only
+    // toSubmission decides what is sent; switching controls never erases text.
+    const answer: AskDraftAnswer = { values: [], ...this.answers[question.id], ...patch };
+    const next: AskDraftAnswers = { ...this.answers, [question.id]: answer };
     this.answers = next;
     this.confirmingPartialSubmit = false;
     if (this.ask !== undefined && this.draftSessionId !== "") saveAskDraft(this.draftSessionId, this.ask.askId, next);
@@ -384,16 +421,12 @@ export class AskUserCard extends LitElement {
     this.renderRoot.querySelector<HTMLElement>(`#${this.otherInputId(index)}`)?.focus();
   }
 
-  private isOtherSelected(question: AskUserQuestion, answer: AskDraftAnswer | undefined): boolean {
-    if (answer?.otherText === undefined) return false;
-    return question.multiple === true || answer.values.length === 0;
-  }
-
   private displayedRecordAnswer(outcome: AskUserOutcome | undefined, record: AskUserQuestionRecord): DisplayedRecordAnswer | undefined {
     if (record.answered) {
       return {
         values: [...record.values],
         ...(record.otherText === undefined ? {} : { otherText: record.otherText }),
+        ...(record.comment === undefined ? {} : { comment: record.comment }),
         fromDraft: false,
       };
     }
@@ -403,6 +436,7 @@ export class AskUserCard extends LitElement {
     return {
       values: [...answer.values],
       ...(answer.otherText === undefined ? {} : { otherText: answer.otherText }),
+      ...(answer.comment === undefined ? {} : { comment: answer.comment }),
       fromDraft: true,
     };
   }
@@ -437,6 +471,10 @@ export class AskUserCard extends LitElement {
 
   private otherInputId(index: number): string {
     return `ask-user-other-${String(index)}`;
+  }
+
+  private commentInputId(index: number): string {
+    return `ask-user-comment-${String(index)}`;
   }
 
   private recordQuestionHeadingId(index: number): string {
@@ -523,9 +561,11 @@ export class AskUserCard extends LitElement {
     .option-copy { min-width: 0; display: grid; gap: 2px; }
     .option-label { line-height: 1.35; }
     .option-detail { color: var(--pi-muted); font-size: 12px; line-height: 1.35; white-space: pre-wrap; overflow-wrap: anywhere; }
-    .other-answer { display: grid; gap: 5px; color: var(--pi-muted); font-size: 12px; padding: 4px 8px 4px 32px; }
-    .other-answer:only-child { padding-left: 0; padding-right: 0; }
-    textarea { min-height: 68px; resize: vertical; }
+    .add-comment { justify-self: start; margin-inline-start: 26px; }
+    .answer-text { display: grid; gap: 5px; color: var(--pi-muted); font-size: 12px; padding: 4px 8px 4px 32px; }
+    .answer-text:only-child { padding-left: 0; padding-right: 0; }
+    .answer-text-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    textarea { min-height: 52px; resize: vertical; }
     .form-footer {
       display: flex;
       align-items: center;

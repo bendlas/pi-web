@@ -2,9 +2,13 @@
 
 import { LitElement, html } from "lit";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import type { ApplicationPanelContext, PiWebPlugin, PiWebStatusResponse, PluginProjects, PluginSelectionService, WorkspacePanelContext, WorkspacePanelTerminal } from "../../../plugin-api";
+import type { ApplicationPanelContext, PiWebPlugin, PiWebStatusResponse, PluginProjects, PluginSelectionService, WorkspacePanelContext, WorkspacePanelTerminal, MaintenanceTerminal } from "../../../plugin-api";
 import infoPlugin from "../../../../pi-web-plugins/info/pi-web-plugin";
 import updatesPlugin from "../../../../pi-web-plugins/updates/pi-web-plugin";
+import { TerminalPanel } from "../../../../pi-web-plugins/terminal/TerminalPanel";
+import { TerminalBrowserRuntime } from "../../../../pi-web-plugins/terminal/TerminalBrowserRuntime";
+import { applicationTerminalContext } from "../../../../pi-web-plugins/terminal/TerminalContext";
+import { installTerminalRendererFake } from "../../../../pi-web-plugins/terminal/terminalRenderer.testSupport";
 import type { PluginRuntimeContext as InternalPluginRuntimeContext } from "../plugins/types";
 import type { RequiredTerminalBrowserComposition, RequiredTerminalBrowserFacadeV1 } from "../plugins/requiredTerminalFacade";
 import { initialAppState, type AppState } from "../appState";
@@ -20,6 +24,7 @@ class ApplicationPanelsApp extends PiWebApp {
   override connectedCallback(): void { LitElement.prototype.connectedCallback.call(this); }
 }
 customElements.define("application-panels-test-app", ApplicationPanelsApp);
+customElements.define("application-host-terminal", class extends TerminalPanel {});
 
 const workspace = { id: "workspace", projectId: "project", path: "/repo", label: "main", isMain: true, effectiveConfig: {} };
 const project = { id: "project", name: "Project", path: "/repo", createdAt: "now" };
@@ -425,24 +430,29 @@ it("shows bundled Updates guidance and Copy without selections, retaining visibi
   expect(activate).toHaveBeenCalledOnce();
 });
 
-it("offers Updates Run only with a selected-workspace Terminal on the current machine and rejects stale clicks", async () => {
+it("runs Updates in maintenance scope without a workspace, on the current machine, and rejects stale clicks", async () => {
   const app = await mount(updatesPlugin, { id: "updates", state: { piWebStatus: updatesStatus } });
   const panel = toolSurface(app);
-  const { createWorkspaceTerminal, runCommand } = installTerminal(app, "local");
+  const { createWorkspaceTerminal, createMaintenanceTerminal, runCommand } = installTerminal(app, "local");
   app.requestUpdate();
   await settle(app);
-  expect(commandButtons(panel, "Run")).toHaveLength(0); // A provider alone is not a machine command facility.
+  expect(commandButtons(panel, "Run").length).toBeGreaterThan(0);
+  expect(createMaintenanceTerminal.mock.calls.at(-1)?.[0]).toMatchObject({ origin: "updates", machineId: "local" });
+  commandButtons(panel, "Run")[0]?.click();
+  expect(runCommand).toHaveBeenCalledOnce();
+  expect(createWorkspaceTerminal).not.toHaveBeenCalled();
+  runCommand.mockClear();
+  createMaintenanceTerminal.mockClear();
 
   window.history.replaceState(null, "", "?project=project&workspace=workspace&tool=updates%3Aworkspace.updates&view=workspace");
   patchState(app, { selectedProject: project, selectedWorkspace: workspace, workspaces: [workspace] });
   await settle(app);
   const run = commandButtons(panel, "Run")[0];
-  if (run === undefined) throw new Error("Expected Updates Run with a workspace Terminal");
+  if (run === undefined) throw new Error("Expected Updates Run with a maintenance Terminal");
   run.click();
-  expect(createWorkspaceTerminal).toHaveBeenCalledOnce();
-  expect(createWorkspaceTerminal.mock.calls[0]?.[0]).toMatchObject({
-    origin: "updates", registrationPluginId: "pi-web.terminal", workspace,
-  });
+  expect(createMaintenanceTerminal).toHaveBeenCalled();
+  expect(createMaintenanceTerminal.mock.calls.at(-1)?.[0]).toMatchObject({ origin: "updates", machineId: "local" });
+  expect(createWorkspaceTerminal).not.toHaveBeenCalled();
   expect(runCommand).toHaveBeenCalledExactlyOnceWith({
     title: "Update PI WEB", command: "node /workspace/dist/cli.js update", open: true, metadata: { "pi.plugin": "updates" },
   });
@@ -453,31 +463,148 @@ it("offers Updates Run only with a selected-workspace Terminal on the current ma
   run.click(); // A retained local callback must not run after selection changed, even before rerender.
   await vi.waitFor(() => {
     expect(error).toHaveBeenCalledWith(
-      'Updates plugin failed to run "Update PI WEB"', expect.objectContaining({ message: "Workspace panel context is no longer current" }),
+      'Updates plugin failed to run "Update PI WEB"', expect.objectContaining({ message: "Maintenance terminal context is no longer current" }),
     );
   });
-  expect(createWorkspaceTerminal).toHaveBeenCalledOnce();
+  expect(runCommand).toHaveBeenCalledOnce();
   await settle(app);
   expect(commandButtons(panel, "Run")).toHaveLength(0); // Never borrow the gateway Terminal.
   expect(commandButtons(panel, "Copy").length).toBeGreaterThan(0);
 
-  const { createWorkspaceTerminal: remoteTerminal } = installTerminal(app, "remote");
+  const { createMaintenanceTerminal: remoteTerminal } = installTerminal(app, "remote");
   app.requestUpdate();
   await settle(app);
   const remoteRun = commandButtons(panel, "Run")[0];
   expect(remoteRun).toBeDefined();
   expect(new URL(window.location.href).searchParams.get("machine")).toBe("remote");
   remoteRun?.click();
-  expect(remoteTerminal).toHaveBeenCalledOnce();
-  expect(remoteTerminal.mock.calls[0]?.[0]).toMatchObject({
-    origin: "updates", registrationPluginId: "remote-terminal", workspace,
-  });
-  expect(createWorkspaceTerminal).toHaveBeenCalledOnce();
+  expect(remoteTerminal).toHaveBeenCalled();
+  expect(remoteTerminal.mock.calls.at(-1)?.[0]).toMatchObject({ origin: "updates", machineId: "remote" });
+  expect(createWorkspaceTerminal).not.toHaveBeenCalled();
 
   patchState(app, { selectedProject: undefined, selectedWorkspace: undefined });
   await settle(app);
-  expect(commandButtons(panel, "Run")).toHaveLength(0);
+  expect(commandButtons(panel, "Run").length).toBeGreaterThan(0);
   expect(commandButtons(panel, "Copy").length).toBeGreaterThan(0);
+});
+
+it("scopes application queries per contribution and refreshes restored queries without Terminal ids", async () => {
+  const contexts: ApplicationPanelContext[] = [];
+  const invalidated: ApplicationPanelContext[] = [];
+  const app = await mount({ apiVersion: 4, name: "Probe", activate: () => ({ contributions: { applicationPanels: [{
+    id: "workspace.probe", title: "Probe",
+    render: (context) => { contexts.push(context); return html`Probe`; },
+    onInvalidate: (context) => { invalidated.push(context); },
+  }] } }) }, { id: "probe" });
+  expect(contexts.at(-1)?.navigation).toBeUndefined();
+  const refreshCurrent: unknown = Reflect.get(app, "refreshCurrentWorkspaceSurface");
+  if (typeof refreshCurrent !== "function") throw new Error("Expected current surface refresh boundary");
+  await Reflect.apply(refreshCurrent, app, []);
+  expect(invalidated).toHaveLength(1);
+  expect(invalidated[0]?.workspace).toBeUndefined();
+  window.history.replaceState(null, "", "/?project=project&workspace=workspace&tool=probe%3Aworkspace.probe&probe.workspace.probe--terminal=restored");
+  patchState(app, { selectedProject: project, selectedWorkspace: workspace });
+  await settle(app);
+  const navigation = contexts.at(-1)?.navigation;
+  expect(navigation?.contributionId).toBe("probe:workspace.probe");
+  expect(navigation?.query).toEqual({ terminal: "restored" });
+  expect(navigation?.set("terminal", "selected")).toBe(true);
+  expect(new URL(window.location.href).searchParams.get("probe.workspace.probe--terminal")).toBe("selected");
+  const refresh: unknown = Reflect.get(app, "invalidateWorkspacePanels");
+  if (typeof refresh !== "function") throw new Error("Expected panel refresh boundary");
+  await Reflect.apply(refresh, app, ["probe:workspace.probe", {
+    identity: { machineId: "local", projectId: "project", workspaceId: "workspace" },
+    query: { "probe.workspace.probe--terminal": "history" },
+  }]);
+  expect(invalidated.at(-1)?.navigation?.query).toEqual({ terminal: "history" });
+  patchState(app, { selectedMachine: remote });
+  expect(navigation?.set("terminal", "stale")).toBe(false);
+});
+
+it("keeps real Terminal selection stable across no-project host rerenders and workspace changes", async () => {
+  installTerminalRendererFake();
+  const runtime = new TerminalBrowserRuntime();
+  const maintenance = { id: "maintenance-output", scope: "maintenance", cwd: "/maintenance", name: "Update", createdAt: "now", exited: true };
+  const maintenanceRequest = vi.fn((operation: string) => Promise.resolve(operation === "terminal.list" ? [maintenance] : []));
+  const workspaceRequest = vi.fn(() => Promise.resolve([]));
+  let hostRenders = 0;
+  let panelContexts = 0;
+  const peer = {
+    request: maintenanceRequest,
+    openChannel: vi.fn(() => Promise.resolve({ closed: new Promise<never>(() => undefined), send: vi.fn(), close: vi.fn() })),
+  };
+  const backend = { machineId: "local", forScope: (scope: { kind: string }) => scope.kind === "machine" ? peer : { ...peer, request: workspaceRequest } };
+  const app = await mount({ apiVersion: 4, name: "Terminal lifecycle", activate: () => ({ contributions: { applicationPanels: [{
+    id: "workspace.terminal", title: "Terminal",
+    render: (context) => {
+      panelContexts += 1;
+      const host = { requestRender: () => {
+        hostRenders += 1;
+        if (hostRenders > 20) throw new Error("Terminal selection triggered a host-render loop");
+        context.host.requestRender();
+      } };
+      return html`<application-host-terminal .runtime=${runtime} .context=${applicationTerminalContext({ ...context, backend, host })}></application-host-terminal>`;
+    },
+  }] } }) }, { id: "terminal-lifecycle", state: { workspaceTool: "terminal-lifecycle:workspace.terminal" } });
+  try {
+    const terminal = toolSurface(app).shadowRoot?.querySelector("application-host-terminal");
+    if (!(terminal instanceof TerminalPanel)) throw new Error("Expected the real Terminal panel");
+    await vi.waitFor(() => { expect(terminal.shadowRoot?.querySelector("button.selected")?.textContent).toContain("Update"); });
+    await settle(app);
+    const settledRenders = hostRenders;
+    const settledRequests = maintenanceRequest.mock.calls.length;
+    const settledContexts = panelContexts;
+    for (let i = 0; i < 4; i += 1) {
+      invalidateToolSurface(app);
+      app.requestUpdate();
+      await settle(app);
+    }
+    expect(panelContexts).toBeGreaterThan(settledContexts);
+    expect(hostRenders).toBe(settledRenders);
+    expect(maintenanceRequest).toHaveBeenCalledTimes(settledRequests);
+
+    window.history.replaceState(null, "", "?project=project&workspace=workspace&tool=terminal-lifecycle%3Aworkspace.terminal&view=workspace");
+    patchState(app, { selectedProject: project, selectedWorkspace: workspace, workspaces: [workspace] });
+    invalidateToolSurface(app);
+    app.requestUpdate();
+    await settle(app);
+    await vi.waitFor(() => { expect(terminal.shadowRoot?.querySelector("button.selected")?.textContent).toContain("Update"); });
+    window.history.replaceState(null, "", "?tool=terminal-lifecycle%3Aworkspace.terminal&view=workspace");
+    patchState(app, { selectedProject: undefined, selectedWorkspace: undefined });
+    invalidateToolSurface(app);
+    app.requestUpdate();
+    await settle(app);
+    await vi.waitFor(() => { expect(terminal.shadowRoot?.querySelector("button.selected")?.textContent).toContain("Update"); });
+    const afterReturn = hostRenders;
+    invalidateToolSurface(app);
+    app.requestUpdate();
+    await settle(app);
+    expect(hostRenders).toBe(afterReturn);
+    expect(maintenanceRequest.mock.calls.some(([operation]) => operation === "terminal.create")).toBe(false);
+  } finally {
+    app.remove();
+    runtime.dispose();
+  }
+});
+
+it("opens the unified Terminal contribution without a workspace and ignores retained host navigation", async () => {
+  const app = await mount({ apiVersion: 4, name: "Terminal", activate: () => ({ contributions: { applicationPanels: [{
+    id: "workspace.terminal", title: "Terminal", render: () => html`Terminal output`,
+  }] } }) }, { id: "terminal-probe", state: { workspaceTool: undefined } });
+  const { createMaintenanceTerminal, createWorkspaceTerminal } = installTerminal(app, "local", "terminal-probe");
+  createMaintenanceTerminal.mockClear();
+  const open: unknown = Reflect.get(app, "openTerminal");
+  if (typeof open !== "function") throw new Error("Expected Terminal action boundary");
+  Reflect.apply(open, app, []);
+  const binding = createMaintenanceTerminal.mock.calls.at(-1)?.[0];
+  expect(binding?.registrationPluginId).toBe("terminal-probe");
+  expect(createWorkspaceTerminal).not.toHaveBeenCalled();
+  binding?.host.navigateApplicationContribution("terminal-probe:workspace.terminal");
+  await settle(app);
+  expect(toolSurface(app).shadowRoot?.textContent).toContain("Terminal output");
+  patchState(app, { selectedMachine: remote, workspaceTool: undefined });
+  binding?.host.navigateApplicationContribution("terminal-probe:workspace.terminal");
+  expect(Reflect.get(app, "state")).toMatchObject({ selectedMachine: remote, workspaceTool: undefined });
 });
 
 const updatesStatus: PiWebStatusResponse = {
@@ -492,24 +619,28 @@ const updatesStatus: PiWebStatusResponse = {
 };
 
 // Inject only Terminal's command boundary; the shell, public loader, registry and freshness facade remain real.
-function installTerminal(app: PiWebApp, machineId: string) {
-  const runCommand = vi.fn<WorkspacePanelTerminal["runCommand"]>((input) => {
+function installTerminal(app: PiWebApp, machineId: string, registrationPluginId = machineId === "local" ? "pi-web.terminal" : "remote-terminal") {
+  const runCommand = vi.fn<MaintenanceTerminal["runCommand"]>((input) => {
     const run = {
-      id: "run", origin: "updates", projectId: workspace.projectId, workspaceId: workspace.id,
+      id: "run", origin: "updates", scope: "maintenance" as const,
       terminalId: "terminal", title: input.title, command: input.command, status: "succeeded" as const, createdAt: "now", metadata: {},
     };
     return Promise.resolve({ run, completed: Promise.resolve(run) });
   });
   const createWorkspaceTerminal = vi.fn<RequiredTerminalBrowserFacadeV1["createWorkspaceTerminal"]>(() => ({
+    open: () => undefined,
+    runCommand: vi.fn<WorkspacePanelTerminal["runCommand"]>(() => Promise.reject(new Error("Unexpected workspace command"))),
+  }));
+  const createMaintenanceTerminal = vi.fn<NonNullable<RequiredTerminalBrowserFacadeV1["createMaintenanceTerminal"]>>(() => ({
     open: () => undefined, runCommand,
   }));
   const composition: RequiredTerminalBrowserComposition = {
     binding: {
-      registrationPluginId: machineId === "local" ? "pi-web.terminal" : "remote-terminal",
+      registrationPluginId,
       sourcePluginId: "pi-web.terminal", backendRevision: `${machineId}-revision`, pairedRequestVersion: 1, pairedChannelVersion: 1,
     },
     facade: {
-      version: 1, createWorkspaceTerminal, listCommandRuns: () => Promise.resolve([]),
+      version: 1, createWorkspaceTerminal, createMaintenanceTerminal, listCommandRuns: () => Promise.resolve([]),
       parseCommandRun: () => { throw new Error("Unexpected command parsing"); },
     },
   };
@@ -517,7 +648,7 @@ function installTerminal(app: PiWebApp, machineId: string) {
   if (!(compositions instanceof Map)) throw new Error("Expected Terminal compositions");
   compositions.set(machineId, composition);
   invalidateToolSurface(app);
-  return { createWorkspaceTerminal, runCommand };
+  return { createWorkspaceTerminal, createMaintenanceTerminal, runCommand };
 }
 
 function invalidateToolSurface(app: PiWebApp): void {

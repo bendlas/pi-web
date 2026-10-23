@@ -1,5 +1,6 @@
-import type { StylesheetIntegrationCapabilityV1, PluginCapability, PiWebPlugin, PluginActivationContext, PluginActivationResult, PluginStartContext, PluginRuntimeContext, WorkspacePanelContext } from "@jmfederico/pi-web/plugin-api";
+import type { StylesheetIntegrationCapabilityV1, PluginCapability, PiWebPlugin, PluginActivationContextV5, PluginActivationResultV5, ApplicationPanelContextV5, PluginStartContext, PluginRuntimeContext } from "@jmfederico/pi-web/plugin-api";
 import { html as staticHtml, unsafeStatic } from "lit/static-html.js";
+import { applicationTerminalContext } from "./TerminalContext";
 import { TerminalBrowserRuntime } from "./TerminalBrowserRuntime";
 import { TERMINAL_BROWSER_FACADE_CAPABILITY, TerminalFacade, type RequiredTerminalBrowserFacadeV1 } from "./TerminalFacade";
 import { TerminalPanel } from "./TerminalPanel";
@@ -29,7 +30,7 @@ function isStylesheetIntegration(value: unknown): value is StylesheetIntegration
 
 const plugin = {
   requires: [stylesheetIntegrationCapability],
-  apiVersion: 4,
+  apiVersion: 5,
   name: "Terminal",
   activate: (context) => activateTerminalPlugin(context),
 } satisfies PiWebPlugin;
@@ -37,10 +38,10 @@ const plugin = {
 export default plugin;
 
 export function activateTerminalPlugin(
-  context: PluginActivationContext,
+  context: PluginActivationContextV5,
   runtime = new TerminalBrowserRuntime(),
-  facade: RequiredTerminalBrowserFacadeV1 & Partial<Pick<TerminalFacade, "dispose">> = new TerminalFacade(),
-): PluginActivationResult {
+  facade: RequiredTerminalBrowserFacadeV1 & Partial<Pick<TerminalFacade, "dispose">> = new TerminalFacade({ requestMaintenanceTerminal: (machineId, terminalId) => { runtime.requestMaintenanceTerminal(machineId, terminalId); } }),
+): PluginActivationResultV5 {
   if (context.pluginId !== "pi-web.terminal") {
     throw new Error(`Terminal browser entry must activate as plugin id pi-web.terminal, received ${context.pluginId}`);
   }
@@ -73,14 +74,17 @@ export function activateTerminalPlugin(
       disposeResources();
     },
     contributions: {
-      workspacePanels: [{
+      applicationPanels: [{
         id: "workspace.terminal",
         title: "Terminal",
         icon,
         order: 30,
-        badge: (workspaceContext: WorkspacePanelContext) => runtime.activeTerminalBadge(workspaceContext),
-        onInvalidate: (workspaceContext: WorkspacePanelContext) => runtime.invalidate(workspaceContext),
-        render: (workspaceContext: WorkspacePanelContext) => context.html`${staticHtml`<${panelTag} .stylesheetIntegration=${stylesheetIntegration} .context=${workspaceContext} .runtime=${runtime} .softKeysElementName=${softKeysElement}></${panelTag}>`}`,
+        badge: (applicationContext: ApplicationPanelContextV5) => runtime.activeTerminalBadge(applicationTerminalContext(applicationContext)),
+        onInvalidate: (applicationContext: ApplicationPanelContextV5) => runtime.invalidate(applicationTerminalContext(applicationContext)),
+        render: (applicationContext: ApplicationPanelContextV5) => {
+          const terminalContext = applicationTerminalContext(applicationContext);
+          return context.html`${staticHtml`<${panelTag} .stylesheetIntegration=${stylesheetIntegration} .context=${terminalContext} .runtime=${runtime} .softKeysElementName=${softKeysElement}></${panelTag}>`}`;
+        },
       }],
       actions: [{
         id: "view.terminal",
@@ -88,7 +92,6 @@ export function activateTerminalPlugin(
         shortcut: "mod+4",
         shortcutAliases: ["core:view.terminal"],
         group: "Navigation",
-        enabled: (runtimeContext: PluginRuntimeContext) => runtimeContext.state.selectedWorkspace !== undefined,
         run: (runtimeContext: PluginRuntimeContext) => { runtimeContext.openTerminal(); },
       }],
     },

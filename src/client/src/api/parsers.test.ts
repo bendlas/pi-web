@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ASK_USER_TEXT_MAX_LENGTH, EXTENSION_DIALOG_TEXT_MAX_LENGTH, SESSION_NOTIFICATION_LIMIT, SESSION_NOTIFICATION_MESSAGE_BYTES, SESSION_UNREAD_CATALOG_ID_MAX_LENGTH } from "../../../shared/apiTypes";
+import { ASK_USER_COMMENT_MAX_LENGTH, ASK_USER_TEXT_MAX_LENGTH, EXTENSION_DIALOG_TEXT_MAX_LENGTH, SESSION_NOTIFICATION_LIMIT, SESSION_NOTIFICATION_MESSAGE_BYTES, SESSION_UNREAD_CATALOG_ID_MAX_LENGTH } from "../../../shared/apiTypes";
 import { parseAskUserRequest, parseAskUserOutcome, parseAuthProvidersResponse, parseCommandResult, parseExtensionDialogCloseResponse, parseFileContentResponse, parseFileSuggestion, parseMachineRuntime, parseMessagePage, parseMcpAuthServersResponse, parseOAuthFlowState, parsePiPackageMutationResponse, parsePiPackagesResponse, parsePiWebConfigResponse, parsePiWebPluginsResponse, parsePiWebRuntimeResponse, parsePiWebStatusResponse, parseRealtimeStreamEvent, parseSessionBulkArchiveResponse, parseSessionBulkDeleteArchivedResponse, parseSessionCleanupExecuteResponse, parseSessionCleanupPreviewResponse, parseSessionInfo, parseSessionModelCatalogResponse, parseSessionNotificationInboxEvent, parseSessionNotificationInboxSnapshot, parseSessionStartupProgressEvent, parseSessionStatus, parseSessionStreamEvent, parseSessionStreamSnapshot, parseSessionTreeForkResult, parseSessionTreeNavigateResult, parseSessionTreeSnapshot, parseSessionUnreadCatalogSnapshot, parseSessionUnreadEvent, parseSlashCommand, parseWorkspace, parseWorkspaceProviderResolution } from "./parsers";
 
 import { KNOWN_THINKING_LEVELS } from "../../../shared/thinkingLevels";
@@ -1246,6 +1246,21 @@ describe("API parsers", () => {
       askId: "ask-1", reason: "submitted", answeredCount: 1, unansweredIds: ["q2"], summary: "Answered 1 of 2; unanswered: q2",
     });
     expect(outcome.questions[0]).toMatchObject({ answered: true, values: ["pg"] });
+  });
+
+  it("preserves comments when parsing the recorded response", () => {
+    const outcome = parseAskUserOutcome({
+      ...askOutcomeWire(),
+      questions: [{ ...askAnsweredRecordWire(), comment: "Use the existing cluster." }, askUnansweredRecordWire()],
+    });
+    expect(outcome.questions[0]).toMatchObject({ answered: true, values: ["pg"], comment: "Use the existing cluster." });
+  });
+
+  it.each([7, "", "x".repeat(ASK_USER_COMMENT_MAX_LENGTH + 1)])("rejects malformed recorded comments (case %#)", (comment) => {
+    expect(() => parseAskUserOutcome({
+      ...askOutcomeWire(),
+      questions: [{ ...askAnsweredRecordWire(), comment }, askUnansweredRecordWire()],
+    })).toThrow();
   });
 
   it("rejects answer records that contradict their payload", () => {

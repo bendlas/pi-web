@@ -203,6 +203,8 @@ Rows with JSON key `—` are runtime-only environment variables, not config-file
 
 `PI_WEB_DATA_DIR` sets the root for PI WEB-managed runtime state and defaults to `~/.pi-web`. Unless a more specific path override is configured, PI WEB stores its project and machine registries, locally discovered plugins, default session-daemon socket, and session archives beneath this root.
 
+PI WEB creates `$PI_WEB_DATA_DIR/maintenance` when a maintenance terminal first needs it. Commands from Updates run there on the selected machine, not in a user workspace. This directory is not registered as a project.
+
 Each data directory is independent: after pointing PI WEB at a new root, it starts there with empty registries and no archive index. Changing paths does not migrate data. Archive records retain their stored paths; see [Session archive directory](#session-archive-directory).
 
 Only one live session daemon may use a data directory. For a second instance, set a distinct `PI_WEB_DATA_DIR`, `PI_WEB_SESSIOND_SOCKET` (or `PI_WEB_SESSIOND_PORT` / `PI_WEB_SESSIOND_HOST`), and `PI_WEB_PORT`. Stale ownership markers are normally recovered automatically. If startup still refuses, verify the named owner is no longer running before deleting `sessiond-owner.json` as the error suggests.

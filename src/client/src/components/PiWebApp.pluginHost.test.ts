@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import relayPlugin from "../../../../pi-packages/relays/pi-web-plugin";
 import { FilesRuntime } from "../../../../pi-web-plugins/files/FilesRuntime";
 import { TerminalBrowserRuntime } from "../../../../pi-web-plugins/terminal/TerminalBrowserRuntime";
+import type { TerminalContext } from "../../../../pi-web-plugins/terminal/TerminalContext";
 import { TERMINAL_BROWSER_FACADE_CAPABILITY, TerminalFacade, type RequiredTerminalBrowserFacadeV1, type RequiredTerminalWorkspaceBindingV1 } from "../../../../pi-web-plugins/terminal/TerminalFacade";
 import { InMemoryTerminalSelectionMemory } from "../../../../pi-web-plugins/terminal/terminalSelection";
 import type { QualifiedContributionId, WorkspaceFilesCapabilityV1, WorkspacePanelContext as PublicWorkspacePanelContext } from "../../../plugin-api";
@@ -2632,8 +2633,10 @@ describe("PiWebApp plugin host", () => {
     if (!isWorkspacePanelNavigation(navigation)) throw new Error("Workspace panel navigation was unavailable");
 
     const runtime = new TerminalBrowserRuntime(new InMemoryTerminalSelectionMemory());
-    const { machine, workspace: boundWorkspace, files, host, prompt, terminal } = workspacePanelContextFromApp(app);
-    const context: PublicWorkspacePanelContext = { navigate: workspacePanelContextFromApp(app).navigate, machine, workspace: boundWorkspace, files, host, prompt, terminal, navigation };
+    const { machine, workspace: boundWorkspace, host } = workspacePanelContextFromApp(app);
+    const context: TerminalContext = { machine, host, workspace: {
+      scope: "workspace", workspace: boundWorkspace, peer: { request: vi.fn() }, navigation,
+    } };
     const selectionScope = runtime.selectionScope(context);
 
     expect(runtime.selectTerminal(context, "terminal-current")).toBe(true);
@@ -2770,16 +2773,14 @@ describe("PiWebApp plugin host", () => {
               id: "workspace.terminal",
               title: "Terminal",
               onInvalidate: (context) => {
-                const runtimeContext: PublicWorkspacePanelContext = {
-                  navigate: context.navigate,
+                if (context.peer === undefined) throw new Error("Expected workspace Terminal peer");
+                const runtimeContext: TerminalContext = {
                   machine: context.machine,
-                  workspace: context.workspace,
-                  files: context.files,
-                  ...(context.peer === undefined ? {} : { peer: context.peer }),
                   host: context.host,
-                  prompt: context.prompt,
-                  terminal: context.terminal,
-                  ...(context.navigation === undefined ? {} : { navigation: context.navigation }),
+                  workspace: {
+                    scope: "workspace", workspace: context.workspace, peer: context.peer,
+                    ...(context.navigation === undefined ? {} : { navigation: context.navigation }),
+                  },
                 };
                 restoredTerminalIds.push(runtime.selectedTerminalId(runtimeContext));
                 return runtime.invalidate(runtimeContext);
