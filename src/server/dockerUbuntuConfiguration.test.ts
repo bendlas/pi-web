@@ -38,7 +38,7 @@ describe.skipIf(process.platform === "win32")("Ubuntu Docker configuration", () 
     const data = join(root, "data");
     for (const path of ["Dockerfile", "compose.yml", ".dockerignore", "install.sh", "pi-web-docker", "internal/bin/hostexec", "internal/image/install-ubuntu-base", "internal/bin/pi-web-service", "internal/bin/pi-web-image-doctor", "internal/bin/pi-web-reconcile-mise", "internal/image/write-manifest", "internal/host-profile.sh"]) {
       await mkdir(dirname(join(assets, path)), { recursive: true });
-      if (path === "internal/host-profile.sh") {
+      if (path === "internal/host-profile.sh" || path === "install.sh") {
         await copyFile(join(repoRoot, "docker", path), join(assets, path));
       } else {
         await writeFile(join(assets, path), `# fixture ${path}\n`);

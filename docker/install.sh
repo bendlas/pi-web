@@ -67,6 +67,7 @@ running the installer, for example:
 EOF
 }
 
+parse_args() {
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --install-dir)
@@ -147,6 +148,10 @@ while [ "$#" -gt 0 ]; do
       ;;
   esac
 done
+}
+
+# Keep the original arguments available when handing off to a newer installer.
+parse_args "$@"
 
 absolute_dir() {
   dir=$1
@@ -292,6 +297,9 @@ write_asset() {
   fi
 
   chmod "$mode" "$temp_target"
+  if [ "$rel_path" = install.sh ] && ! cmp -s "$0" "$temp_target"; then
+    installer_refreshed=1
+  fi
   mv "$temp_target" "$target"
 }
 
@@ -375,10 +383,18 @@ if ! pi_web_docker_host_resolve_profile "$persisted_host_profile" "$persisted_ho
   die "refusing to install on an unsupported or unknown Docker host setup"
 fi
 
+# The refreshed Dockerfile may need assets unknown to this installer. Let the
+# matching installer own the asset list before refreshing any build inputs.
+installer_refreshed=0
+write_asset install.sh 0755
+if [ "$installer_refreshed" = 1 ]; then
+  cleanup_profile_helper
+  exec "$install_dir/install.sh" "$@"
+fi
+
 write_asset Dockerfile 0644
 write_asset compose.yml 0644
 write_asset .dockerignore 0644
-write_asset install.sh 0755
 write_asset pi-web-docker 0755
 write_asset internal/bin/hostexec 0755
 write_asset internal/image/install-ubuntu-base 0755

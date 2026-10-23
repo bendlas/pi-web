@@ -219,7 +219,7 @@ describe("Docker command assets", () => {
     expect(runtimeDoctor.stdout).not.toContain("docker-compose-dev.container.env");
   });
 
-  dockerCommandIt("fetches remote installer assets without clobbering the write target", async () => {
+  dockerCommandIt.each(["current", "outdated"])("fetches remote assets with a %s installer", async (version) => {
     const installDir = join(tempDir, "remote-runtime");
     const fakeDocker = await installFakeDocker();
     await installFakeCurl(fakeDocker.binDir);
@@ -227,9 +227,19 @@ describe("Docker command assets", () => {
     const home = join(tempDir, "home");
     const socketPath = join(home, ".docker", "run", "docker.sock");
 
+    let installer = join(repoRoot, "docker", "install.sh");
+    if (version === "outdated") {
+      // Simulate an installed version whose asset list predates a new COPY.
+      // Refresh in place, as a real runtime update does.
+      await mkdir(installDir, { recursive: true });
+      installer = join(installDir, "install.sh");
+      const source = await readFile(join(repoRoot, "docker", "install.sh"), "utf8");
+      await writeFile(installer, source.replace("write_asset internal/bin/pi-web-reconcile-mise 0755\n", ""));
+    }
+
     await withUnixSocket(socketPath, async () => {
       await execUtf8("sh", [
-        join(repoRoot, "docker", "install.sh"),
+        installer,
         "--install-dir", installDir,
         "--data-dir", join(installDir, "data"),
         "--asset-ref", "test-assets",
@@ -248,6 +258,8 @@ describe("Docker command assets", () => {
     const env = await readFile(join(installDir, ".env"), "utf8");
     expect(env).toContain(`PI_WEB_DOCKER_INSTALL_DIR=${installDir}`);
     expect(env).toContain("PI_WEB_DOCKER_REF=test-assets");
+    expect(await readFile(join(installDir, "internal/bin/pi-web-reconcile-mise"), "utf8"))
+      .toBe(await readFile(join(repoRoot, "docker/internal/bin/pi-web-reconcile-mise"), "utf8"));
   });
 
   dockerCommandIt("creates the shared container environment file during install without overwriting edits", async () => {
