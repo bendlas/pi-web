@@ -1,12 +1,11 @@
 import { parseSessionDefaults } from "../../../shared/sessionDefaults";
 import type { SessionDefaultsUpdate } from "../../../shared/apiTypes";
-import type { AskUserSubmission, DeleteWorkspaceFileResponse, ExtensionDialogAnswer, FileSuggestion, MoveWorkspaceFileOptions, PiPackageInstallRequest, PiPackageRemoveRequest, PiPackageScope, PiPackageUpdateRequest, PiWebConfigValues, PromptAttachment, ServerNoticeDismissRequest, SessionBulkMutationRef, SessionCleanupRequest, SessionModelScopeMode, SessionNotificationDismissThrough, SessionRef, SessionTreeForkRequest, SessionTreeForkResult, SessionTreeNavigateRequest, SessionUnreadAcknowledgeRequest, WorkspaceRemovalRequest, WriteWorkspaceFileOptions } from "../../../shared/apiTypes";
+import type { AskUserSubmission, DeleteWorkspaceFileResponse, ExtensionDialogAnswer, FileSuggestion, MoveWorkspaceFileOptions, PiPackageInstallRequest, PiPackageRemoveRequest, PiPackageScope, PiPackageUpdateRequest, PiWebConfigValues, PromptAttachment, ServerNoticeDismissRequest, SessionBulkMutationRef, SessionCleanupRequest, SessionModelScopeMode, SessionNotificationDismissThrough, SessionQueueMessageMutation, SessionRef, SessionTreeForkRequest, SessionTreeForkResult, SessionTreeNavigateRequest, SessionUnreadAcknowledgeRequest, WorkspaceRemovalRequest, WriteWorkspaceFileOptions } from "../../../shared/apiTypes";
 import { resolveAppUrl } from "../appUrl";
 import { request } from "./http";
 import {
   arrayOf,
   parseAborted,
-  parseAskUserCloseResponse,
   parseAccepted,
   parseArchived,
   parseAuthProvidersResponse,
@@ -24,6 +23,7 @@ import {
   parseMachinesResponse,
   parseMessagePage,
   parseModelSelectionResponse,
+  parseMcpAuthServersResponse,
   parseSessionModelCatalogResponse,
   parseMoveWorkspaceFileResponse,
   parseOAuthFlowState,
@@ -117,6 +117,7 @@ function pluginsPath(machineId?: string): string {
 }
 
 export const configApi = {
+  namingModels: (machineId = "local") => request(`${machinePrefix(machineId)}/models`, parseModelSelectionResponse),
   config: (machineId?: string) => request(configPath(machineId), parsePiWebConfigResponse),
   saveConfig: (config: PiWebConfigValues, machineId?: string) => request(configPath(machineId), parsePiWebConfigResponse, { method: "PUT", body: JSON.stringify({ config }) }),
 };
@@ -251,10 +252,11 @@ export const sessionsApi = {
   status: (session: SessionRef, machineId = "local") => request(sessionQueryPath(session, "status", machineId), parseSessionStatus),
   streamSnapshot: (session: SessionRef, machineId = "local") => request(streamSnapshotPath(session, machineId), parseSessionStreamSnapshot),
   transcriptSnapshot: (session: SessionRef, options?: { limit?: number }, machineId = "local") => request(transcriptSnapshotPath(session, options, machineId), parseSessionTranscriptSnapshot),
+  mutateQueuedMessage: (session: SessionRef, mutation: SessionQueueMessageMutation, machineId = "local") => request(sessionPath(session, "queue/message", machineId), parseSessionStatus, { method: "POST", body: sessionBody(session, { ...mutation }) }),
   clearQueue: (session: SessionRef, machineId = "local") => request(sessionPath(session, "queue/clear", machineId), parseSessionStatus, { method: "POST", body: sessionBody(session) }),
   dismissWarning: (session: SessionRef, dismissId: string, machineId = "local") => request(sessionPath(session, "warnings/dismiss", machineId), parseSessionStatus, { method: "POST", body: sessionBody(session, { dismissId }) }),
-  submitAsk: (session: SessionRef, askId: string, submission: AskUserSubmission, machineId = "local") => request(sessionPath(session, "ask/submit", machineId), parseAskUserCloseResponse, { method: "POST", body: sessionBody(session, { askId, answers: submission.answers }) }),
-  cancelAsk: (session: SessionRef, askId: string, machineId = "local") => request(sessionPath(session, "ask/cancel", machineId), parseAskUserCloseResponse, { method: "POST", body: sessionBody(session, { askId }) }),
+  submitAsk: (session: SessionRef, askId: string, submission: AskUserSubmission, machineId = "local") => request(sessionPath(session, "ask/submit", machineId), parseSessionStatus, { method: "POST", body: sessionBody(session, { askId, answers: submission.answers }) }),
+  cancelAsk: (session: SessionRef, askId: string, machineId = "local") => request(sessionPath(session, "ask/cancel", machineId), parseSessionStatus, { method: "POST", body: sessionBody(session, { askId }) }),
   answerDialog: (session: SessionRef, dialogId: string, value: ExtensionDialogAnswer, machineId = "local") => request(sessionPath(session, "dialogs/answer", machineId), parseExtensionDialogCloseResponse, { method: "POST", body: sessionBody(session, { dialogId, value }) }),
   cancelDialog: (session: SessionRef, dialogId: string, machineId = "local") => request(sessionPath(session, "dialogs/cancel", machineId), parseExtensionDialogCloseResponse, { method: "POST", body: sessionBody(session, { dialogId }) }),
   models: (session: SessionRef, machineId = "local") => request(sessionQueryPath(session, "models", machineId), parseModelSelectionResponse),
@@ -276,7 +278,12 @@ export const sessionsApi = {
   respondToCommand: (session: SessionRef, requestId: string, value: string, machineId = "local") => request(sessionPath(session, "commands/respond", machineId), parseCommandResult, { method: "POST", body: sessionBody(session, { requestId, value }) }),
   navigateTree: (session: SessionRef, navigation: SessionTreeNavigateRequest, machineId = "local") => request(sessionPath(session, "tree/navigate", machineId), parseSessionTreeNavigateResult, {
     method: "POST",
-    body: sessionBody(session, { targetId: navigation.targetId, expectedLeafId: navigation.expectedLeafId, summary: navigation.summary }),
+    body: sessionBody(session, {
+      targetId: navigation.targetId,
+      expectedLeafId: navigation.expectedLeafId,
+      summary: navigation.summary,
+      ...(navigation.retainCheckpoint === undefined ? {} : { retainCheckpoint: navigation.retainCheckpoint }),
+    }),
   }),
   forkTree: (session: SessionRef, fork: SessionTreeForkRequest, machineId = "local") => requestSessionTreeFork(session, fork, machineId),
   abort: (session: SessionRef, machineId = "local") => request(sessionPath(session, "abort", machineId), parseAborted, { method: "POST", body: sessionBody(session) }),
@@ -295,6 +302,11 @@ export const sessionsApi = {
   },
   startInteractiveApiKeyLogin: (providerId: string, machineId = "local") => request(`${machinePrefix(machineId)}/auth/api-key/interactive`, parseOAuthFlowState, { method: "POST", body: JSON.stringify({ providerId }) }),
   logoutProvider: (providerId: string, machineId = "local") => request(`${machinePrefix(machineId)}/auth/logout`, parseAccepted, { method: "POST", body: JSON.stringify({ providerId }) }),
+  mcpAuthServers: (session: SessionRef, machineId = "local") => request(sessionQueryPath(session, "mcp/auth/servers", machineId), parseMcpAuthServersResponse),
+  startMcpAuth: (session: SessionRef, mode: "login" | "logout", machineId = "local", serverName?: string) => request(sessionPath(session, "mcp/auth", machineId), parseOAuthFlowState, { method: "POST", body: sessionBody(session, { mode, ...(serverName === undefined ? {} : { serverName }) }) }),
+  mcpAuthFlow: (flowId: string, machineId = "local") => request(`${machinePrefix(machineId)}/auth/mcp/${encodeURIComponent(flowId)}`, parseOAuthFlowState),
+  respondMcpAuthFlow: (flowId: string, requestId: string, value: string, machineId = "local") => request(`${machinePrefix(machineId)}/auth/mcp/${encodeURIComponent(flowId)}/respond`, parseOAuthFlowState, { method: "POST", body: JSON.stringify({ requestId, value }) }),
+  cancelMcpAuthFlow: (flowId: string, machineId = "local") => request(`${machinePrefix(machineId)}/auth/mcp/${encodeURIComponent(flowId)}/cancel`, parseOAuthFlowState, { method: "POST" }),
   startOAuthLogin: (providerId: string, machineId = "local") => request(`${machinePrefix(machineId)}/auth/oauth`, parseOAuthFlowState, { method: "POST", body: JSON.stringify({ providerId }) }),
   oauthFlow: (flowId: string, machineId = "local") => request(`${machinePrefix(machineId)}/auth/oauth/${encodeURIComponent(flowId)}`, parseOAuthFlowState),
   respondOAuthFlow: (flowId: string, requestId: string, value: string, machineId = "local") => request(`${machinePrefix(machineId)}/auth/oauth/${encodeURIComponent(flowId)}/respond`, parseOAuthFlowState, { method: "POST", body: JSON.stringify({ requestId, value }) }),
@@ -316,7 +328,11 @@ async function requestSessionTreeFork(session: SessionRef, fork: SessionTreeFork
   const response = await fetch(resolveAppUrl(sessionPath(session, "tree/fork", machineId)), {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: sessionBody(session, { entryId: fork.entryId, expectedLeafId: fork.expectedLeafId }),
+    body: sessionBody(session, {
+      entryId: fork.entryId,
+      expectedLeafId: fork.expectedLeafId,
+      ...(fork.retainCheckpoint === undefined ? {} : { retainCheckpoint: fork.retainCheckpoint }),
+    }),
   });
   if (!response.ok) {
     const body: unknown = await response.json().catch((): unknown => ({}));

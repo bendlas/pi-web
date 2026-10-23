@@ -1,10 +1,12 @@
+import { stylesheetIntegrationCapability } from "../plugins/styles";
 import { LitElement, html, type TemplateResult } from "lit";
 import { customElement, property, query, state } from "lit/decorators.js";
 import type { Workspace } from "../api";
-import type { QualifiedContributionId, QualifiedWorkspacePanelContribution, WorkspacePanelContext } from "../plugins/types";
+import type { QualifiedContributionId } from "../plugins/types";
 import { renderNavigationMenuIcon } from "./tabIcons";
 import { workspacePanelStyles } from "./shared";
 import { pinnedNavigationTabs } from "../navigationPreferences";
+import { renderPanelToggleButton } from "./appShell/panelToggleButton";
 
 export interface WorkspacePanelEmptyState {
   title: string;
@@ -13,17 +15,32 @@ export interface WorkspacePanelEmptyState {
 
 type WorkspacePanelBadge = string | number | TemplateResult | undefined;
 
+/** Host-bound display callbacks keep application and workspace contracts separate. */
+export interface WorkspaceToolPanel {
+  id: QualifiedContributionId;
+  title: string;
+  icon?: TemplateResult;
+  order?: number;
+  badge?: () => WorkspacePanelBadge;
+  render: () => TemplateResult;
+}
+
 @customElement("workspace-panel")
 export class WorkspacePanel extends LitElement {
+  constructor() {
+    super();
+    stylesheetIntegrationCapability.createController(this);
+  }
+
   @property({ attribute: false }) workspace: Workspace | undefined;
-  @property({ attribute: false }) panelContext: WorkspacePanelContext | undefined;
   @property({ attribute: false }) emptyState: WorkspacePanelEmptyState | undefined;
   @property() error = "";
   @property() tool: QualifiedContributionId | undefined;
-  @property({ attribute: false }) panels: QualifiedWorkspacePanelContribution[] = [];
+  @property({ attribute: false }) panels: WorkspaceToolPanel[] = [];
   @property({ type: Boolean }) hideToolTabs = false;
   @property({ attribute: false }) pinnedIds: string[] = [];
   @property({ attribute: false }) onShowNavigation?: () => void;
+  @property({ attribute: false }) onTogglePanel?: () => void;
   @property({ attribute: false }) onSelectTool: (tool: QualifiedContributionId) => void = () => undefined;
   @query(".workspace-header-strip") private workspaceHeaderStrip?: HTMLElement | null;
   @state() private workspaceHeaderCanScrollLeft = false;
@@ -54,14 +71,9 @@ export class WorkspacePanel extends LitElement {
 
   override render() {
     const workspace = this.workspace;
-    if (workspace === undefined) return this.renderEmptyState(this.error !== "" ? { title: this.error } : this.emptyState ?? {
+    if (workspace === undefined && this.panels.length === 0) return this.renderEmptyState(this.error !== "" ? { title: this.error } : this.emptyState ?? {
       title: "Select a workspace",
       body: "Choose a workspace to use its tools.",
-    }, true);
-    const context = this.panelContext;
-    if (context === undefined) return this.renderEmptyState({
-      title: "Workspace tools unavailable",
-      body: "Try selecting the workspace again.",
     }, true);
     const visiblePanels = this.panels;
     // An unresolved route may leave a valid remembered tool, but its content is not displayed.
@@ -73,10 +85,10 @@ export class WorkspacePanel extends LitElement {
         <header>
           <div class=${this.workspaceHeaderFrameClass()}>
             <div class="workspace-header-strip" @scroll=${this.onWorkspaceHeaderScroll}>
-              <div class="tabs">
+              <div class="tabs ui-tabs ui-tabs--primary">
                 ${pinnedPanels.map((panel) => {
                   const selected = selectedPanel?.id === panel.id;
-                  const badge = panel.badge?.(context);
+                  const badge = panel.badge?.();
                   const ariaLabel = this.panelTabAriaLabel(panel, badge);
                   return html`
                     <button class=${this.panelTabClass(panel, selected)} title=${ariaLabel} aria-label=${ariaLabel} aria-pressed=${String(selected)} @click=${() => { this.onSelectTool(panel.id); }}>
@@ -88,32 +100,34 @@ export class WorkspacePanel extends LitElement {
             </div>
           </div>
           ${this.renderNavigationButton(selectedPanel !== undefined && !pinnedPanels.some((panel) => panel.id === selectedPanel.id))}
+          ${renderPanelToggleButton("workspace", false, this.onTogglePanel)}
         </header>
       `}
       ${this.error !== "" ? this.renderEmptyState({ title: this.error }) : selectedPanel === undefined ? this.renderEmptyState({
         title: this.tool === undefined ? "No workspace tools available" : `Workspace panel unavailable: ${this.tool}`,
       }) : html`
         <div class="panel-content">
-          ${selectedPanel.render(context)}
+          ${selectedPanel.render()}
         </div>
       `}
     `;
   }
 
-  private panelTabClass(panel: QualifiedWorkspacePanelContribution, selected: boolean): string {
+  private panelTabClass(panel: WorkspaceToolPanel, selected: boolean): string {
     return [
+      "ui-button", "ui-tab",
       ...(panel.icon === undefined ? [] : ["icon-tab"]),
       ...(selected ? ["selected"] : []),
     ].join(" ");
   }
 
-  private panelTabAriaLabel(panel: QualifiedWorkspacePanelContribution, badge: WorkspacePanelBadge): string {
+  private panelTabAriaLabel(panel: WorkspaceToolPanel, badge: WorkspacePanelBadge): string {
     if (typeof badge !== "string" && typeof badge !== "number") return panel.title;
     const trimmedBadge = String(badge).trim();
     return trimmedBadge === "" ? panel.title : `${panel.title}, ${trimmedBadge}`;
   }
 
-  private renderPanelTabContent(panel: QualifiedWorkspacePanelContribution, badge: WorkspacePanelBadge): TemplateResult {
+  private renderPanelTabContent(panel: WorkspaceToolPanel, badge: WorkspacePanelBadge): TemplateResult {
     return html`
       ${panel.icon === undefined ? null : html`<span class="tab-custom-icon" aria-hidden="true">${panel.icon}</span>`}
       <span class="tab-label">${panel.title}</span>
@@ -126,12 +140,12 @@ export class WorkspacePanel extends LitElement {
   }
 
   private renderNavigationButton(hiddenActiveDestination = false) {
-    return this.onShowNavigation === undefined ? null : html`<button type="button" class=${`navigation-menu-button${hiddenActiveDestination ? " selected" : ""}`} title="Navigation" aria-label="Navigation" aria-haspopup="dialog" @click=${this.onShowNavigation}>${renderNavigationMenuIcon()}</button>`;
+    return this.onShowNavigation === undefined ? null : html`<button type="button" class=${`ui-button ui-button--icon navigation-menu-button${hiddenActiveDestination ? " selected" : ""}`} title="Navigation" aria-label="Navigation" aria-haspopup="dialog" @click=${this.onShowNavigation}>${renderNavigationMenuIcon()}</button>`;
   }
 
   private renderEmptyState(state: WorkspacePanelEmptyState, showNavigation = false): TemplateResult {
     return html`
-      ${showNavigation && !this.hideToolTabs ? html`<header>${this.renderNavigationButton()}</header>` : null}
+      ${showNavigation && !this.hideToolTabs ? html`<header>${this.renderNavigationButton()}${renderPanelToggleButton("workspace", false, this.onTogglePanel)}</header>` : null}
       <section class="empty-state" role="status">
         <h2>${state.title}</h2>
         ${state.body === undefined ? null : html`<p>${state.body}</p>`}

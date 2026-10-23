@@ -39,11 +39,20 @@ describe("Docker command assets", () => {
   it("keeps shell entrypoints syntactically valid", async () => {
     await Promise.all([
       execUtf8("sh", ["-n", dockerEntrypoint], process.env),
+      execUtf8("sh", ["-n", join(repoRoot, "docker/internal/bin/pi-web-reconcile-mise")], process.env),
       execUtf8("sh", ["-n", join(repoRoot, "docker", "install.sh")], process.env),
       execUtf8("sh", ["-n", join(repoRoot, "docker", "internal", "dev", "compose")], process.env),
       execUtf8("bash", ["-n", join(repoRoot, "docker", "internal", "dev", "sync-node-modules")], process.env),
       execUtf8("sh", ["-n", join(repoRoot, "docker", "internal", "host-profile.sh")], process.env),
     ]);
+  });
+
+  it.each(["docker/Dockerfile", "docker/Dockerfile.dev"])("defaults %s to an overridable UTF-8 locale", async (path) => {
+    const dockerfile = await readRepoFile(path);
+
+    expect(dockerfile).toContain("  LANG=C.UTF-8 \\\n");
+    // LANG provides a default without overriding user-selected locale categories.
+    expect(dockerfile).not.toMatch(/\bLC_ALL=/u);
   });
 
   it("packages the canonical Docker command and internal support assets", async () => {
@@ -60,23 +69,28 @@ describe("Docker command assets", () => {
     const customImageHooksIndex = devDockerfile.indexOf("for script in /tmp/pi-web-custom-image.d/*.sh");
     const dependencyGenerationIndex = devDockerfile.indexOf("/opt/pi-web-dev-dependencies/generation");
 
-    expect(dockerfile).toContain("COPY pi-web-docker /usr/local/bin/pi-web-docker");
-    expect(dockerfile).toContain("COPY internal/bin/hostexec /usr/local/bin/hostexec");
-    expect(dockerfile).toContain("COPY internal/image/install-opensuse-base /usr/local/sbin/install-pi-web-opensuse-base");
-    expect(dockerfile).toContain("--include=peer");
-    expect(dockerfile).toContain('"@jmfederico/pi-web@${PI_WEB_VERSION}" --allow-scripts=node-pty');
-    expect(dockerfile).toContain('peer_pi_bin="${global_root}/@jmfederico/pi-web/node_modules/.bin/pi"');
+    expect(dockerfile).toContain("COPY --chmod=0755 pi-web-docker /usr/local/bin/pi-web-docker");
+    expect(dockerfile).toContain("COPY --chmod=0755 internal/bin/hostexec internal/bin/pi-web-service internal/bin/pi-web-image-doctor /usr/local/bin/");
+    expect(dockerfile).toContain("COPY --chmod=0755 internal/image/install-ubuntu-base /usr/local/sbin/install-pi-web-ubuntu-base");
+    expect(dockerfile).toContain('@earendil-works/pi-coding-agent "@jmfederico/pi-web@${PI_WEB_VERSION}" --allow-scripts=node-pty');
+    expect(dockerfile).toContain("command -v pi");
     expect(dockerfile).not.toContain("@earendil-works/pi-coding-agent@");
-    expect(devDockerfile).toContain("COPY docker/pi-web-docker /usr/local/bin/pi-web-docker");
-    expect(devDockerfile).toContain("COPY docker/internal/bin/hostexec /usr/local/bin/hostexec");
+    expect(devDockerfile).toContain("COPY --chmod=0755 docker/pi-web-docker /usr/local/bin/pi-web-docker");
+    expect(devDockerfile).toContain("COPY --chmod=0755 docker/internal/bin/hostexec docker/internal/bin/pi-web-service docker/internal/bin/pi-web-image-doctor /usr/local/bin/");
     expect(devDockerfile).toContain("COPY --chmod=0755 docker/internal/dev/sync-node-modules /usr/local/sbin/pi-web-dev-sync-node-modules");
     expect(devDockerfile).toContain("/opt/pi-web-dev-dependencies/node_modules");
+    // The seed can be hidden by the host /opt mount; the CLI must use the active volume.
+    expect(devDockerfile).toContain("ln -sf /workspace/node_modules/.bin/pi /usr/local/bin/pi");
     // Hooks can mutate the dependency seed, so its cache generation must be finalized afterward.
     expect(customImageHooksIndex).toBeGreaterThanOrEqual(0);
     expect(dependencyGenerationIndex).toBeGreaterThan(customImageHooksIndex);
     expect(dependencySync).toContain(".pi-web-dev-dependency-generation");
     expect(dockerignore).toContain("!pi-web-docker");
     expect(dockerignore).toContain("!internal/bin/hostexec");
+    expect(dockerignore).toContain("!internal/bin/pi-web-reconcile-mise");
+    expect(dockerfile).toContain("COPY --chmod=0755 internal/bin/pi-web-reconcile-mise /usr/local/bin/");
+    expect(devDockerfile).toContain("COPY --chmod=0755 docker/internal/bin/pi-web-reconcile-mise /usr/local/bin/");
+    expect(installer).toContain("write_asset internal/bin/pi-web-reconcile-mise 0755");
     expect(installer).toContain("write_asset pi-web-docker 0755");
     expect(installer).toContain("write_asset internal/host-profile.sh 0644");
     expect(installer).toContain("compose_cmd --project-name \"$compose_project_name\"");
@@ -97,7 +111,8 @@ describe("Docker command assets", () => {
     expect(devCompose).toContain("PI_WEB_DOCKER_HELPER_IMAGE: ${PI_WEB_DEV_IMAGE:-pi-web:dev}");
     expect(devCompose).not.toContain("COMPOSE_PROJECT_NAME:");
     expect(devCompose).toContain("/usr/local/sbin/pi-web-dev-sync-node-modules");
-    expect(devCompose.match(/volumes: \*pi-web-dev-volumes/g)).toHaveLength(3);
+    expect(devCompose).toContain("volumes: *pi-web-dev-init-volumes");
+    expect(runtimeCompose).not.toContain("source: node_modules");
   });
 
   it("starts development web after data init and sessiond only after web health", async () => {
@@ -228,7 +243,7 @@ describe("Docker command assets", () => {
       });
     });
 
-    expect(await readFile(join(installDir, "Dockerfile"), "utf8")).toContain("COPY pi-web-docker /usr/local/bin/pi-web-docker");
+    expect(await readFile(join(installDir, "Dockerfile"), "utf8")).toContain("COPY --chmod=0755 pi-web-docker /usr/local/bin/pi-web-docker");
     expect(await readFile(join(installDir, "pi-web-docker"), "utf8")).toContain("Usage: pi-web-docker");
     const env = await readFile(join(installDir, ".env"), "utf8");
     expect(env).toContain(`PI_WEB_DOCKER_INSTALL_DIR=${installDir}`);
@@ -401,7 +416,8 @@ describe("Docker command assets", () => {
     expect(localConfig).toContain("PI_WEB_UID and PI_WEB_GID default to the current host user");
     const override = await readFile(join(devRoot, ".pi-web", "docker-compose-dev.host.generated.yml"), "utf8");
     expect(override).toContain(socketPath);
-    expect(override).toContain(devRoot);
+    // Dev Compose owns both checkout aliases; the shared host profile owns no checkout mounts.
+    expect(override).not.toContain(`source: '${devRoot}'`);
     const log = await readFile(fakeDocker.logPath, "utf8");
     expect(log).toContain(`compose --project-name pi-web-dev --env-file ${generatedEnvPath} -f ${devRoot}/docker/compose.dev.yml -f ${devRoot}/.pi-web/docker-compose-dev.host.generated.yml ps`);
   });
@@ -568,9 +584,27 @@ describe("Docker command assets", () => {
     expect(await readFile(helperLog, "utf8")).toBe([
       "allow=0 args=build --pull",
       "allow=0 args=up -d --force-recreate --remove-orphans",
+      "allow=0 args=exec -T --workdir / web env PATH=/usr/local/bin:/usr/bin:/bin /usr/local/bin/pi-web-reconcile-mise",
       "allow=0 args=up -d --build",
       "",
     ].join("\n"));
+  });
+
+  dockerCommandIt.each([
+    "build --pull",
+    "up -d --force-recreate --remove-orphans",
+    "exec -T --workdir / web env PATH=/usr/local/bin:/usr/bin:/bin /usr/local/bin/pi-web-reconcile-mise",
+  ])("fails development update when %s fails", async (failedCommand) => {
+    const helperLog = join(tempDir, "dev-helper.log");
+    const devRoot = await createCleanDevGitRepoWithFakeHelper(helperLog);
+    const fakeDocker = await installFakeDocker();
+    await installFakeId(fakeDocker.binDir, 1234, 2345);
+    const result = await runDockerCommandAllowFailure(["--dev", "update"], devHostEnv(fakeDocker, devRoot, join(tempDir, "home"), {
+      FAKE_COMPOSE_FAIL: failedCommand,
+    }));
+    expect(result.exitCode).toBe(17);
+    const calls = (await readFile(helperLog, "utf8")).trim().split("\n");
+    expect(calls.at(-1)).toBe(`allow=0 args=${failedCommand}`);
   });
 
   dockerCommandIt.each([false, true])("sequences development restart according to the typed plan (detached=%s)", async (detached) => {
@@ -678,8 +712,8 @@ describe("Docker command assets", () => {
     expect(log).toContain(`PI_WEB_DOCKER_DATA_DIR=${join(installDir, "data")}`);
     expect(log).toContain("PI_WEB_PORT=12345");
     expect(log).toContain("PI_WEB_DOCKER_EXTRA_HOST_PATHS=/srv/pi-web-extra /opt/pi-web-extra");
-    expect(log).toContain("PI_WEB_EXTRA_ZYPPER_PACKAGES=git-lfs jq");
-    expect(log).not.toContain('PI_WEB_EXTRA_ZYPPER_PACKAGES="git-lfs jq"');
+    expect(log).toContain("PI_WEB_EXTRA_APT_PACKAGES=git-lfs jq");
+    expect(log).not.toContain('PI_WEB_EXTRA_APT_PACKAGES="git-lfs jq"');
     expect(log).toContain("PI_WEB_DOCKER_HELPER_IMAGE=pi-web:test");
     expect(log).toContain("COMPOSE_PROJECT_NAME=pi-web-test");
     expect(log).toContain("pi-web.docker-helper.mode=runtime");
@@ -714,7 +748,71 @@ describe("Docker command assets", () => {
     expect(installerCalls).toContain(`install.sh --install-dir ${installDir}`);
     // The installer drives Docker itself, so the helper must not schedule another helper.
     const log = await readFile(fakeDocker.logPath, "utf8").catch(() => "");
+    expect(log).toContain("exec -T --workdir / web env PATH=/usr/local/bin:/usr/bin:/bin /usr/local/bin/pi-web-reconcile-mise");
     expect(log).not.toContain("run -d");
+  });
+
+  dockerCommandIt.each(["installer", "reconciliation"])("reports runtime update %s failures without hiding them", async (failure) => {
+    const installDir = await createRuntimeInstall();
+    const fakeDocker = await installFakeDocker();
+    if (failure === "installer") {
+      await writeFile(join(installDir, "install.sh"), "#!/bin/sh\necho installer-failed >&2\nexit 7\n");
+    }
+    const result = await runDockerCommandAllowFailure(["__run-detached", "update"], {
+      ...runtimeEnv(fakeDocker, installDir),
+      FAKE_RECONCILE_EXIT: "8",
+    });
+    expect(result.exitCode).toBe(failure === "installer" ? 7 : 8);
+    expect(result.stderr).toContain(failure === "installer" ? "installer-failed" : "reconciliation-failed");
+    const log = await readFile(fakeDocker.logPath, "utf8").catch(() => "");
+    expect(log.includes("/usr/local/bin/pi-web-reconcile-mise")).toBe(failure !== "installer");
+  });
+
+  dockerCommandIt.each(["", "install", "upgrade", "reshim"])("runs global reconciliation with isolated discovery and fresh metadata (failure=%s)", async (failure) => {
+    const binDir = join(tempDir, "bin");
+    await mkdir(binDir);
+    await installFakeId(binDir, 1234, 2345);
+    const logPath = join(tempDir, "mise.log");
+    const mise = join(binDir, "mise");
+    // Fake only the mise boundary; requests must not be reparsed or bumped by our shell.
+    await writeFile(mise, `#!/bin/sh
+set -eu
+[ "$PWD" = / ]
+[ "$MISE_CEILING_PATHS" = / ]
+[ -z "\${MISE_CD:-}" ]
+[ "$MISE_NO_ENV:$MISE_NO_HOOKS" = 1:1 ]
+[ "$MISE_FETCH_REMOTE_VERSIONS_CACHE:$MISE_PREFER_OFFLINE" = 0s:0 ]
+printf '%s\\n' "$*" >>"$MISE_TEST_LOG"
+if [ "$1" = "$MISE_TEST_FAILURE" ]; then
+  echo "mise-$1-failed" >&2
+  exit 9
+fi
+`);
+    await chmod(mise, 0o755);
+    const result = await execUtf8AllowFailure("sh", [join(repoRoot, "docker/internal/bin/pi-web-reconcile-mise")], {
+      ...cleanProcessEnv(),
+      PATH: `${binDir}:${process.env["PATH"] ?? ""}`,
+      MISE_TEST_LOG: logPath,
+      MISE_TEST_FAILURE: failure,
+      MISE_CD: repoRoot,
+    });
+    const commands = ["install", "upgrade --global --no-prune", "reshim"];
+    const count = failure ? ["install", "upgrade", "reshim"].indexOf(failure) + 1 : 3;
+    expect((await readFile(logPath, "utf8")).trim().split("\n")).toEqual(commands.slice(0, count));
+    expect(result.exitCode).toBe(failure ? 9 : 0);
+    if (failure) expect(result.stderr).toContain(`mise-${failure}-failed`);
+  });
+
+  dockerCommandIt("rejects root global reconciliation before running mise", async () => {
+    const binDir = join(tempDir, "bin");
+    await mkdir(binDir);
+    await installFakeId(binDir, 0, 0);
+    const result = await execUtf8AllowFailure("sh", [join(repoRoot, "docker/internal/bin/pi-web-reconcile-mise")], {
+      ...cleanProcessEnv(),
+      PATH: `${binDir}:${process.env["PATH"] ?? ""}`,
+    });
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("requires a nonroot service user");
   });
 
   dockerCommandIt("reuses the recorded Docker host setup when the installer runs inside a container", async () => {
@@ -837,7 +935,7 @@ async function createRuntimeInstall(): Promise<string> {
     "PI_WEB_DOCKER_EXTRA_HOST_PATHS=\"/srv/pi-web-extra /opt/pi-web-extra\"",
     "PI_WEB_BIND_ADDR=127.0.0.1",
     "PI_WEB_PORT=12345",
-    "PI_WEB_EXTRA_ZYPPER_PACKAGES=\"git-lfs jq\"",
+    "PI_WEB_EXTRA_APT_PACKAGES=\"git-lfs jq\"",
     "PI_WEB_IMAGE=pi-web:test",
     "COMPOSE_PROJECT_NAME=pi-web-test",
     "",
@@ -1019,6 +1117,14 @@ case "\${1:-}" in
     if [ "\${2:-}" = version ]; then
       exit 0
     fi
+    case "$*" in
+      *"/usr/local/bin/pi-web-reconcile-mise"*)
+        if [ "\${FAKE_RECONCILE_EXIT:-0}" != 0 ]; then
+          echo reconciliation-failed >&2
+          exit "$FAKE_RECONCILE_EXIT"
+        fi
+        ;;
+    esac
     printf 'fake docker'
     for arg in "$@"; do
       printf ' %s' "$arg"

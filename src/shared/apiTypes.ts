@@ -1,5 +1,6 @@
 import type { MachineStatusUiEvent } from "./machineStatus.js";
 import type { TerminalPluginMode } from "./requiredTerminalPlugin.js";
+import type { ThinkingLevel } from "./thinkingLevels.js";
 import type {
   DeleteWorkspaceFileResponse,
   FileContentMediaType,
@@ -22,6 +23,8 @@ import type {
   PiWebStatusResponse,
   PiWebStatusSeverity,
   PiWebVersionResponse,
+  AnyTerminalCommandRun,
+  MaintenanceTerminalCommandRun,
   TerminalCommandRun,
   TerminalCommandRunHandle,
   TerminalCommandRunStatus,
@@ -54,6 +57,8 @@ export type {
   PiWebStatusResponse,
   PiWebStatusSeverity,
   PiWebVersionResponse,
+  AnyTerminalCommandRun,
+  MaintenanceTerminalCommandRun,
   TerminalCommandRun,
   TerminalCommandRunHandle,
   TerminalCommandRunStatus,
@@ -156,7 +161,16 @@ export interface PiWebDeprecatedAgentInput {
   readonly replacement?: string;
 }
 
+export interface PiWebThemePreference {
+  themeId: string;
+  auto: boolean;
+}
+
 export interface PiWebConfigValues {
+  /** App-wide theme default; browser-local theme preferences take precedence. */
+  defaultTheme?: PiWebThemePreference;
+  /** Gateway-wide send behavior while streaming; defaults to steer. */
+  defaultStreamingBehavior?: "steer" | "followUp";
   host?: string;
   port?: number;
   allowedHosts?: string[] | true;
@@ -170,6 +184,16 @@ export interface PiWebConfigValues {
   attachments?: PiWebAttachmentsConfig;
   /** Maximum accepted HTTP request body size in bytes (uploads/attachments). */
   maxUploadBytes?: number;
+  /** Destination for newly archived transcripts; the index remains in the PI WEB data directory. */
+  sessionArchive?: { directory?: string };
+  /** Machine-wide naming overrides; defaults are the session model, 24 tokens, and minimal thinking. */
+  sessionNaming?: {
+    model?: string;
+    maxTokens?: number;
+    thinkingLevel?: ThinkingLevel;
+    /** Total wall time in milliseconds; defaults to 10000 when omitted. */
+    timeoutMs?: number;
+  };
   /** When true, LLMs can start new sessions via the spawn_session tool. */
   spawnSessions?: boolean;
   /**
@@ -604,8 +628,12 @@ export interface SessionNotificationSummaryEvent {
 
 export interface SessionInfo extends SessionRef {
   path: string;
+  /** Only true for positively verified tracked agent subsessions; absent otherwise. */
+  agentSubsession?: boolean;
   /** True when the server has verified a backing session file exists; false when known transient. */
   persisted?: boolean;
+  /** Explicitly public, namespaced session data; never arbitrary Pi custom entries. */
+  metadata?: import("./pluginApiTypes.js").SessionUiMetadata;
   name?: string;
   created: string;
   modified: string;
@@ -705,14 +733,28 @@ export interface SessionActivity {
   startup?: boolean;
 }
 
+export interface SessionQueueMessageMutation {
+  action: "remove" | "edit" | "toggle";
+  index: number;
+  expectedQueue: QueuedSessionMessage[];
+}
+
+export interface SessionQueueMessageMutationRequest extends SessionQueueMessageMutation {
+  cwd: string;
+}
+
 export interface QueuedSessionMessage {
   kind: "steer" | "followUp";
   text: string;
+  /** Inline attachments that cannot be restored by text-only recall. */
+  hasAttachments?: boolean;
+  /** Number of attachments, when available; no attachment payloads are exposed. */
+  attachmentCount?: number;
 }
 
 /**
- * `customType` of the follow-up custom message that carries a closed ask back to
- * the model and into the transcript. Its `details` are an {@link AskUserOutcome}.
+ * `customType` of a conversation entry carrying answers or a skip back to the
+ * model. Its `details` are an {@link AskUserOutcome}.
  */
 export const ASK_USER_ANSWERS_CUSTOM_TYPE = "pi-web.ask.answers";
 
@@ -726,6 +768,8 @@ export const ASK_USER_ID_MAX_LENGTH = 128;
 export const ASK_USER_TEXT_MAX_LENGTH = 1_000;
 /** Length bound for the free text a user types as a custom answer. */
 export const ASK_USER_OTHER_TEXT_MAX_LENGTH = 4_000;
+/** Length bound for the free text a user types alongside a question's selection. */
+export const ASK_USER_COMMENT_MAX_LENGTH = 4_000;
 
 /** One selectable option of an {@link AskUserQuestion}. */
 export interface AskUserQuestionOption {
@@ -756,17 +800,17 @@ export interface AskUserQuestion {
 }
 
 /**
- * The open, unanswered question set of a session. Daemon-owned and reported in
- * {@link SessionStatus}, so a reconnecting or reloading browser rehydrates it
- * without depending on having seen the `ask.opened` event.
+ * A validated question set stored in a successful `ask_user` tool result.
+ * It is actionable only at the active conversation's tail; no runtime state is
+ * needed to render it after a reload or session-daemon restart.
  */
-export interface PendingAskUser {
+export interface AskUserRequest {
   askId: string;
   askedAt: string;
   questions: AskUserQuestion[];
 }
 
-/** Why an ask stopped being the session's open ask. */
+/** The recorded response kind; `superseded` is retained for legacy transcripts. */
 export type AskUserCloseReason = "submitted" | "superseded" | "cancelled";
 
 /**
@@ -775,21 +819,23 @@ export type AskUserCloseReason = "submitted" | "superseded" | "cancelled";
  * same thing.
  */
 export interface AskUserAnswer {
-  /** Matches an {@link AskUserQuestion.id} of the open ask. */
+  /** Matches an {@link AskUserQuestion.id} of the referenced question set. */
   id: string;
   /** Selected {@link AskUserQuestionOption.value} entries; several only when the question allows it. */
   values: string[];
   /** Free text typed as the question's custom answer. */
   otherText?: string;
+  /** Optional context for offered selections; omitted for custom answers. */
+  comment?: string;
 }
 
-/** One submit of the open ask: answers for some or all of its questions. */
+/** Answers for some or all questions of a recorded request. */
 export interface AskUserSubmission {
   answers: AskUserAnswer[];
 }
 
 /**
- * One question of a closed ask paired with what came back for it. Carries the
+ * One question paired with a human response. Carries the
  * question itself so the record renders without the original ask still existing.
  */
 export interface AskUserQuestionRecord {
@@ -798,12 +844,13 @@ export interface AskUserQuestionRecord {
   answered: boolean;
   values: string[];
   otherText?: string;
+  comment?: string;
 }
 
 /**
- * The complete result of an ask, computed when it closes. Shared by the
- * model-facing follow-up message and the browser's read-only record, so both
- * report the same answered and unanswered questions.
+ * One recorded response to a question set. Shared by the model-facing message
+ * and browser rendering, so both report the same answered and unanswered
+ * questions. Multiple responses to the same request remain conversation facts.
  */
 export interface AskUserOutcome {
   askId: string;
@@ -816,21 +863,6 @@ export interface AskUserOutcome {
   unansweredIds: string[];
   /** One line, for example `Answered 3 of 5; unanswered: q2, q5`. */
   summary: string;
-}
-
-/**
- * Result of the browser closing an ask by submitting or cancelling it.
- *
- * `"stale"` is an ordinary race rather than an error: the named ask was already
- * submitted, superseded by a newer one, or gone with its session runtime. The
- * browser drops its card and trusts `sessionStatus`, which is returned in both
- * cases so closing an ask needs no follow-up status request.
- */
-export interface AskUserCloseResponse {
-  result: "closed" | "stale";
-  /** Present only when this call is the one that closed the ask. */
-  outcome?: AskUserOutcome;
-  sessionStatus: SessionStatus;
 }
 
 /** Length bound for extension-dialog ids. */
@@ -923,8 +955,8 @@ export interface ExtensionDialogCancelRequest {
 }
 
 /**
- * Result of the browser answering or cancelling an extension dialog. Mirrors
- * {@link AskUserCloseResponse}: `"stale"` is an ordinary lost race — another
+ * Result of the browser answering or cancelling an extension dialog.
+ * `"stale"` is an ordinary lost race — another
  * browser, a timeout, or a teardown closed the dialog first — not an error.
  * The browser drops its card and trusts `sessionStatus`, which is returned in
  * both cases so closing a dialog needs no follow-up status request.
@@ -1068,7 +1100,21 @@ export interface AuthProvidersResponse {
   providers: AuthProviderOption[];
 }
 
+export interface McpAuthServerOption {
+  name: string;
+  description?: string;
+}
+
+export interface McpAuthServersResponse {
+  servers: McpAuthServerOption[];
+}
+
 export interface OAuthFlowState {
+  mcpMode?: "login" | "logout";
+  /** MCP completion means the Pi command finished, not that authentication succeeded. */
+  target?: "mcp";
+  /** Cancellation may race credential storage; remains true after command completion. */
+  cancelRequested?: boolean;
   flowId: string;
   providerId: string;
   providerName: string;
@@ -1139,6 +1185,12 @@ export interface SessionStatus {
   sessionId: string;
   /** True when the server has verified a backing session file exists; false when known transient. */
   persisted?: boolean;
+  /**
+   * Best-effort observation of recent activity on this session in another PI WEB
+   * instance, not an ownership lock. Current daemons report both true and false;
+   * optional for older producers. Browsers own acknowledgement and presentation.
+   */
+  recentlyActiveElsewhere?: boolean;
   model?: SessionModel;
   thinkingLevel?: string;
   isStreaming: boolean;
@@ -1146,6 +1198,8 @@ export interface SessionStatus {
   isBashRunning: boolean;
   pendingMessageCount: number;
   queuedMessages: QueuedSessionMessage[];
+  /** Best-effort SDK compatibility failure; public queue clearing remains available. */
+  queueMessageActionsUnavailable?: string;
   messageCount?: number;
   tokens: { input: number; output: number; cacheRead: number; cacheWrite: number; total: number };
   cost: number;
@@ -1158,16 +1212,13 @@ export interface SessionStatus {
    */
   warnings?: SessionWarning[];
   /**
-   * The session's open `ask_user` question set, when one is waiting for the
-   * user. Daemon-owned, so it survives browser reload and web/API restarts.
-   */
-  pendingAsk?: PendingAskUser;
-  /**
    * The session's open extension dialogs, oldest first, when any are waiting
    * for the user. Daemon-owned, so they survive browser reload and web/API
    * restarts. Several may be open at once; the UI presents them as a queue.
    */
   pendingDialogs?: PendingExtensionDialog[];
+  /** Latest tree-generated input, retained while hosted by this daemon. Applying it is a client choice. */
+  suggestedInput?: string;
 }
 
 export interface SlashCommand {
@@ -1196,6 +1247,8 @@ export interface ActiveAgentProfileDescriptor {
 }
 
 export interface PiWebRuntimeComponent {
+  /** Actual JavaScript engine of the reporting process, absent on older peers. */
+  runtime?: import("./piWebRuntime.js").PiWebRuntimeIdentity;
   component: PiWebServiceComponent;
   label: string;
   runtimeVersion?: string;
@@ -1270,6 +1323,8 @@ export interface SessionTreeNavigateRequest {
   /** Leaf shown when the navigator opened; null is valid for an empty/root position. */
   expectedLeafId: string | null;
   summary: SessionTreeSummaryChoice;
+  /** Message shortcuts retain a complete non-user checkpoint and its intervening history. */
+  retainCheckpoint?: boolean;
 }
 
 export type SessionTreeNavigateResult =
@@ -1280,6 +1335,8 @@ export interface SessionTreeForkRequest {
   entryId: string;
   /** Leaf shown when the navigator opened; null is valid for an empty/root position. */
   expectedLeafId: string | null;
+  /** Message shortcuts retain a complete non-user checkpoint and its intervening history. */
+  retainCheckpoint?: boolean;
 }
 
 /**
@@ -1341,8 +1398,9 @@ export type SessionUiEvent = SessionUiEventBody & { seq?: number };
 
 type SessionUiEventBody =
   | { type: "message.append"; message: unknown }
-  | { type: "assistant.delta"; text: string }
-  | { type: "assistant.thinking.delta"; text: string }
+  | { type: "assistant.start"; message: unknown }
+  | { type: "assistant.delta"; text: string; streamId?: string }
+  | { type: "assistant.thinking.delta"; text: string; streamId?: string }
   | { type: "tool.start"; toolName: string; toolCallId: string; summary: string; args?: unknown }
   | { type: "tool.update"; toolName: string; toolCallId: string; text: string; content?: unknown; details?: unknown }
   | { type: "tool.end"; toolName: string; toolCallId: string; text: string; isError: boolean; content?: unknown; details?: unknown }
@@ -1357,12 +1415,14 @@ type SessionUiEventBody =
   | { type: "command.output"; level: "info" | "success" | "error"; message: string }
   | SessionNotificationInboxEvent
   | { type: "session.error"; message: string }
-  | { type: "ask.opened"; ask: PendingAskUser }
-  | { type: "ask.closed"; askId: string; reason: AskUserCloseReason }
+  /** Technical details for the browser console, never transcript or notification content. */
+  | { type: "session.diagnostic"; message: string }
   | { type: "dialog.opened"; dialog: PendingExtensionDialog }
   | { type: "dialog.closed"; dialogId: string; reason: ExtensionDialogCloseReason; answer?: ExtensionDialogAnswer }
   | { type: "session.name"; sessionId: string; name?: string }
   | { type: "session.created"; session: SessionInfo }
+  /** The selected branch/runtime changed; clients refresh reads without changing local selection or drafts. */
+  | { type: "session.tree.changed" }
   | { type: "pi.event"; eventType: string };
 
 /** Global invalidation for the daemon-owned enabled-model scope. */
@@ -1371,11 +1431,17 @@ export interface ModelScopeChangedEvent {
   revision: number;
 }
 
+export interface WorkspaceChangedEvent {
+  type: "workspaces.changed";
+  projectId: string;
+}
+
 export type GlobalSessionEvent =
   | Extract<SessionUiEventBody, { type: "status.update" | "activity.update" | "session.name" | "session.created" }>
   | SessionNotificationSummaryEvent
   | SessionUnreadEvent
   | SessionStartupProgressEvent
   | ModelScopeChangedEvent
+  | WorkspaceChangedEvent
   | ServerNoticeEvent;
 export type RealtimeEvent = GlobalSessionEvent | MachineStatusUiEvent;
