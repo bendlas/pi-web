@@ -108,7 +108,7 @@ test("modal ownership dismisses background suggestions, allows owned menus, and 
   await expect(page.locator("autocomplete-menu button")).toBeVisible();
   const opener = page.getByRole("button", { name: "Open dialog", exact: true });
   await opener.click();
-  const dialog = page.locator("modal-surface").filter({ has: page.getByRole("dialog", { name: "Dialog 1", exact: true }) });
+  const dialog = page.locator("modal-surface").filter({ has: page.getByRole("dialog", { name: "Dialog 1", exact: true, includeHidden: true }) });
   await expect(page.getByRole("dialog", { name: "Dialog 1", exact: true })).toHaveCount(1);
   await expect(dialog.locator("dialog")).toBeVisible();
   await expect(page.locator("autocomplete-menu [popover]:popover-open")).toHaveCount(0);
@@ -125,9 +125,14 @@ test("modal ownership dismisses background suggestions, allows owned menus, and 
   await dialog.getByRole("button", { name: "Open nested dialog" }).click();
   const nested = page.locator("modal-surface").filter({ has: page.getByRole("dialog", { name: "Dialog 2", exact: true }) });
   await expect(nested.getByRole("textbox", { name: "Dialog input" })).toBeFocused();
+  await expect(nested.locator("dialog")).toHaveAttribute("aria-modal", "true");
+  await expect(dialog.locator("dialog")).toHaveAttribute("aria-modal", "false");
+  await expect(dialog.locator("dialog")).toHaveAttribute("aria-hidden", "true");
   await page.keyboard.press("Escape");
   await expect(nested).toHaveCount(0);
   await expect(dialog.getByRole("button", { name: "Open nested dialog" })).toBeFocused();
+  await expect(dialog.locator("dialog")).toHaveAttribute("aria-modal", "true");
+  await expect(dialog.locator("dialog")).not.toHaveAttribute("aria-hidden");
   await page.keyboard.press("Escape");
   await expect(dialog).toHaveCount(0);
   await expect(opener).toBeFocused();
@@ -141,6 +146,24 @@ test("unmanaged plugin dialogs share the modality boundary", async ({ page }) =>
   await expect(page.locator("autocomplete-menu [popover]:popover-open")).toHaveCount(0);
   await page.locator("dialog").getByRole("button", { name: /Switch machine/ }).click();
   await expect(page.locator("dialog .machine-switcher-menu")).toBeVisible();
+});
+
+test("modal accessibility follows unmanaged plugin dialogs and survives property renders", async ({ page }) => {
+  await page.getByRole("button", { name: "Open dialog", exact: true }).click();
+  const dialog = page.locator("modal-surface dialog");
+  await expect(dialog).toHaveAttribute("aria-modal", "true");
+
+  await page.evaluate(() => { window.overlayFixture.openPluginModal(); });
+  await expect(dialog).toHaveAttribute("aria-modal", "false");
+  await expect(dialog).toHaveAttribute("aria-hidden", "true");
+  await page.locator("modal-surface").evaluate((surface: HTMLElement & { busy: boolean }) => { surface.busy = true; });
+  await expect(dialog).toHaveAttribute("aria-busy", "true");
+  await expect(dialog).toHaveAttribute("aria-hidden", "true");
+
+  await page.getByRole("button", { name: "Close plugin dialog", exact: true }).click();
+  await expect(dialog).toHaveAttribute("aria-modal", "true");
+  await expect(dialog).not.toHaveAttribute("aria-hidden");
+  await expect(page.getByRole("textbox", { name: "Dialog input" })).toBeFocused();
 });
 
 test("attachment sources stay hidden until requested and activate their native inputs", async ({ page }) => {
