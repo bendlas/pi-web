@@ -532,49 +532,74 @@ describe("application rendering boundaries", () => {
 
   it("collapses only the mobile tab bar, keeping breadcrumbs and separate Navigation and Actions controls", async () => {
     saveNavigationPreferences({ pinnedIds: [], mobileCollapsed: true });
-    const app = await mountApp({});
-    const shell: unknown = Reflect.get(app, "appShell");
-    if (!(shell instanceof AppShellController)) throw new Error("Expected shell controller");
-    shell.isMobileNavigationLayout = true;
-    app.requestUpdate();
-    await settle(app);
+    const { app } = await mountMobileNavigationApp({
+      selectedProject: { id: "project", name: "Project", path: "/repo", createdAt: "now" },
+      selectedWorkspace: workspace, selectedSession: session, mainView: "navigation",
+    });
     expect(app.shadowRoot?.querySelector("app-mobile-main-tabs")).toBeNull();
     const context = app.shadowRoot?.querySelector("app-context-bar");
-    expect(context?.shadowRoot?.querySelectorAll(".context-item")).toHaveLength(3);
-    const controls = [...context?.shadowRoot?.querySelectorAll<HTMLButtonElement>(".context-actions button") ?? []];
-    expect(controls.map((button) => button.getAttribute("aria-label") ?? button.textContent.trim())).toEqual(["Navigation", "Show Actions"]);
-    expect(controls[0]?.classList.contains("selected")).toBe(true);
-    controls[0]?.focus();
-    controls[0]?.click();
+    expect(context?.shadowRoot?.querySelector('nav[aria-label="Current location"]')).not.toBeNull();
+    for (const [kind, label] of [["Project", "Project"], ["Workspace", "main"], ["Session", "Current chat"]] as const) {
+      expect(context?.shadowRoot?.querySelector(`button[aria-label^="${kind}:"]`)?.textContent).toContain(label);
+    }
+    const navigation = namedButton(context?.shadowRoot, "Navigation");
+    const actions = namedButton(context?.shadowRoot, "Show Actions");
+    expect(navigation).not.toBe(actions);
+    expect(navigation.classList.contains("selected")).toBe(true);
+    navigation.click();
     await settle(app);
     const dialog = app.shadowRoot?.querySelector("navigation-dialog");
-    expect(dialog?.shadowRoot?.textContent).toContain("Chat");
-    dialog?.shadowRoot?.querySelector<HTMLButtonElement>(".mobile-navigation button:first-child")?.click();
+    expect(dialog).toBeInstanceOf(NavigationDialog);
+    namedButton(dialog?.shadowRoot, "Expanded").click();
     await settle(app);
-    expect(app.shadowRoot?.querySelector("app-mobile-main-tabs")).not.toBeNull();
-    expect(context?.shadowRoot?.querySelector('button[aria-label="Navigation"]')).toBeNull();
     const tabStrip = app.shadowRoot?.querySelector("app-mobile-main-tabs");
-    const hamburger = tabStrip?.shadowRoot?.querySelector<HTMLButtonElement>('button[aria-label="Navigation"]');
-    expect(hamburger?.querySelector("svg")).not.toBeNull();
-    expect(hamburger?.classList.contains("selected")).toBe(false);
-    expect(tabStrip?.shadowRoot?.querySelector(".mobile-tabs > button:last-child")).toBe(hamburger);
-    dialog?.shadowRoot?.querySelector<HTMLButtonElement>("header button")?.click();
-    await settle(app);
-    expect(deepActiveElement(document)).toBe(hamburger);
-    hamburger?.click();
-    await settle(app);
-    const reopenedDialog = app.shadowRoot?.querySelector("navigation-dialog");
-    expect(reopenedDialog).not.toBeNull();
+    expect(tabStrip).not.toBeNull();
+    expect(context?.shadowRoot?.querySelector('button[aria-label="Navigation"]')).toBeNull();
+    expect(namedButton(tabStrip?.shadowRoot, "Navigation").classList.contains("selected")).toBe(false);
     expect(loadNavigationPreferences()).toEqual({ pinnedIds: [], mobileCollapsed: false });
+  });
 
-    // A resize must invalidate the guarded tab surface even with collapse enabled.
-    reopenedDialog?.shadowRoot?.querySelector<HTMLButtonElement>(".mobile-navigation button:last-child")?.click();
+  it("restores focus to the replacement Navigation control after expanding mobile tabs", async () => {
+    saveNavigationPreferences({ pinnedIds: [], mobileCollapsed: true });
+    const { app } = await mountMobileNavigationApp();
+    const navigation = namedButton(app.shadowRoot?.querySelector("app-context-bar")?.shadowRoot, "Navigation");
+    navigation.focus();
+    navigation.click();
     await settle(app);
+    const dialog = app.shadowRoot?.querySelector("navigation-dialog");
+    namedButton(dialog?.shadowRoot, "Expanded").click();
+    await settle(app);
+    const replacement = namedButton(app.shadowRoot?.querySelector("app-mobile-main-tabs")?.shadowRoot, "Navigation");
+    expect(navigation.isConnected).toBe(false);
+    namedButton(dialog?.shadowRoot, "Close").click();
+    await settle(app);
+    expect(app.shadowRoot?.querySelector("navigation-dialog")).toBeNull();
+    expect(deepActiveElement(document)).toBe(replacement);
+    replacement.click();
+    await settle(app);
+    expect(app.shadowRoot?.querySelector("navigation-dialog")).toBeInstanceOf(NavigationDialog);
+  });
+
+  it("restores tabs outside the mobile layout without losing the mobile collapse preference", async () => {
+    saveNavigationPreferences({ pinnedIds: [], mobileCollapsed: false });
+    const { app, shell } = await mountMobileNavigationApp();
+    namedButton(app.shadowRoot?.querySelector("app-mobile-main-tabs")?.shadowRoot, "Navigation").click();
+    await settle(app);
+    namedButton(app.shadowRoot?.querySelector("navigation-dialog")?.shadowRoot, "Collapsed").click();
+    await settle(app);
+    expect(app.shadowRoot?.querySelector("app-mobile-main-tabs")).toBeNull();
+    expect(loadNavigationPreferences().mobileCollapsed).toBe(true);
+
     shell.isMobileNavigationLayout = false;
     app.requestUpdate();
     await settle(app);
     expect(app.shadowRoot?.querySelector("app-mobile-main-tabs")).not.toBeNull();
     expect(loadNavigationPreferences().mobileCollapsed).toBe(true);
+
+    shell.isMobileNavigationLayout = true;
+    app.requestUpdate();
+    await settle(app);
+    expect(app.shadowRoot?.querySelector("app-mobile-main-tabs")).toBeNull();
   });
 
   it("composes transcript, composer, and status under one conversation boundary", async () => {
@@ -1083,6 +1108,25 @@ it("applies the quiet-mode gateway setting to the rendered transcript", async ()
   await settle(app);
   expect(chat()?.quietMode).toBe(true);
 });
+
+function namedButton(root: ParentNode | null | undefined, name: string): HTMLButtonElement {
+  const button = [...root?.querySelectorAll<HTMLButtonElement>("button") ?? []]
+    .find((candidate) => (candidate.getAttribute("aria-label") ?? candidate.textContent.trim()) === name);
+  if (button === undefined) throw new Error(`Expected button: ${name}`);
+  return button;
+}
+
+async function mountMobileNavigationApp(patch: Partial<AppState> = {}) {
+  const app = new RenderOnlyApp();
+  patchState(app, patch);
+  const shell: unknown = Reflect.get(app, "appShell");
+  if (!(shell instanceof AppShellController)) throw new Error("Expected shell controller");
+  shell.isDesktopSideBySideLayout = false;
+  shell.isMobileNavigationLayout = true;
+  document.body.append(app);
+  await settle(app);
+  return { app, shell };
+}
 
 async function mountApp(patch: Partial<AppState>, panelRender?: (context: WorkspacePanelContext) => ReturnType<typeof html>, label?: () => string): Promise<RenderOnlyApp> {
   const app = new RenderOnlyApp();
