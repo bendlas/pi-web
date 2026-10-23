@@ -10,7 +10,7 @@ Example instruction, portable to PI WEB and other harnesses:
 
 For a read-only dry run, replace “Use comment-only mode” with “Use read-only mode: report proposed feedback here; take no action on GitHub.” Read-only mode forbids all GitHub writes, including review comments. To compare models, specify the same issue and PR numbers for each run.
 
-The ongoing review process requires the template format for all submissions it reviews. Missing required headings or misplaced technical details require `review: needs-rewrite`, even when the what and why can be found in the text. Do not mentally extract a good summary from scattered technical prose and call that a pass. Review agents must not edit bodies to make them compliant.
+The ongoing review process requires the template's structure, not exact appendix wording. A missing opening `## What and why` section or misplaced technical details requires `review: needs-rewrite`, even when the what and why can be found in the text. Equivalent appendix summaries and a short trailing attribution are acceptable. Do not mentally extract a good summary from scattered technical prose and call that a pass. Review agents must not edit bodies to make them compliant.
 
 For labeling without comments, dispatch:
 
@@ -41,12 +41,14 @@ Assess the following independent checks:
 
 Readiness requires meaning and reading burden to pass, plus issue focus for issues. If uncertain, report that uncertainty rather than treating subjective preference as a definite failure.
 
-All submissions reviewed by this process must follow the template:
+All submissions reviewed by this process must follow this structure:
 
 - Start with `## What and why` and use at most 250 words, excluding HTML template comments and the optional appendix.
 - Explain the reported problem or proposed change and why it matters, understandably without reading code or the appendix.
 - Keep code walkthroughs, internal symbol/file inventories, lengthy logs, detailed verification, and AI working notes out of the opening.
-- Place supplementary details, if any, in one final `<details>` section with the summary `Technical details — optional reading`, as shown in CONTRIBUTING.md.
+- Place supplementary details, if any, in one `<details>` section after the opening. Use a clear summary such as `Technical details — optional reading` or `Technical details and verification`; equivalent wording is acceptable. A short attribution may follow the appendix.
+
+Judge the separation of essential meaning from optional detail, not cosmetic conformity. Do not request a rewrite solely for equivalent appendix wording, punctuation, or attribution placement.
 
 Do not penalize technical language by itself. Expected/actual results, affected versions, user impact, and brief reproduction commands or references needed to identify the problem can belong in the opening. Longer procedures belong in the appendix. A maintainer-facing tooling change need not invent an end-user impact. Do not demand an appendix when there are no supplementary details.
 
@@ -66,8 +68,8 @@ To work through unreviewed submissions, use the [queue search in CONTRIBUTING.md
 
 Use the label definitions in CONTRIBUTING.md. Creating the label scheme does not authorize classifying submissions; the dispatch must explicitly permit labeling.
 
-1. Read the full description and current labels. Check template compliance, meaning, reading burden, and issue focus where applicable.
-2. Select `review: needs-clarification` if essential meaning or the relationship between requests requires an answer, `review: needs-rewrite` if the template is not followed, the existing facts suffice but the opening needs editorial work, or clear independent requests need splitting, or `review: ready` if all applicable checks pass. If clarification and rewriting are both needed, clarification takes precedence. Lack of diagnostics alone does not justify clarification. If uncertainty prevents a confident verdict, defer and report it rather than guessing.
+1. Read the full description and current labels. Check the required structure, meaning, reading burden, and issue focus where applicable; do not treat cosmetic differences as failures.
+2. Select `review: needs-clarification` if essential meaning or the relationship between requests requires an answer, `review: needs-rewrite` if the required structure is missing, the existing facts suffice but the opening needs editorial work, or clear independent requests need splitting, or `review: ready` if all applicable checks pass. If clarification and rewriting are both needed, clarification takes precedence. Lack of diagnostics alone does not justify clarification. If uncertainty prevents a confident verdict, defer and report it rather than guessing.
 3. Independently select all supported type labels. A report can be both bug and support, for example. Do not assume a proposed fix makes every bug report a feature request. If none fit or classification is uncertain, report that rather than inventing a category.
 4. Before writing, reread the description, state, and labels. Reassess changed text and skip items that have closed. Update only the six managed labels; preserve unrelated labels. Apply one readiness label and remove competing readiness labels. Reconcile type labels only when confident about the classification.
 5. Use targeted label additions/removals, not wholesale replacement of the label list. Verify the resulting labels. If a write or verification fails, report the partial result explicitly; do not claim successful classification.

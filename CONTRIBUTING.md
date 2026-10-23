@@ -39,6 +39,8 @@ Optional logs, investigation, implementation notes, and AI context.
 </details>
 ```
 
+The structure matters more than exact appendix wording. Use a clear summary such as `Technical details — optional reading` or `Technical details and verification`; equivalent wording is welcome. A short attribution after the collapsed section is fine. Do not request a rewrite solely for these cosmetic differences.
+
 The technical appendix has no word limit, but should remain relevant and must not contain secrets. Remove it when unnecessary. Do not hide information essential to deciding whether the report or proposal matters.
 
 ### One decision per issue
@@ -55,7 +57,7 @@ Maintainers may dispatch agents to review descriptions. **Closure is not enabled
 
 Agents should review descriptions, not the merits of the contribution. AI judgments can be wrong; contributors can ask a maintainer to review the feedback.
 
-The ongoing review process checks template compliance but does not edit submission bodies. A description that does not follow the template receives `review: needs-rewrite`; if essential meaning also needs clarification, `review: needs-clarification` takes precedence.
+The ongoing review process checks structure and readability, not exact appendix wording, and does not edit submission bodies. A description that lacks the opening `## What and why` section or leaves supplementary technical detail outside the collapsed appendix receives `review: needs-rewrite`; if essential meaning also needs clarification, `review: needs-clarification` takes precedence. Equivalent appendix summaries and a short trailing attribution do not block readiness.
 
 Editorial opinions and requests to split, clarify, or rewrite belong in review comments, not in the submission's body. Labels record the review outcome; they do not replace specific feedback when a review comment is authorized.
 
