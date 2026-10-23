@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock, type MockInstance } from "vitest";
 import { trustApi } from "../api";
 import type { Workspace, WorkspaceTrustResponse } from "../api";
 import type { MachineStatusSnapshot } from "../../../shared/machineStatus";
@@ -10,6 +10,11 @@ installPopoverFake();
 import { WorkspaceList } from "./WorkspaceList";
 
 let restoreClipboardStub: () => void = () => undefined;
+let fetchRequests: MockInstance<typeof fetch>;
+
+beforeEach(() => {
+  fetchRequests = vi.spyOn(globalThis, "fetch");
+});
 
 beforeEach(() => {
   // Every menu open loads trust, including removal and clipboard scenarios.
@@ -19,11 +24,13 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  const escapedRequests = [...fetchRequests.mock.calls];
   vi.restoreAllMocks();
   restoreClipboardStub();
   restoreClipboardStub = () => undefined;
   document.body.replaceChildren();
   localStorage.clear();
+  expect(escapedRequests).toEqual([]);
 });
 
 describe("workspace move actions", () => {
@@ -129,6 +136,15 @@ describe("workspace-list removal actions", () => {
       },
     });
     const withoutRemoval = workspace("plain");
+    const trust = vi.spyOn(trustApi, "workspaceTrust").mockImplementation((projectId, workspaceId, machineId) => {
+      if (projectId === "project-1" && machineId === "local" && workspaceId === "neutral") {
+        return Promise.resolve({ path: "/repo/neutral", decision: true, trusted: true });
+      }
+      if (projectId === "project-1" && machineId === "local" && workspaceId === "plain") {
+        return Promise.resolve({ path: "/repo/plain", decision: false, trusted: false });
+      }
+      return Promise.reject(new Error(`Unexpected trust request: ${projectId}/${workspaceId}/${String(machineId)}`));
+    });
     const onDelete = vi.fn();
     const list = new WorkspaceList();
     list.workspaces = [removable, withoutRemoval];
@@ -138,7 +154,7 @@ describe("workspace-list removal actions", () => {
 
     const toggles = list.shadowRoot?.querySelectorAll<HTMLButtonElement>(".action-menu-toggle");
     toggles?.[0]?.click();
-    await list.updateComplete;
+    await expectTrustLoaded(list, true);
 
     const action = list.shadowRoot?.querySelector<HTMLButtonElement>(".workspace-menu-actions .danger");
     expect(action?.textContent).toBe("Disconnect view");
@@ -148,7 +164,8 @@ describe("workspace-list removal actions", () => {
     await list.updateComplete;
 
     list.shadowRoot?.querySelectorAll<HTMLButtonElement>(".action-menu-toggle")[1]?.click();
-    await list.updateComplete;
+    await expectTrustLoaded(list, false);
+    expect(trust.mock.calls).toEqual([["project-1", "neutral", "local"], ["project-1", "plain", "local"]]);
     // The actions block stays visible for the project-trust toggle, but it
     // must not offer a removal action without removal metadata.
     expect(list.shadowRoot?.querySelector(".workspace-menu-actions")).not.toBeNull();
@@ -208,9 +225,11 @@ describe("workspace status indicator", () => {
 describe("workspace detail copy buttons", () => {
   it("copies the workspace path from the menu details and keeps the menu open", async () => {
     const writeText = stubClipboardWriteText(() => Promise.resolve());
+    const trust = vi.spyOn(trustApi, "workspaceTrust").mockResolvedValue({ path: "/repo/ws-a", decision: true, trusted: true });
     const list = await mountWorkspaceList([workspace("ws-a")]);
     openMenu(list, "ws-a");
-    await list.updateComplete;
+    await expectTrustLoaded(list, true);
+    expect(trust.mock.calls).toEqual([["project-1", "ws-a", "local"]]);
 
     detailCopyButton(list, "Copy path").click();
     await vi.waitFor(() => { expect(writeText).toHaveBeenCalledWith("/repo/ws-a"); });
@@ -229,9 +248,11 @@ describe("workspace detail copy buttons", () => {
         metadata: { branch: "feature-x" },
       },
     });
+    const trust = vi.spyOn(trustApi, "workspaceTrust").mockResolvedValue({ path: "/repo/ws-a", decision: false, trusted: false });
     const list = await mountWorkspaceList([listed]);
     openMenu(list, "review app");
-    await list.updateComplete;
+    await expectTrustLoaded(list, false);
+    expect(trust.mock.calls).toEqual([["project-1", "ws-a", "local"]]);
 
     detailCopyButton(list, "Copy workspace label").click();
     await vi.waitFor(() => { expect(writeText).toHaveBeenCalledWith("review app"); });
@@ -241,9 +262,11 @@ describe("workspace detail copy buttons", () => {
 
   it("keeps the copy action unchanged when the clipboard write fails", async () => {
     const writeText = stubClipboardWriteText(() => Promise.reject(new Error("denied")));
+    const trust = vi.spyOn(trustApi, "workspaceTrust").mockResolvedValue({ path: "/repo/ws-a", decision: true, trusted: true });
     const list = await mountWorkspaceList([workspace("ws-a")]);
     openMenu(list, "ws-a");
-    await list.updateComplete;
+    await expectTrustLoaded(list, true);
+    expect(trust.mock.calls).toEqual([["project-1", "ws-a", "local"]]);
 
     detailCopyButton(list, "Copy path").click();
     await vi.waitFor(() => { expect(writeText).toHaveBeenCalled(); });
@@ -257,10 +280,11 @@ describe("workspace detail copy buttons", () => {
 
 describe("workspace trust menu item", () => {
   it("puts the checkbox after its label and the documentation on a separate description line", async () => {
+    const trustRequest = vi.spyOn(trustApi, "workspaceTrust").mockResolvedValue({ path: "/repo/ws-a", decision: true, trusted: true });
     const list = await mountWorkspaceList([workspace("ws-a")]);
     openMenu(list, "ws-a");
-    await list.updateComplete;
-    await list.updateComplete;
+    await expectTrustLoaded(list, true);
+    expect(trustRequest.mock.calls).toEqual([["project-1", "ws-a", "local"]]);
 
     const trust = list.shadowRoot?.querySelector(".workspace-menu-trust");
     const link = trust?.querySelector<HTMLAnchorElement>("a");
@@ -292,8 +316,7 @@ describe("workspace trust menu item", () => {
     const list = await mountWorkspaceList([workspace("ws-a")]);
     list.onSelect = vi.fn();
     openMenu(list, "ws-a");
-    await list.updateComplete;
-    await list.updateComplete;
+    await expectTrustLoaded(list, true);
     const checkbox = trustCheckbox(list);
     expect(checkbox.checked).toBe(true);
     expect(checkbox.disabled).toBe(false);
@@ -313,6 +336,16 @@ describe("workspace trust menu item", () => {
     expect(list.shadowRoot?.querySelector(".workspace-menu-panel")).not.toBeNull();
   });
 });
+
+async function expectTrustLoaded(list: WorkspaceList, trusted: boolean): Promise<void> {
+  await vi.waitFor(async () => {
+    await list.updateComplete;
+    const checkbox = trustCheckbox(list);
+    expect(checkbox.disabled).toBe(false);
+    expect(checkbox.checked).toBe(trusted);
+    expect(list.shadowRoot?.querySelector('.workspace-menu-trust [role="alert"]')).toBeNull();
+  });
+}
 
 function trustCheckbox(list: WorkspaceList): HTMLInputElement {
   const checkbox = list.shadowRoot?.querySelector<HTMLInputElement>('.workspace-menu-trust input[type="checkbox"]');

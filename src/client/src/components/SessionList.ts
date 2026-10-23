@@ -122,6 +122,8 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
     archivedSessions: SessionInfo[];
   };
 
+  private autoExpandedForSelection = false;
+
   // Sessions are replaced on refresh; transient UI state must not rebuild the tree.
   private treeCache?: {
     sessions: SessionInfo[];
@@ -246,6 +248,20 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
       this.focusedPinRowId = this.focusedSessionId;
       this.menuFocusAfterReorder = this.focusedMenuControl;
     }
+    this.autoExpandedForSelection = false;
+    if (changed.has("sessions")) {
+      if (this.openMenuSessionId !== undefined && !this.sessions.some((session) => session.id === this.openMenuSessionId)) this.openMenuSessionId = undefined;
+      if (!this.sessions.some((session) => session.archived === true)) this.archivedExpanded = false;
+      this.pruneSelectedSessionIds();
+    }
+    if (changed.has("collapsed") && this.collapsed) this.openMenuSessionId = undefined;
+    const previousSelected = changed.get("selected");
+    const selectionNavigated = changed.has("selected") && (previousSelected?.id !== this.selected?.id || (previousSelected?.archived === true && this.selected?.archived !== true));
+    if (selectionNavigated) this.revealSelectedAgentRow();
+    if (changed.has("selected") && this.selected?.archived === true && (previousSelected?.id !== this.selected.id || previousSelected.archived !== true) && !this.archivedExpanded) {
+      this.archivedExpanded = true;
+      this.autoExpandedForSelection = true;
+    }
   }
 
   protected override updated(changed: PropertyValues<this>): void {
@@ -262,23 +278,7 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
       target?.focus({ preventScroll: true });
     }
     this.menuFocusAfterReorder = undefined;
-    if (changed.has("sessions")) {
-      if (this.openMenuSessionId !== undefined && !this.sessions.some((session) => session.id === this.openMenuSessionId)) this.openMenuSessionId = undefined;
-      if (!this.sessions.some((session) => session.archived === true)) this.archivedExpanded = false;
-      this.pruneSelectedSessionIds();
-    }
-    if (changed.has("collapsed") && this.collapsed) this.openMenuSessionId = undefined;
-    const previousSelected = changed.get("selected");
-    const selectionNavigated = changed.has("selected") && (previousSelected?.id !== this.selected?.id || (previousSelected?.archived === true && this.selected?.archived !== true));
-    const agentRevealed = selectionNavigated && this.revealSelectedAgentRow();
-    if (changed.has("selected") && this.selected?.archived === true && (previousSelected?.id !== this.selected.id || previousSelected.archived !== true) && !this.archivedExpanded) {
-      this.archivedExpanded = true;
-      void this.updateComplete.then(() => { this.scrollSelectedIntoView(); });
-      return;
-    }
-    if (agentRevealed) {
-      void this.updateComplete.then(() => { this.scrollSelectedIntoView(); });
-    } else if (this.shouldRevealSelectedRow(changed)) this.scrollSelectedIntoView();
+    if (this.autoExpandedForSelection || this.shouldRevealSelectedRow(changed)) this.scrollSelectedIntoView();
   }
 
   /**
