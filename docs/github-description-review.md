@@ -10,11 +10,11 @@ Example instruction, portable to PI WEB and other harnesses:
 
 For a read-only dry run, replace “Use comment-only mode” with “Use read-only mode: report proposed feedback here; take no action on GitHub.” Read-only mode forbids all GitHub writes, including review comments. To compare models, specify the same issue and PR numbers for each run.
 
-The ongoing review process requires the template's structure, not exact appendix wording. A missing opening `## What and why` section or misplaced technical details requires `review: needs-rewrite`, even when the what and why can be found in the text. Equivalent appendix summaries and a short trailing attribution are acceptable. Do not mentally extract a good summary from scattered technical prose and call that a pass. Review agents must not edit bodies to make them compliant.
+The ongoing review process requires the template's structure, not exact appendix wording. A missing opening `## What and why` section or misplaced technical details requires `description: needs-rewrite`, even when the what and why can be found in the text. Equivalent appendix summaries and a short trailing attribution are acceptable. Do not mentally extract a good summary from scattered technical prose and call that a pass. Review agents must not edit bodies to make them compliant.
 
 For labeling without comments, dispatch:
 
-> Classify up to 20 recently updated open issues using CONTRIBUTING.md and docs/github-description-review.md. Use label-only mode: update readiness and type labels, but do not comment, edit descriptions, or close anything. Report the changes and uncertainties here.
+> Classify up to 20 recently updated open issues using CONTRIBUTING.md and docs/github-description-review.md. Use label-only mode: update description and type labels, but do not comment, edit descriptions, or close anything. Report the changes and uncertainties here.
 
 Labeling applies to issues by default; include PRs only when the dispatch requests them. Comment-only mode does not permit labels, and label-only mode does not permit comments. Both require explicit permission to combine. Read-only mode overrides both and permits no writes.
 
@@ -39,7 +39,7 @@ Assess the following independent checks:
 
 3. **Issue focus:** Does the issue present one independently decidable request? If one proposal could be accepted while another is rejected, ask for separate linked issues. A shared context is not sufficient to combine them. Related symptoms or necessary implementation steps for one outcome can stay together; multiple type labels do not imply multiple requests.
 
-Readiness requires meaning and reading burden to pass, plus issue focus for issues. If uncertain, report that uncertainty rather than treating subjective preference as a definite failure.
+A clear description requires meaning and reading burden to pass, plus issue focus for issues. If uncertain, report that uncertainty rather than treating subjective preference as a definite failure.
 
 All submissions reviewed by this process must follow this structure:
 
@@ -64,18 +64,18 @@ Examples:
 
 ## Label procedure
 
-To work through unreviewed submissions, use the [queue search in CONTRIBUTING.md](../CONTRIBUTING.md#find-unreviewed-submissions). Do not use `no:label` as a substitute: submissions with type labels may still need a readiness review. A dispatch targeting unreviewed submissions should apply that search when listing candidates; a general recent-updates review can also reassess previously labeled items.
+To work through unreviewed submissions, use the [queue search in CONTRIBUTING.md](../CONTRIBUTING.md#find-unreviewed-submissions). Do not use `no:label` as a substitute: submissions with type labels may still need a description review. A dispatch targeting unreviewed submissions should apply that search when listing candidates; a general recent-updates review can also reassess previously labeled items.
 
 Use the label definitions in CONTRIBUTING.md. Creating the label scheme does not authorize classifying submissions; the dispatch must explicitly permit labeling.
 
 1. Read the full description and current labels. Check the required structure, meaning, reading burden, and issue focus where applicable; do not treat cosmetic differences as failures.
-2. Select `review: needs-clarification` if essential meaning or the relationship between requests requires an answer, `review: needs-rewrite` if the required structure is missing, the existing facts suffice but the opening needs editorial work, or clear independent requests need splitting, or `review: ready` if all applicable checks pass. If clarification and rewriting are both needed, clarification takes precedence. Lack of diagnostics alone does not justify clarification. If uncertainty prevents a confident verdict, defer and report it rather than guessing.
+2. Select `description: needs-clarification` if essential meaning or the relationship between requests requires an answer, `description: needs-rewrite` if the required structure is missing, the existing facts suffice but the opening needs editorial work, or clear independent requests need splitting, or `description: clear` if all applicable checks pass. If clarification and rewriting are both needed, clarification takes precedence. Lack of diagnostics alone does not justify clarification. If uncertainty prevents a confident verdict, defer and report it rather than guessing.
 3. Independently select all supported type labels. A report can be both bug and support, for example. Do not assume a proposed fix makes every bug report a feature request. If none fit or classification is uncertain, report that rather than inventing a category.
-4. Before writing, reread the description, state, and labels. Reassess changed text and skip items that have closed. Update only the six managed labels; preserve unrelated labels. Apply one readiness label and remove competing readiness labels. Reconcile type labels only when confident about the classification.
+4. Before writing, reread the description, state, and labels. Reassess changed text and skip items that have closed. Update only the six managed labels; preserve unrelated labels. Apply one description label and remove competing description labels. Reconcile type labels only when confident about the classification.
 5. Use targeted label additions/removals, not wholesale replacement of the label list. Verify the resulting labels. If a write or verification fails, report the partial result explicitly; do not claim successful classification.
 6. Report changes and deferrals here, without a redundant success comment on GitHub. Do not create or delete label definitions as part of a classification run.
 
-The absence of a readiness label means no completed classification, not rejection. A previously assigned label may be stale after edits; uncertainty or API failure must not be reported as a new successful review.
+The absence of a description label means no completed description classification, not rejection. A previously assigned label may be stale after edits; uncertainty or API failure must not be reported as a new successful review.
 
 ## Feedback format
 

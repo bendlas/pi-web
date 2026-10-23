@@ -49,7 +49,7 @@ Each issue should present one independently decidable request. If one proposal c
 
 This does not mean one symptom, one file, or one implementation step per issue. Related symptoms and necessary parts of the same outcome can stay together. A focused issue can also have multiple type labels.
 
-When an issue bundles independent requests, identify what should be separated rather than summarizing them into an apparently unified proposal. Use `review: needs-rewrite` when the requests are clear but need splitting, or `review: needs-clarification` when their relationship or intended outcome is unclear. Splitting is an editorial request, not acceptance or rejection of either proposal; agents must not choose which proposal to keep without authorization.
+When an issue bundles independent requests, identify what should be separated rather than summarizing them into an apparently unified proposal. Use `description: needs-rewrite` when the requests are clear but need splitting, or `description: needs-clarification` when their relationship or intended outcome is unclear. Splitting is an editorial request, not acceptance or rejection of either proposal; agents must not choose which proposal to keep without authorization.
 
 ### Description reviews
 
@@ -57,21 +57,21 @@ Maintainers may dispatch agents to review descriptions. **Closure is not enabled
 
 Agents should review descriptions, not the merits of the contribution. AI judgments can be wrong; contributors can ask a maintainer to review the feedback.
 
-The ongoing review process checks structure and readability, not exact appendix wording, and does not edit submission bodies. A description that lacks the opening `## What and why` section or leaves supplementary technical detail outside the collapsed appendix receives `review: needs-rewrite`; if essential meaning also needs clarification, `review: needs-clarification` takes precedence. Equivalent appendix summaries and a short trailing attribution do not block readiness.
+The ongoing review process checks structure and readability, not exact appendix wording, and does not edit submission bodies. A description that lacks the opening `## What and why` section or leaves supplementary technical detail outside the collapsed appendix receives `description: needs-rewrite`; if essential meaning also needs clarification, `description: needs-clarification` takes precedence. Equivalent appendix summaries and a short trailing attribution do not block a clear description label.
 
 Editorial opinions and requests to split, clarify, or rewrite belong in review comments, not in the submission's body. Labels record the review outcome; they do not replace specific feedback when a review comment is authorized.
 
 ### Labels
 
-Readiness and type are independent. After review, use exactly one readiness label:
+Description quality and contribution type are independent. After a description review, use exactly one description label:
 
 | Label | Meaning |
 | --- | --- |
-| `review: ready` | The opening explains what/why and is easy to scan without implementation narration; an issue presents one independently decidable request. |
-| `review: needs-clarification` | Essential meaning is missing or ambiguous; a specific answer is needed. |
-| `review: needs-rewrite` | The information is available, but the opening needs rewriting, technical detail needs separating, or independent requests need splitting. |
+| `description: clear` | The opening explains what/why and is easy to scan without implementation narration; an issue presents one independently decidable request. |
+| `description: needs-clarification` | Essential meaning is missing or ambiguous; a specific answer is needed. |
+| `description: needs-rewrite` | The information is available, but the opening needs rewriting, technical detail needs separating, or independent requests need splitting. |
 
-No readiness label means unreviewed. If clarification and rewriting are both needed, use `review: needs-clarification` first. Ready means ready for a human to read—not a confirmed bug, accepted proposal, or merge approval. Labels describe the last review; edits may require reassessment.
+No description label means the description is unreviewed. If clarification and rewriting are both needed, use `description: needs-clarification` first. Clear describes the description—not a confirmed bug, accepted proposal, code-review result, or merge approval. Labels describe the last description review; edits may require reassessment.
 
 Apply every relevant type label, including multiple labels for mixed requests:
 
@@ -85,14 +85,14 @@ Classify the reported concern, not whether it has been verified. Do not infer ty
 
 #### Find unreviewed submissions
 
-No default label is needed. In the repository's GitHub issue or PR search, find open submissions without a readiness label:
+No default label is needed. In the repository's GitHub issue or PR search, find open submissions without a description label:
 
 ```text
-is:open -label:"review: ready" -label:"review: needs-clarification" -label:"review: needs-rewrite"
+is:open -label:"description: clear" -label:"description: needs-clarification" -label:"description: needs-rewrite"
 ```
 
-Add `is:issue` or `is:pr` to select one kind. This includes submissions that already have type labels. Use `is:open no:label` only to find submissions with no labels at all; it is not the full unreviewed queue. These searches do not detect stale readiness labels after description edits.
+Add `is:issue` or `is:pr` to select one kind. This includes submissions that already have type labels. Use `is:open no:label` only to find submissions with no labels at all; it is not the full unreviewed queue. These searches do not detect stale description labels after description edits.
 
-Creating an issue does not by itself grant permission to assign labels. Maintainers and collaborators with sufficient repository permissions can apply them; authenticated agents act with the permissions and authorization they are given. The templates do not assign readiness labels.
+Creating an issue does not by itself grant permission to assign labels. Maintainers and collaborators with sufficient repository permissions can apply them; authenticated agents act with the permissions and authorization they are given. The templates do not assign description labels.
 
 Maintainers and agents: follow the [description review runbook](docs/github-description-review.md).
