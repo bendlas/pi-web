@@ -2,4 +2,4 @@
 "@jmfederico/pi-web": patch
 ---
 
-Avoid redundant session-list updates when revealing archived selections, restoring the last archive, or collapsing an open action menu, while preserving manual archive collapse and post-render scrolling.
+Reveal selected archived sessions and nested agent subsessions in the first session-list render. Clear stale menus and bulk selections before rendering, while preserving manual collapse, pin focus, and post-render scrolling.

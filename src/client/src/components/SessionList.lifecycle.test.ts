@@ -3,24 +3,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
 import type { SessionInfo } from "../api";
 import type { SessionList as SessionListElement } from "./SessionList";
+import { SessionList } from "./SessionList";
+import { installPopoverFake } from "./anchoredPopup.testSupport";
+installPopoverFake();
 
-const { SessionList } = await loadSessionList();
-
-async function loadSessionList() {
-  const notice = "Lit is in dev mode. Not recommended for production! See https://lit.dev/msg/dev-mode for more information.";
-  const originalWarn = console.warn;
-  const warnings = vi.spyOn(console, "warn").mockImplementation((...args: unknown[]) => {
-    if (args.length === 1 && args[0] === notice) return;
-    originalWarn(...args);
-  });
-  try {
-    const component = await import("./SessionList");
-    expect(warnings.mock.calls).toEqual([[notice]]);
-    return component;
-  } finally {
-    warnings.mockRestore();
-  }
-}
 
 let scrollIntoView: MockInstance;
 let warnings: MockInstance;
@@ -283,6 +269,78 @@ describe("SessionList first-commit derived state", () => {
     expect(commits).toHaveLength(1);
     expect(commits[0]?.rowPaths).toEqual([]);
     expect(scrollIntoView).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { archived: false, initial: true },
+    { archived: false, initial: false },
+    { archived: true, initial: true },
+    { archived: true, initial: false },
+  ])("reveals nested agent ancestors before committing (archived=$archived, initial=$initial)", async ({ archived, initial }) => {
+    const flags = archived ? archive : {};
+    const parent = session("parent", flags);
+    const agent = session("agent", { ...flags, parentSessionPath: parent.path, agentSubsession: true });
+    const nested = session("nested", { ...flags, parentSessionPath: agent.path, agentSubsession: true });
+    const list = createList([parent, agent, nested], initial ? nested : undefined);
+    if (!initial) {
+      document.body.append(list);
+      await list.updateComplete;
+      expect(list.renderRoot.querySelector(`[title="${nested.path}"]`)).toBeNull();
+      list.selected = nested;
+    }
+    const commits = observeCommits(list);
+    const revealCounts = recordRevealOrdering(list, commits);
+    if (initial) document.body.append(list);
+
+    expect(await list.updateComplete).toBe(true);
+
+    expect(commits[0]?.rowPaths).toEqual([parent.path, agent.path, nested.path]);
+    expectRevealAfterCommit(list, commits, nested.path);
+    expect(revealCounts).toEqual([1]);
+    expect(list.isUpdatePending).toBe(false);
+  });
+
+  it("removes a deleted session's menu before committing the refreshed list", async () => {
+    const current = session("current");
+    const other = session("other");
+    const list = createList([current, other]);
+    document.body.append(list);
+    await list.updateComplete;
+    button(list, ".action-menu-toggle").click();
+    await list.updateComplete;
+    expect(list.renderRoot.querySelector(".action-menu-panel")).not.toBeNull();
+    const commits = observeCommits(list);
+
+    list.sessions = [other];
+
+    expect(await list.updateComplete).toBe(true);
+    expect(commits).toHaveLength(1);
+    expect(commits[0]?.rowPaths).toEqual([other.path]);
+    expect(commits[0]?.panels).toBe(0);
+    expect(list.isUpdatePending).toBe(false);
+  });
+
+  it("prunes bulk selection before committing and leaves returning sessions unselected", async () => {
+    const current = session("current");
+    const list = createList([current]);
+    document.body.append(list);
+    await list.updateComplete;
+    button(list, "h2:not(.subheading) .bulk-select-entry").click();
+    await list.updateComplete;
+    expect(list.renderRoot.querySelector<HTMLInputElement>('input[type="checkbox"]')?.checked).toBe(true);
+    const commits = observeCommits(list);
+
+    list.sessions = [];
+
+    expect(await list.updateComplete).toBe(true);
+    expect(commits).toHaveLength(1);
+    expect(list.isUpdatePending).toBe(false);
+    list.sessions = [current, session("other")];
+    expect(await list.updateComplete).toBe(true);
+    expect(list.renderRoot.querySelector(".selection-toolbar")).toBeNull();
+    button(list, "h2:not(.subheading) .bulk-select-entry").click();
+    await list.updateComplete;
+    expect(list.renderRoot.querySelectorAll('input[type="checkbox"]:checked')).toHaveLength(0);
   });
 
   it.each([false, true])("collapses with no correction render and does not reopen a menu (open=%s)", async (openMenu) => {

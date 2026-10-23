@@ -2,9 +2,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ChatView, chatImagePartSource, chatMessageAnchorKey, chatToolOutputLabel } from "./ChatView";
 import { TranscriptImage } from "./TranscriptImage";
-import { MarkdownImage } from "./MarkdownImage";
-import { FormattedText } from "./FormattedText";
-import { ImageIntersectionObserver, imagePresentation, latestImageObserver, settleImage } from "./imagePresentation.testSupport";
+import { settleImage } from "./imagePresentation.testSupport";
 
 afterEach(() => { document.body.replaceChildren(); localStorage.clear(); vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
 
@@ -33,13 +31,12 @@ describe("ChatView image content derivation", () => {
   });
 
   it("keys a tool image message to its stable scroll anchor", () => {
-    expect(chatMessageAnchorKey(7)).toBe("m:7");
+    expect(chatMessageAnchorKey(7, { entryId: "image-entry", role: "tool", parts: [] })).toBe('m:["image-entry","tool","message"]');
   });
 });
 
 describe("ChatView image event wiring", () => {
   async function mountImage() {
-    vi.stubGlobal("IntersectionObserver", undefined);
     const view = new ChatView();
     view.messages = [{ role: "user", parts: [{ type: "image", mimeType: "image/png", data: "QUJD" }] }];
     document.body.append(view);
@@ -52,7 +49,30 @@ describe("ChatView image event wiring", () => {
     return { view, presentation, native };
   }
 
-  it("re-pins late image layout changes only while already pinned to the bottom", async () => {
+  it("presents tool images as conversation while keeping their technical context in collapsed activity", async () => {
+    const view = new ChatView();
+    view.messages = [
+      { role: "tool", entryId: "tool-image", parts: [
+        { type: "toolResult", toolName: "read", text: "Read image file", isError: false },
+        { type: "image", mimeType: "image/png", data: "QUJD" },
+      ] },
+      { role: "assistant", entryId: "reply", parts: [{ type: "text", text: "Here is the image." }] },
+    ];
+    document.body.append(view);
+    await view.updateComplete;
+
+    const activity = view.renderRoot.querySelector<HTMLDetailsElement>(".event-group");
+    const imageMessage = view.renderRoot.querySelector("article.tool-image-output");
+    expect(activity?.open).toBe(false);
+    expect(imageMessage?.classList.contains("conversation-message")).toBe(true);
+    expect(imageMessage?.closest(".event-group")).toBeNull();
+    expect(imageMessage?.querySelector(".label")?.textContent).toBe("read output");
+    expect(imageMessage?.querySelector("pi-web-transcript-image")).not.toBeNull();
+    expect(view.renderRoot.querySelector("article.assistant")?.classList.contains("conversation-message")).toBe(true);
+    expect(activity?.querySelector(".conversation-message")).toBeNull();
+  });
+
+  it("leaves native image load/error events free of custom scroll corrections", async () => {
     const { view, presentation, native } = await mountImage();
     const scroll = vi.fn();
     Reflect.set(view, "scrollToBottom", scroll);
@@ -62,58 +82,22 @@ describe("ChatView image event wiring", () => {
     Reflect.set(view, "pinnedToBottom", false);
     native.dispatchEvent(new Event("error"));
     await presentation.updateComplete;
-    expect(scroll).toHaveBeenCalledOnce();
+    expect(scroll).not.toHaveBeenCalled();
+    expect(presentation.renderRoot.querySelector("img")).toBe(native);
   });
 
-  it("opens and closes the image zoom target on click and close", async () => {
-    const { view, presentation, native } = await mountImage();
-    native.dispatchEvent(new Event("load"));
-    await presentation.updateComplete;
+  it("opens and closes the image zoom target without waiting for native loading", async () => {
+    const { view, presentation } = await mountImage();
     presentation.renderRoot.querySelector<HTMLButtonElement>(".image-button")?.click();
     await view.updateComplete;
-    expect(view.renderRoot.querySelector(".image-zoom-full")).not.toBeNull();
-    view.renderRoot.querySelector<HTMLButtonElement>(".image-zoom-close")?.click();
+    const gallery = view.renderRoot.querySelector("pi-web-image-gallery-dialog");
+    expect(gallery?.shadowRoot?.querySelector(".image-zoom-full")).not.toBeNull();
+    gallery?.shadowRoot?.querySelector<HTMLButtonElement>(".image-zoom-close")?.click();
     await view.updateComplete;
-    expect(view.renderRoot.querySelector(".image-zoom-full")).toBeNull();
+    expect(gallery?.shadowRoot?.querySelector(".image-zoom-full")).toBeNull();
   });
 
-  it("finds the chat scroller across the actual formatted markdown shadow root before loading", async () => {
-    ImageIntersectionObserver.instances = [];
-    vi.stubGlobal("IntersectionObserver", ImageIntersectionObserver);
-    const view = new ChatView();
-    view.workspaceContext = { machineId: "local", projectId: "p", workspaceId: "w", root: "/repo" };
-    view.messages = [{ role: "user", parts: [{ type: "text", text: "![screenshot](screenshot.png)" }] }];
-    document.body.append(view);
-    await view.updateComplete;
-    const formatted = view.renderRoot.querySelector<FormattedText>("formatted-text");
-    if (formatted === null) throw new Error("Expected formatted markdown");
-    await formatted.updateComplete;
-    const image = formatted.renderRoot.querySelector<MarkdownImage>("pi-web-markdown-image");
-    if (image === null) throw new Error("Expected markdown image");
-    expect(await image.updateComplete).toBe(true);
-    expect(image.isUpdatePending).toBe(false);
-    expect(image.getRootNode()).toBe(formatted.renderRoot);
-    expect(formatted.getRootNode()).toBe(view.renderRoot);
-    const scroller = view.renderRoot.querySelector(".chat[data-image-scroll-root]");
-    if (scroller === null) throw new Error("Expected chat scroller");
-    const presentation = imagePresentation(image);
-    await presentation.updateComplete;
-    expect(presentation.source).toBeUndefined();
-    expect(presentation.renderRoot.querySelector("img")).toBeNull();
-    const observer = latestImageObserver();
-    expect(observer.root).toBe(scroller);
-    expect(observer.observe).toHaveBeenCalledExactlyOnceWith(image);
-    observer.notify();
-    expect(await image.updateComplete).toBe(true);
-    await presentation.updateComplete;
-    const url = new URL(presentation.renderRoot.querySelector("img")?.src ?? "");
-    expect(url.pathname).toBe("/api/machines/local/projects/p/workspaces/w/file/preview");
-    expect(url.searchParams.get("path")).toBe("screenshot.png");
-  });
-
-  it("gives nested image observers the actual chat scroller and session cwd", async () => {
-    ImageIntersectionObserver.instances = [];
-    vi.stubGlobal("IntersectionObserver", ImageIntersectionObserver);
+  it("assigns native image sources immediately with the selected machine and session cwd", async () => {
     const view = new ChatView();
     view.machineId = "remote /?";
     view.sessionId = "session /?";
@@ -123,22 +107,11 @@ describe("ChatView image event wiring", () => {
     await view.updateComplete;
     const image = view.renderRoot.querySelector<TranscriptImage>("pi-web-transcript-image");
     if (image === null) throw new Error("Expected transcript image");
-    expect(await image.updateComplete).toBe(true);
-    expect(image.isUpdatePending).toBe(false);
-    expect(image.getRootNode()).toBe(view.renderRoot);
-    const scroller = view.renderRoot.querySelector(".chat[data-image-scroll-root]");
-    if (scroller === null) throw new Error("Expected chat scroller");
-    const presentation = imagePresentation(image);
-    await presentation.updateComplete;
-    expect(presentation.source).toBeUndefined();
-    expect(presentation.renderRoot.querySelector("img")).toBeNull();
-    const observer = latestImageObserver();
-    expect(observer.root).toBe(scroller);
-    expect(observer.observe).toHaveBeenCalledExactlyOnceWith(image);
-    observer.notify();
-    expect(await image.updateComplete).toBe(true);
-    await presentation.updateComplete;
-    const url = new URL(presentation.renderRoot.querySelector("img")?.src ?? "");
+    const presentation = await settleImage(image);
+    const native = presentation.renderRoot.querySelector("img");
+    expect(native?.getAttribute("loading")).toBe("lazy");
+    expect(native?.getAttribute("decoding")).toBe("async");
+    const url = new URL(native?.src ?? "");
     expect(url.searchParams.get("cwd")).toBe(view.sessionCwd);
     expect(url.pathname).toContain("/machines/remote%20%2F%3F/sessions/session%20%2F%3F/media/");
   });

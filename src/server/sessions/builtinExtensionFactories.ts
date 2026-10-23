@@ -1,55 +1,29 @@
-import type { InlineExtension } from "@earendil-works/pi-coding-agent";
+import { spawn } from "node:child_process";
+import { McpAuthFlowService } from "./mcpAuthFlowService.js";
+import { createCodemodeExtension, createMcpExtension, createToolSearchExtension, type InlineExtension } from "../../piSdk.js";
 
-/**
- * Lazily resolve built-in extension factories from the pi coding-agent package.
- *
- * When the installed version supports `createMcpExtension`,
- * `createCodemodeExtension`, and `createToolSearchExtension` (0.99+), the
- * factories are returned so the session resource loader can wire up the
- * built-in `/mcp`, `codemode`, and `tool_search` commands. When those exports
- * do not exist (older versions), `[]` is returned — degradation to the
- * previous behaviour with no built-in extensions loaded.
- *
- * Memoised: the factory lookup runs once; all callers get the same result.
- */
+// Pi 1.x guarantees these exports. Create factories lazily and share them across
+// session resource loaders; missing exports must not silently disable builtins.
 let cachedPromise: Promise<InlineExtension[]> | undefined;
 
-export async function getBuiltinExtensionFactories(): Promise<InlineExtension[]> {
-  cachedPromise ??= resolveBuiltinFactories();
+export function getBuiltinExtensionFactories(): Promise<InlineExtension[]> {
+  cachedPromise ??= Promise.resolve().then(() => [
+    { name: "mcp", factory: createMcpExtension({ openUrl: openMcpUrl }), builtin: true, replaceable: true },
+    { name: "codemode", factory: createCodemodeExtension(), builtin: true, replaceable: true },
+    { name: "tool-search", factory: createToolSearchExtension(), builtin: true, replaceable: true },
+  ]);
   return cachedPromise;
 }
 
-async function resolveBuiltinFactories(): Promise<InlineExtension[]> {
-  const pkg = await import("@earendil-works/pi-coding-agent");
-
-  const factories: InlineExtension[] = [];
-
-  if (typeof pkg.createMcpExtension === "function") {
-    factories.push({
-      name: "mcp",
-      factory: pkg.createMcpExtension(),
-      builtin: true,
-      replaceable: true,
-    });
+function openMcpUrl(url: string): void {
+  const operation = McpAuthFlowService.current();
+  if (operation) {
+    operation.openUrl(url);
+    return;
   }
-
-  if (typeof pkg.createCodemodeExtension === "function") {
-    factories.push({
-      name: "codemode",
-      factory: pkg.createCodemodeExtension(),
-      builtin: true,
-      replaceable: true,
-    });
-  }
-
-  if (typeof pkg.createToolSearchExtension === "function") {
-    factories.push({
-      name: "tool-search",
-      factory: pkg.createToolSearchExtension(),
-      builtin: true,
-      replaceable: true,
-    });
-  }
-
-  return factories;
+  // Preserve Pi's best-effort browser launch outside modal operations. Use no
+  // shell: authorization URLs can contain shell metacharacters.
+  const [command, args] = process.platform === "darwin" ? ["open", [url]]
+    : process.platform === "win32" ? ["rundll32", ["url.dll,FileProtocolHandler", url]] : ["xdg-open", [url]];
+  spawn(command, args, { stdio: "ignore", detached: true }).on("error", () => { /* URL is also presented by Pi's UI. */ }).unref();
 }

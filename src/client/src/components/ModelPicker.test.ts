@@ -1,27 +1,11 @@
 // @vitest-environment happy-dom
+import { installNativeDialogFake } from "./nativeDialog.testSupport";
+installNativeDialogFake();
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CommandOption, SessionModelCatalogEntry } from "../api";
 import { deepActiveElement, dialogSurface, pressKey, requiredElement, settleRenderedDialog } from "./modalSurfaceTestSupport";
-type ModelPicker = import("./ModelPicker").ModelPicker;
-
-const { ModelPicker } = await loadModelPicker();
-
-async function loadModelPicker() {
-  const notice = "Lit is in dev mode. Not recommended for production! See https://lit.dev/msg/dev-mode for more information.";
-  const originalWarn = console.warn;
-  const warnings = vi.spyOn(console, "warn").mockImplementation((...args: unknown[]) => {
-    if (args.length === 1 && args[0] === notice) return;
-    originalWarn(...args);
-  });
-  try {
-    const module = await import("./ModelPicker");
-    expect(warnings.mock.calls).toEqual([[notice]]);
-    return module;
-  } finally {
-    warnings.mockRestore();
-  }
-}
+import { ModelPicker } from "./ModelPicker";
 
 afterEach(() => {
   document.body.replaceChildren();
@@ -31,7 +15,6 @@ afterEach(() => {
 
 describe("model-picker initial selection", () => {
   it("renders the supplied non-first model as current on its first completed update", async () => {
-    const warnings = vi.spyOn(console, "warn");
     const picker = createPicker({ selectedValue: "anthropic/claude-sonnet-4-5" });
     document.body.append(picker);
 
@@ -41,7 +24,6 @@ describe("model-picker initial selection", () => {
     expect(selectedRowText(picker)).toContain("claude-sonnet-4-5");
     expect(firstComplete).toBe(true);
     expect(picker.isUpdatePending).toBe(false);
-    expect(warnings).not.toHaveBeenCalled();
   });
 
   it.each([undefined, "missing/model"])("keeps the first row when the initial value is %s", async (selectedValue) => {

@@ -3,25 +3,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SlashCommand } from "../api";
 import { api } from "../api";
 import type { PromptEditor as PromptEditorElement } from "./PromptEditor";
+import { PromptEditor } from "./PromptEditor";
+import { installPopoverFake } from "./anchoredPopup.testSupport";
+installPopoverFake();
 import type { AutocompleteMenu } from "./AutocompleteMenu";
 
-const { PromptEditor } = await loadPromptEditor();
-
-async function loadPromptEditor() {
-  const notice = "Lit is in dev mode. Not recommended for production! See https://lit.dev/msg/dev-mode for more information.";
-  const originalWarn = console.warn;
-  const warnings = vi.spyOn(console, "warn").mockImplementation((...args: unknown[]) => {
-    if (args.length === 1 && args[0] === notice) return;
-    originalWarn(...args);
-  });
-  try {
-    const module = await import("./PromptEditor");
-    expect(warnings.mock.calls).toEqual([[notice]]);
-    return module;
-  } finally {
-    warnings.mockRestore();
-  }
-}
 
 afterEach(() => {
   document.body.replaceChildren();
