@@ -9,6 +9,7 @@ import { parseServerNoticeScope } from "../../../shared/serverNoticeContract";
 import { requireDefaultThemePreference } from "../../../shared/themePreference";
 import { requireDefaultStreamingBehavior } from "../../../shared/streamingBehavior";
 import { isKnownThinkingLevel } from "../../../shared/thinkingLevels";
+import { requireInstallationName } from "../../../shared/installationName";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -87,6 +88,8 @@ export function parseMachine(value: unknown): Machine {
   return {
     id: requireString(record, "id"),
     name: requireString(record, "name"),
+    ...optionalField("nameOverride", optionalString(record, "nameOverride")),
+    ...optionalField("reportedName", optionalString(record, "reportedName")),
     kind,
     ...(baseUrl === undefined ? {} : { baseUrl }),
     createdAt: requireString(record, "createdAt"),
@@ -1483,6 +1486,7 @@ function parsePiWebConfigValues(value: unknown): PiWebConfigValues {
   return {
     ...optionalField("host", optionalString(record, "host")),
     ...optionalField("port", optionalNumber(record, "port")),
+    ...optionalField("installationName", record["installationName"] === undefined ? undefined : requireInstallationName(record["installationName"])),
     ...optionalField("allowedHosts", optionalAllowedHosts(record["allowedHosts"])),
     ...optionalField("shortcuts", optionalShortcuts(record["shortcuts"])),
     ...optionalField("defaultTheme", record["defaultTheme"] === undefined ? undefined : requireDefaultThemePreference(record["defaultTheme"], "response")),

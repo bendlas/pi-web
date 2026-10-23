@@ -19,12 +19,13 @@ export class MachineSwitcher extends LitElement implements KeyboardNavigableSect
 
   @property({ attribute: false }) machines: Machine[] = [];
   @property({ attribute: false }) selected?: Machine;
-  /** PWA display mode: the single-machine identity bubble only shows there. */
+  /** PWA display mode: adds the gateway URL to the machine identity. */
   @property({ type: Boolean }) locationIndicator = false;
   @property({ attribute: false }) statuses: Record<string, MachineHealth> = {};
   /** Per-machine status trees, keyed by machine id; a machine without one shows no indicator. */
   @property({ attribute: false }) statusSnapshots: Record<string, MachineStatusSnapshot> = {};
   @property({ attribute: false }) onSelect?: (machine: Machine) => void | Promise<void>;
+  @property({ attribute: false }) onEdit?: (machine: Machine) => void;
   @property({ attribute: false }) onRemove?: (machine: Machine) => void | Promise<void>;
   @property({ attribute: false }) onFocusNextSection?: () => void | Promise<void>;
   @property({ attribute: false }) onCancelKeyboardNavigation?: () => void | Promise<void>;
@@ -58,11 +59,8 @@ export class MachineSwitcher extends LitElement implements KeyboardNavigableSect
 
   override render() {
     const selected = this.selectedMachine();
+    if (this.machines.length <= 1) return this.renderMachineInfo(selected ?? { id: "local", name: "PI-WEB", kind: "local", createdAt: "", updatedAt: "" });
     if (selected === undefined) return null;
-    // A single machine offers nothing to select: in PWA mode it becomes a
-    // static identity with the machine's icon and URL; in browser mode
-    // the browser chrome already identifies the instance, so nothing renders.
-    if (this.machines.length <= 1) return this.locationIndicator ? this.renderMachineInfo(selected) : null;
     const status = machineStatus(selected, this.statuses);
     const label = selected.name;
     return html`
@@ -97,7 +95,7 @@ export class MachineSwitcher extends LitElement implements KeyboardNavigableSect
   private renderMachineOption(machine: Machine): TemplateResult {
     const selected = this.selected?.id === machine.id;
     const status = machineStatus(machine, this.statuses);
-    const hasActions = canRemoveMachine(machine) && this.onRemove !== undefined;
+    const hasActions = canRemoveMachine(machine) && (this.onRemove !== undefined || this.onEdit !== undefined);
     const actionsOpen = this.openActionsMachineId === machine.id;
     return html`
       <div class=${`machine-option ${selected ? "selected" : ""} ${hasActions ? "" : "no-actions"}`}>
@@ -124,7 +122,8 @@ export class MachineSwitcher extends LitElement implements KeyboardNavigableSect
             >⋯</button>
             ${actionsOpen ? html`
               <div popover="auto" class="machine-option-actions-panel ui-menu" @click=${(event: MouseEvent) => { event.stopPropagation(); }}>
-                <button class="danger ui-button ui-menu-item" title=${`Remove ${machine.name}`} @click=${() => { this.removeMachine(machine); }}>Remove</button>
+                ${this.onEdit === undefined ? null : html`<button class="ui-button ui-menu-item" @click=${() => { this.open = false; this.openActionsMachineId = undefined; this.onEdit?.(machine); }}>Edit display name</button>`}
+                ${this.onRemove === undefined ? null : html`<button class="danger ui-button ui-menu-item" title=${`Remove ${machine.name}`} @click=${() => { this.removeMachine(machine); }}>Remove</button>`}
               </div>
             ` : null}
           </div>
@@ -136,10 +135,13 @@ export class MachineSwitcher extends LitElement implements KeyboardNavigableSect
   private renderMachineInfo(machine: Machine): TemplateResult {
     const status = machineStatus(machine, this.statuses);
     return html`
-      <div class=${`machine-info ${status === "offline" || status === "error" ? "disconnected" : ""}`} title=${`${machineSubtitle(machine)} · ${machineStatusLabel(status)}`}>
+      <div class=${`machine-info ${status === "offline" || status === "error" ? "disconnected" : ""}`} title=${`${machine.name} · ${machineSubtitle(machine)} · ${machineStatusLabel(status)}`}>
         ${this.renderMachineIcon(machine)}
         ${this.renderActivity(machine)}
-        <span class="machine-info-url">${machineSubtitle(machine)}</span>
+        <span class="machine-switcher-text">
+          <span class="machine-switcher-label">${machine.name}</span>
+          ${this.locationIndicator ? html`<span class="machine-info-url">${machineSubtitle(machine)}</span>` : null}
+        </span>
       </div>
     `;
   }

@@ -22,7 +22,7 @@ import { bridgeSockets, markPluginBackendChannelUpgradeRequest } from "../webSoc
 import { applyWorkspaceFilePreviewErrorResponsePolicy, applyWorkspaceFilePreviewResponsePolicy } from "../workspaces/filePreviewResponseHeaders.js";
 import { workspaceFilePreviewErrorResponsePolicy, workspaceFilePreviewResponsePolicy, type WorkspaceFilePreviewResponsePolicy } from "../workspaces/filePreviewResponsePolicy.js";
 import { DEFAULT_REMOTE_REQUEST_TIMEOUT_MS, RemoteMachineRequestError, type MachineClient, type MachineHttpResponse, type MachineJsonResponse, type MachineRequestOptions } from "./machineClient.js";
-import { MachineService } from "./machineService.js";
+import type { MachineService } from "./machineService.js";
 
 export const REMOTE_HTTP_ROUTES = FEDERATED_HTTP_ROUTES;
 export const REMOTE_WEBSOCKET_ROUTES = FEDERATED_WEBSOCKET_ROUTES;
@@ -38,7 +38,7 @@ const SAFE_RESPONSE_HEADERS = new Set([
   "x-content-type-options",
 ]);
 
-type MachineProxyService = Pick<MachineService, "remoteClient">;
+type MachineProxyService = Pick<MachineService, "remoteClient" | "invalidateReportedName">;
 
 interface MachineProxyWebSocketParams {
   machineId: string;
@@ -49,7 +49,7 @@ interface MachineProxyWebSocketParams {
 
 export function registerMachineProxyRoutes(
   app: FastifyInstance,
-  machines: MachineProxyService = new MachineService(),
+  machines: MachineProxyService,
   pluginChannelAdmissions: PluginBackendChannelProxyAdmissionPool = pluginBackendChannelProxyAdmissionPool(app),
 ): void {
   for (const spec of REMOTE_HTTP_ROUTES) {
@@ -144,7 +144,11 @@ async function proxyHttpRequest(
 
   try {
     const remotePath = remoteApiPath(machineId, requestUrl);
-    if (spec.path === "/config") return await proxySelectedMachineConfigRequest(client, machineId, method, remotePath, body, reply);
+    if (spec.path === "/config") {
+      const response = await proxySelectedMachineConfigRequest(client, machineId, method, remotePath, body, reply);
+      if (method === "PUT" && reply.statusCode < 300) machines.invalidateReportedName(machineId);
+      return response;
+    }
 
     let preview: RemoteFilePreviewRequest | undefined;
     try {

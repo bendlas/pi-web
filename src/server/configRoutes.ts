@@ -4,6 +4,7 @@ import type { PiWebConfigEnvOverrides, PiWebConfigResponse, PiWebConfigValues } 
 import { requireDefaultThemePreference } from "../shared/themePreference.js";
 import { requireDefaultStreamingBehavior } from "../shared/streamingBehavior.js";
 import { isPiWebPluginId } from "../shared/pluginIds.js";
+import { requireInstallationName } from "../shared/installationName.js";
 
 export interface PiWebConfigService {
   read: () => PiWebConfigResponse | Promise<PiWebConfigResponse>;
@@ -11,6 +12,7 @@ export interface PiWebConfigService {
 }
 
 export const SELECTED_MACHINE_CONFIG_KEYS = [
+  "installationName",
   "plugins",
   "pathAccess",
   "uploads",
@@ -126,6 +128,7 @@ export function parsePiWebConfigResponseBody(value: unknown, source = "PI WEB co
 function parseConfigRequest(value: unknown, agentPathHost: AgentPathHost = "current"): PiWebConfig {
   if (!isRecord(value)) throw new Error("PI WEB config update must include a config object");
   const config: PiWebConfig = {};
+  if (value["installationName"] !== undefined) config.installationName = requireInstallationName(value["installationName"]);
   const host = value["host"];
   const port = value["port"];
   const allowedHosts = value["allowedHosts"];
@@ -176,6 +179,7 @@ function parseConfigRequest(value: unknown, agentPathHost: AgentPathHost = "curr
 
 function pickSelectedMachineConfig(config: PiWebConfigValues): PiWebConfig {
   return {
+    ...(config.installationName !== undefined ? { installationName: config.installationName } : {}),
     ...(config.plugins !== undefined ? { plugins: config.plugins } : {}),
     ...(config.pathAccess !== undefined ? { pathAccess: config.pathAccess } : {}),
     ...(config.uploads !== undefined ? { uploads: config.uploads } : {}),

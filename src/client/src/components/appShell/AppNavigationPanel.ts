@@ -93,6 +93,7 @@ export class AppNavigationPanel extends LitElement {
   @property({ attribute: false }) onCleanupSessions?: () => void | Promise<void>;
   @property({ attribute: false }) onArchivedCollapsed?: () => void | Promise<void>;
   @property({ attribute: false }) onSelectMachine?: (machine: Machine) => void | Promise<void>;
+  @property({ attribute: false }) onEditMachine?: (machine: Machine) => void;
   @property({ attribute: false }) onRemoveMachine?: (machine: Machine) => void | Promise<void>;
   @property({ attribute: false }) onFocusNavigationTarget?: (target: NavigationFocusTarget) => void | Promise<void>;
   @property({ attribute: false }) onCancelKeyboardNavigation?: () => void | Promise<void>;
@@ -203,6 +204,7 @@ export class AppNavigationPanel extends LitElement {
         <machine-switcher
           .machines=${this.machines}
           .selected=${this.selectedMachine}
+          .onEdit=${this.onEditMachine}
           .locationIndicator=${this.locationIndicator}
           .statuses=${this.machineStatuses}
           .statusSnapshots=${this.machineStatusSnapshots}
@@ -230,6 +232,7 @@ export class AppNavigationPanel extends LitElement {
           .statusSnapshots=${this.machineStatusSnapshots}
           .collapsible=${this.collapsible}
           .collapsed=${this.machinesCollapsed}
+          .onEdit=${this.onEditMachine}
           .onToggleCollapsed=${() => { this.onToggleMachines?.(); }}
           .onSelect=${(machine: Machine) => this.onSelectMachine?.(machine)}
           .onRemove=${(machine: Machine) => this.onRemoveMachine?.(machine)}

@@ -1,3 +1,4 @@
+import { createServer } from "node:http";
 import { describe, expect, it, vi } from "vitest";
 import { RemoteMachineClient } from "./machineClient.js";
 
@@ -56,6 +57,38 @@ describe("RemoteMachineClient", () => {
     await expectation;
 
     expect(fetchSignal?.aborted).toBe(true);
+  });
+
+  it.each(["deadline", "caller cancellation"] as const)("bounds a stalled JSON body through %s after headers arrive", async (stop) => {
+    let bodyReadStarted!: () => void;
+    const bodyReading = new Promise<void>((resolve) => { bodyReadStarted = resolve; });
+    const server = createServer((_request, response) => {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.write('{"name":');
+    });
+    await new Promise<void>((resolve) => { server.listen(0, "127.0.0.1", resolve); });
+    const address = server.address();
+    if (address === null || typeof address === "string") throw new Error("Expected TCP server address");
+    const controller = new AbortController();
+    const client = new RemoteMachineClient({ baseUrl: `http://127.0.0.1:${String(address.port)}` }, async (input, init) => {
+      const response = await fetch(input, init);
+      const readText = response.text.bind(response);
+      vi.spyOn(response, "text").mockImplementation(() => { bodyReadStarted(); return readText(); });
+      return response;
+    });
+    try {
+      const pending = client.requestJson("GET", "/identity", undefined, { timeoutMs: stop === "deadline" ? 100 : 30_000, signal: controller.signal });
+      const rejected = expect(pending).rejects.toMatchObject({
+        statusCode: stop === "deadline" ? 504 : 502,
+        message: stop === "deadline" ? "Remote machine request timed out" : "Remote machine request cancelled",
+      });
+      await bodyReading;
+      if (stop === "caller cancellation") controller.abort();
+      await rejected;
+    } finally {
+      server.closeAllConnections();
+      await new Promise<void>((resolve, reject) => { server.close((error) => { if (error === undefined) resolve(); else reject(error); }); });
+    }
   });
 
   it("requests compression for the remote hop even when configured headers use different casing", async () => {

@@ -29,6 +29,20 @@ Pi package settings are separate from PI WEB config. They live in Pi's package-m
 | systemd uses `EnvironmentFile=` | Accepted with a warning; config-path overrides in that file cannot be verified. |
 | launchd has an old config path or a label loaded from another plist | `start` and `doctor` fail. `restart` reloads installed plists and can repair stale loaded state. |
 
+## Machine name
+
+Set `installationName` in the machine's global config, or edit **Settings → General → Machine name** for the selected machine:
+
+```json
+{ "installationName": "Build lab" }
+```
+
+The name replaces the local machine's label and remains visible when there is only one machine, in browsers and installed PWAs. Empty or unset names use **PI-WEB**. Names are trimmed and limited to 120 characters without control characters. This setting is machine-global, not project-local, and needs no restart; reload other open windows to refresh their labels.
+
+Federated gateways use the remote machine's reported name unless you set a **Local display name**. Clear that field to use the remote machine's name again. Existing registry names remain overrides. An unavailable or older remote without a reported name uses **PI-WEB**; a previously discovered name is retained while the gateway process stays running.
+
+The PWA manifest uses the gateway's installation name, with **(dev)** appended for development deployments. Changing the selected remote machine does not rename the installed gateway app. Browsers control when existing launcher names update; reinstall the PWA if its old name remains.
+
 ## Startup model and thinking defaults
 
 Open the model or thinking-level selector and click a row’s star under **New session default** to save it for new sessions. A filled star marks the saved default. Clicking the option itself changes only the current session; setting the default leaves the current session unchanged.

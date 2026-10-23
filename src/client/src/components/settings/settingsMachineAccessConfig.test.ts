@@ -3,6 +3,16 @@ import type { PiWebConfigResponse, PiWebConfigValues } from "../../api";
 import { mergeSelectedMachineAccessConfig } from "./settingsMachineAccessConfig";
 
 describe("selected-machine access config helpers", () => {
+  it("replaces and clears the installation name so later gateway saves cannot restore it", () => {
+    const gateway = configResponse({ host: "gateway.local", installationName: "Old name" });
+    const renamed = mergeSelectedMachineAccessConfig(gateway, configResponse({ installationName: "New name" }));
+    expect(renamed.config.installationName).toBe("New name");
+    const cleared = mergeSelectedMachineAccessConfig(renamed, configResponse({}));
+    expect(cleared.config).not.toHaveProperty("installationName");
+    expect(cleared.effectiveConfig).not.toHaveProperty("installationName");
+    expect(cleared.config.host).toBe("gateway.local");
+  });
+
   it("merges local selected-machine file/upload config into gateway config without dropping gateway-only values", () => {
     const gateway = configResponse({
       host: "127.0.0.1",

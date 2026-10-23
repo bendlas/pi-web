@@ -20,7 +20,7 @@ import {
 } from "./settingsConfigDraft";
 
 function generalDescription(targetLabel: string): TemplateResult {
-  return html`Gateway settings apply to this server. File access and uploads apply to ${targetLabel}.`;
+  return html`Gateway settings apply to this server. The machine name, file access, and uploads apply to ${targetLabel}.`;
 }
 
 @customElement("settings-general-panel")
@@ -171,19 +171,24 @@ export class SettingsGeneralPanel extends LitElement {
   private renderSelectedMachineAccessSettings(): TemplateResult {
     const config = this.machineConfigResponse;
     return html`
-      <section class="settings-card ui-settings-section" aria-label="Selected machine file access and upload settings">
+      <section class="settings-card ui-settings-section" aria-label="Selected machine settings">
         <div class="card-heading ui-settings-heading">
-          <h3>Selected machine file access and uploads</h3>
-          <p>Save file access and upload defaults on ${this.targetLabel}.</p>
+          <h3>Selected machine settings</h3>
+          <p>Save the machine name, file access, and upload defaults on ${this.targetLabel}.</p>
         </div>
         ${this.renderMachineMessages()}
-        ${config === undefined ? html`<div class="loading-card">${this.machineLoading ? "Loading selected-machine file access config…" : "File access settings are unavailable. Choose Refresh settings to try again."}</div>` : html`
+        ${config === undefined ? html`<div class="loading-card">${this.machineLoading ? "Loading selected-machine settings…" : "Machine settings are unavailable. Choose Refresh settings to try again."}</div>` : html`
           <div class="config-path-card ui-settings-path">
             <span>Selected machine config file</span>
             <code>${config.path}</code>
             <small>${config.exists ? "Existing file" : "This file will be created on save"}</small>
           </div>
           <form class="config-form ui-settings-fields" @submit=${(event: Event) => { void this.saveMachineAccessConfig(event); }}>
+            <label class="field ui-form-field">
+              <span>Machine name</span>
+              <input class="ui-input" name="installationName" maxlength="120" .value=${this.machineDraft.installationName} placeholder="PI-WEB" autocomplete="off" @input=${(event: Event) => { this.updateMachineDraft({ installationName: inputValue(event) }); }}>
+              <small>Shown in the machine selector and installed app. Leave blank to use PI-WEB.</small>
+            </label>
             <label class="field ui-form-field">
               <span class="field-heading">
                 <span>External filesystem roots</span>
@@ -212,7 +217,7 @@ export class SettingsGeneralPanel extends LitElement {
 
             <footer class="form-actions ui-settings-actions">
               ${draftsEqual(this.machineDraft, this.machineBaseline) ? null : html`<small>Unsaved changes</small>`}
-              <button class="primary ui-button ui-button--action ui-button--primary" ?disabled=${this.machineLoading || this.saving}>${this.saving ? "Saving…" : "Save file/upload config"}</button>
+              <button class="primary ui-button ui-button--action ui-button--primary" ?disabled=${this.machineLoading || this.saving}>${this.saving ? "Saving…" : "Save machine settings"}</button>
             </footer>
           </form>
         `}

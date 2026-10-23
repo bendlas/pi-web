@@ -8,6 +8,7 @@ export interface GatewayServerConfigDraft {
 }
 
 export interface MachineAccessConfigDraft {
+  installationName: string;
   allowedPathsText: string;
   uploadDefaultFolder: string;
   attachmentDefaultFolder: string;
@@ -18,7 +19,7 @@ export function emptyGatewayServerConfigDraft(): GatewayServerConfigDraft {
 }
 
 export function emptyMachineAccessConfigDraft(): MachineAccessConfigDraft {
-  return { allowedPathsText: "", uploadDefaultFolder: "", attachmentDefaultFolder: "" };
+  return { installationName: "", allowedPathsText: "", uploadDefaultFolder: "", attachmentDefaultFolder: "" };
 }
 
 export function gatewayServerDraftFromConfig(config: PiWebConfigValues): GatewayServerConfigDraft {
@@ -32,6 +33,7 @@ export function gatewayServerDraftFromConfig(config: PiWebConfigValues): Gateway
 
 export function machineAccessDraftFromConfig(config: PiWebConfigValues): MachineAccessConfigDraft {
   return {
+    installationName: config.installationName ?? "",
     allowedPathsText: config.pathAccess?.allowedPaths?.join("\n") ?? "",
     uploadDefaultFolder: config.uploads?.defaultFolder ?? "",
     attachmentDefaultFolder: config.attachments?.defaultFolder ?? "",
@@ -66,6 +68,7 @@ export function machineAccessConfigPatchFromDraft(draft: MachineAccessConfigDraf
   const uploadDefaultFolder = normalizeWorkspaceRelativeFolder(draft.uploadDefaultFolder, "Upload default folder");
   const attachmentDefaultFolder = normalizeWorkspaceRelativeFolder(draft.attachmentDefaultFolder, "Attachment default folder");
   return {
+    installationName: draft.installationName.trim(),
     pathAccess: { allowedPaths },
     uploads: uploadDefaultFolder === "" ? {} : { defaultFolder: uploadDefaultFolder },
     attachments: attachmentDefaultFolder === "" ? {} : { defaultFolder: attachmentDefaultFolder },
@@ -74,6 +77,7 @@ export function machineAccessConfigPatchFromDraft(draft: MachineAccessConfigDraf
 
 function preservedGatewayConfigRemainder(baseConfig: PiWebConfigValues): PiWebConfigValues {
   return {
+    ...(baseConfig.installationName === undefined ? {} : { installationName: baseConfig.installationName }),
     ...(baseConfig.shortcuts === undefined ? {} : { shortcuts: baseConfig.shortcuts }),
     ...(baseConfig.defaultTheme === undefined ? {} : { defaultTheme: baseConfig.defaultTheme }),
     ...(baseConfig.defaultStreamingBehavior === undefined ? {} : { defaultStreamingBehavior: baseConfig.defaultStreamingBehavior }),

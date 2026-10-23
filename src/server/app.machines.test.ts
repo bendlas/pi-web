@@ -10,7 +10,23 @@ describe("buildApp machine routes", () => {
     const response = await appTestContext.app.inject({ method: "GET", url: "/api/machines" });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({ machines: [{ id: "local", name: "Local", kind: "local", createdAt: "1970-01-01T00:00:00.000Z", updatedAt: "1970-01-01T00:00:00.000Z" }] });
+    expect(response.json()).toEqual({ machines: [{ id: "local", name: "PI-WEB", kind: "local", createdAt: "1970-01-01T00:00:00.000Z", updatedAt: "1970-01-01T00:00:00.000Z" }] });
+  });
+
+  it.each(["Build lab", "Local"])("reports the configured name %s consistently in local and installation identity", async (name) => {
+    const saved = await appTestContext.app.inject({ method: "PUT", url: "/api/machines/local/config", payload: { config: { installationName: ` ${name} ` } } });
+    expect(saved.statusCode).toBe(200);
+    const identity = await appTestContext.app.inject({ method: "GET", url: "/api/machines/local" });
+    expect(identity.json()).toMatchObject({ kind: "local", name });
+    const installation = await appTestContext.app.inject({ method: "GET", url: "/api/pi-web/identity" });
+    expect(installation.statusCode).toBe(200);
+    expect(installation.json()).toEqual({ name });
+    const reset = await appTestContext.app.inject({ method: "PUT", url: "/api/machines/local/config", payload: { config: { installationName: "" } } });
+    expect(reset.statusCode).toBe(200);
+    const defaultIdentity = await appTestContext.app.inject({ method: "GET", url: "/api/machines/local" });
+    expect(defaultIdentity.json()).toMatchObject({ name: "PI-WEB" });
+    const defaultInstallation = await appTestContext.app.inject({ method: "GET", url: "/api/pi-web/identity" });
+    expect(defaultInstallation.json()).toEqual({ name: "PI-WEB" });
   });
 
   it("adds remote machines without exposing tokens", async () => {
@@ -91,6 +107,24 @@ describe("buildApp machine routes", () => {
     });
     expect(requestJson).toHaveBeenCalledTimes(2);
     expect(requestJson).toHaveBeenCalledWith("GET", "/api/pi-web/runtime", undefined, { timeoutMs: 3000 });
+  });
+
+  it("refreshes the federated name immediately after saving remote installation settings", async () => {
+    let persistedConfig: PiWebConfigValues = { installationName: "Office" };
+    appTestContext.remoteClient = fakeRemoteClient({
+      requestJson: (method, path, body) => {
+        if (path === "/api/pi-web/identity") return Promise.resolve({ statusCode: 200, headers: {}, body: { name: persistedConfig.installationName } });
+        if (method === "PUT") persistedConfig = configFromMachineConfigWriteBody(body);
+        return Promise.resolve({ statusCode: 200, headers: {}, body: piWebConfigResponse(persistedConfig) });
+      },
+    });
+    const added = await appTestContext.app.inject({ method: "POST", url: "/api/machines", payload: { baseUrl: "https://remote.example.test" } });
+    const remote = added.json<{ id: string; name: string }>();
+    expect(remote.name).toBe("Office");
+    const saved = await appTestContext.app.inject({ method: "PUT", url: `/api/machines/${remote.id}/config`, payload: { config: { installationName: "Build lab" } } });
+    expect(saved.statusCode).toBe(200);
+    const refreshed = await appTestContext.app.inject({ method: "GET", url: `/api/machines/${remote.id}` });
+    expect(refreshed.json()).toMatchObject({ name: "Build lab", reportedName: "Build lab" });
   });
 
   it("filters remote selected-machine config reads to machine-safe keys", async () => {

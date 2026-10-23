@@ -34,6 +34,7 @@ describe("settings config drafts", () => {
       allowedHostsText: "example.local\n192.168.1.20",
     });
     expect(machineAccessDraftFromConfig(config)).toEqual({
+      installationName: "",
       allowedPathsText: "/tmp\n~/SDKs",
       uploadDefaultFolder: "manual/uploads",
       attachmentDefaultFolder: "saved/attachments",
@@ -80,6 +81,11 @@ describe("settings config drafts", () => {
     })).toEqual({ allowedHosts: ["example.local", "192.168.1.20"] });
   });
 
+  it("preserves installation identity when saving gateway fields", () => {
+    expect(gatewayServerConfigFromDraft(gatewayServerDraftFromConfig({}), { installationName: "Studio" }).installationName).toBe("Studio");
+    expect(machineAccessDraftFromConfig({ installationName: "Studio" }).installationName).toBe("Studio");
+  });
+
   it("preserves the default theme when saving gateway fields", () => {
     const defaultTheme = { themeId: "themes:pi-web-light", auto: false };
     expect(gatewayServerConfigFromDraft(gatewayServerDraftFromConfig({}), { defaultTheme }).defaultTheme).toEqual(defaultTheme);
@@ -93,13 +99,15 @@ describe("settings config drafts", () => {
 
   it("builds selected-machine access/upload patches only from selected-machine-safe fields", () => {
     const patch = machineAccessConfigPatchFromDraft({
+      installationName: " Studio ",
       allowedPathsText: "/tmp\n~/SDKs\n",
       uploadDefaultFolder: " manual\\uploads/. ",
       attachmentDefaultFolder: " saved\\attachments/. ",
     });
 
-    expect(Object.keys(patch)).toEqual(["pathAccess", "uploads", "attachments"]);
+    expect(Object.keys(patch)).toEqual(["installationName", "pathAccess", "uploads", "attachments"]);
     expect(patch).toEqual({
+      installationName: "Studio",
       pathAccess: { allowedPaths: ["/tmp", "~/SDKs"] },
       uploads: { defaultFolder: "manual/uploads" },
       attachments: { defaultFolder: "saved/attachments" },
@@ -107,7 +115,8 @@ describe("settings config drafts", () => {
   });
 
   it("clears selected-machine access/upload settings with safe default patches", () => {
-    expect(machineAccessConfigPatchFromDraft({ allowedPathsText: "", uploadDefaultFolder: "", attachmentDefaultFolder: "" })).toEqual({
+    expect(machineAccessConfigPatchFromDraft({ installationName: "", allowedPathsText: "", uploadDefaultFolder: "", attachmentDefaultFolder: "" })).toEqual({
+      installationName: "",
       pathAccess: { allowedPaths: [] },
       uploads: {},
       attachments: {},
@@ -115,17 +124,18 @@ describe("settings config drafts", () => {
   });
 
   it("rejects invalid selected-machine upload default folders before saving", () => {
-    expect(() => machineAccessConfigPatchFromDraft({ allowedPathsText: "", uploadDefaultFolder: "/tmp/uploads", attachmentDefaultFolder: "" })).toThrow("Upload default folder must be workspace-relative.");
-    expect(() => machineAccessConfigPatchFromDraft({ allowedPathsText: "", uploadDefaultFolder: "../secret", attachmentDefaultFolder: "" })).toThrow("Upload default folder must not contain path traversal.");
+    expect(() => machineAccessConfigPatchFromDraft({ installationName: "", allowedPathsText: "", uploadDefaultFolder: "/tmp/uploads", attachmentDefaultFolder: "" })).toThrow("Upload default folder must be workspace-relative.");
+    expect(() => machineAccessConfigPatchFromDraft({ installationName: "", allowedPathsText: "", uploadDefaultFolder: "../secret", attachmentDefaultFolder: "" })).toThrow("Upload default folder must not contain path traversal.");
   });
 
   it("rejects invalid selected-machine attachment default folders before saving", () => {
-    expect(() => machineAccessConfigPatchFromDraft({ allowedPathsText: "", uploadDefaultFolder: "", attachmentDefaultFolder: "/tmp/attachments" })).toThrow("Attachment default folder must be workspace-relative.");
-    expect(() => machineAccessConfigPatchFromDraft({ allowedPathsText: "", uploadDefaultFolder: "", attachmentDefaultFolder: "../secret" })).toThrow("Attachment default folder must not contain path traversal.");
+    expect(() => machineAccessConfigPatchFromDraft({ installationName: "", allowedPathsText: "", uploadDefaultFolder: "", attachmentDefaultFolder: "/tmp/attachments" })).toThrow("Attachment default folder must be workspace-relative.");
+    expect(() => machineAccessConfigPatchFromDraft({ installationName: "", allowedPathsText: "", uploadDefaultFolder: "", attachmentDefaultFolder: "../secret" })).toThrow("Attachment default folder must not contain path traversal.");
   });
 
   it("rejects relative external paths before saving selected-machine access", () => {
     expect(() => machineAccessConfigPatchFromDraft({
+      installationName: "",
       allowedPathsText: "relative/path",
       uploadDefaultFolder: "",
       attachmentDefaultFolder: "",

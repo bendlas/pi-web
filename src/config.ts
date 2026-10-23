@@ -6,6 +6,7 @@ import { isPiWebPluginId, piWebPluginIdPattern } from "./shared/pluginIds.js";
 import { requireDefaultThemePreference } from "./shared/themePreference.js";
 import { requireDefaultStreamingBehavior } from "./shared/streamingBehavior.js";
 import { isKnownThinkingLevel } from "./shared/thinkingLevels.js";
+import { requireInstallationName } from "./shared/installationName.js";
 
 export type PiWebConfig = PiWebConfigValues;
 
@@ -229,6 +230,7 @@ export function savePiWebConfig(config: PiWebConfig, options: LoadOptions = {}):
   effectiveAgentConfig(env, normalized);
   const existing = readExistingConfigObject(path);
   if (existing["agent"] !== undefined) parseAgentConfig(existing["agent"], path);
+  delete existing["installationName"];
   delete existing["host"];
   delete existing["port"];
   delete existing["allowedHosts"];
@@ -263,6 +265,7 @@ function readExistingConfigObject(path: string): Record<string, unknown> {
 
 function piWebConfigRecord(config: PiWebConfig): Record<string, unknown> {
   return {
+    ...(config.installationName !== undefined ? { installationName: config.installationName } : {}),
     ...(config.host !== undefined ? { host: config.host } : {}),
     ...(config.port !== undefined ? { port: config.port } : {}),
     ...(config.allowedHosts !== undefined ? { allowedHosts: config.allowedHosts } : {}),
@@ -286,6 +289,7 @@ function piWebConfigRecord(config: PiWebConfig): Record<string, unknown> {
 
 function parsePiWebConfig(value: Record<string, unknown>, path: string): PiWebConfig {
   return {
+    ...(value["installationName"] !== undefined ? { installationName: requireInstallationName(value["installationName"]) } : {}),
     ...(value["host"] !== undefined ? { host: parseString(value["host"], "host", path) } : {}),
     ...(value["port"] !== undefined ? { port: parsePort(value["port"], "port", path) } : {}),
     ...(value["allowedHosts"] !== undefined ? { allowedHosts: parseAllowedHosts(value["allowedHosts"], path) } : {}),

@@ -18,6 +18,22 @@ afterEach(async () => {
   await rm(tempDir, { recursive: true, force: true });
 });
 
+describe("installation name", () => {
+  it("round-trips trimmed names and removes the saved identity", () => {
+    savePiWebConfig({ installationName: "  Build lab  " }, testOptions());
+    expect(loadPiWebConfig(testOptions()).config.installationName).toBe("Build lab");
+    savePiWebConfig({ installationName: "" }, testOptions());
+    expect(loadPiWebConfig(testOptions()).config.installationName).toBe("");
+    savePiWebConfig({}, testOptions());
+    expect(loadPiWebConfig(testOptions()).config).not.toHaveProperty("installationName");
+  });
+
+  it.each([null, 123, {}, "x".repeat(121), "Lab\nOffice"])("rejects invalid names %j", async (installationName) => {
+    await writeFile(configPath, JSON.stringify({ installationName }), "utf8");
+    expect(() => loadPiWebConfig(testOptions())).toThrow("installationName");
+  });
+});
+
 describe("sessionArchive config", () => {
   it("round-trips, preserves on unrelated saves, and removes the override", () => {
     const sessionArchive = { directory: "archive-files" };

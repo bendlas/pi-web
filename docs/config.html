@@ -208,6 +208,11 @@
 </details>
 </section>
 <section id="ui-settings"><h2>UI & new-session defaults</h2>
+<h3>Machine name</h3>
+<p>Set <code>installationName</code> in the machine's global config or edit <strong>Settings → General → Machine name</strong> for the selected machine. Names are trimmed and limited to 120 characters without control characters. An empty or unset name uses <strong>PI-WEB</strong>. This machine-global setting needs no restart; reload other windows to refresh their labels.</p>
+<pre><code>{ "installationName": "Build lab" }</code></pre>
+<p>The name replaces the local machine label and remains visible with one machine in browsers and installed PWAs. Federated machines use their reported name unless you set a <strong>Local display name</strong>; clear that field to use the remote machine's name again. Existing registry names remain overrides. Unavailable or older remotes without a reported name use <strong>PI-WEB</strong>; discovered names are retained during the gateway process lifetime.</p>
+<p>The PWA manifest uses the gateway name, with <strong>(dev)</strong> appended for development deployments. Selecting a remote does not rename the installed gateway app. Browsers decide when existing launcher names update; reinstall the PWA if the old name remains.</p>
 <p>Use the selectors in chat, <strong>Settings → General → Theme</strong>, or <strong>Settings → Keyboard</strong>. Pi defaults and PI WEB UI settings live in different configuration files.</p>
 <div class="table-scroll" role="region" aria-label="UI preferences" tabindex="0">
 <table class="reference-table settings-table">

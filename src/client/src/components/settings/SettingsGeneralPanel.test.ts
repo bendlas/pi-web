@@ -10,6 +10,26 @@ afterEach(() => {
 });
 
 describe("General settings", () => {
+  it("edits and clears the selected machine name through the machine config save", async () => {
+    const panel = await mountPanel();
+    panel.machineConfigResponse = configResponse({ installationName: "Studio" });
+    await settle(panel);
+    const selector = 'input[name="installationName"]';
+    expect(input(panel, selector).value).toBe("Studio");
+    expect(input(panel, selector).closest("label")?.textContent).toContain("Machine name");
+    expect(panel.shadowRoot?.textContent).toContain("Shown in the machine selector and installed app. Leave blank to use PI-WEB.");
+    const save = vi.fn();
+    panel.onSaveMachineConfig = save;
+    edit(panel, selector, " Lab ");
+    submit(panel, 1);
+    await settle(panel);
+    expect(save).toHaveBeenLastCalledWith(expect.objectContaining({ installationName: "Lab" }));
+    edit(panel, selector, " ");
+    submit(panel, 1);
+    await settle(panel);
+    expect(save).toHaveBeenLastCalledWith(expect.objectContaining({ installationName: "" }));
+  });
+
   it("labels allowed-host controls and associates their guidance", async () => {
     const panel = await mountPanel();
     for (const id of ["allowed-hosts-mode", "allowed-hosts-list"]) {
@@ -34,7 +54,7 @@ describe("General settings", () => {
     await settle(panel);
     expect(panel.shadowRoot?.querySelector('[role="alert"]')?.textContent).toBe("Machine unavailable");
     expect(panel.shadowRoot?.textContent).toContain("Gateway settings are unavailable. Choose Refresh settings to try again.");
-    expect(panel.shadowRoot?.textContent).toContain("File access settings are unavailable. Choose Refresh settings to try again.");
+    expect(panel.shadowRoot?.textContent).toContain("Machine settings are unavailable. Choose Refresh settings to try again.");
     expect(panel.shadowRoot?.querySelector("form")).toBeNull();
     expect(save).not.toHaveBeenCalled();
   });
@@ -44,7 +64,7 @@ describe("General settings", () => {
     panel.targetLabel = "Lab Mac (remote machine)";
     panel.configResponse = { ...configResponse({ host: "saved.local" }), effectiveConfig: { host: "env.local" }, envOverrides: { ...configResponse({}).envOverrides, host: true } };
     await settle(panel);
-    expect(panel.shadowRoot?.textContent).toContain("Save file access and upload defaults on Lab Mac (remote machine)");
+    expect(panel.shadowRoot?.textContent).toContain("Save the machine name, file access, and upload defaults on Lab Mac (remote machine)");
     expect(panel.shadowRoot?.textContent).toContain("Environment overrides take priority.");
     expect(panel.shadowRoot?.textContent).toContain("env.local");
     expect(input(panel, "input").value).toBe("saved.local");
@@ -157,12 +177,12 @@ describe("General settings", () => {
     edit(panel, machineInput, "manual\\uploads/.");
     submit(panel, 1);
     await settle(panel);
-    expect(save).toHaveBeenCalledWith({ pathAccess: { allowedPaths: [] }, uploads: { defaultFolder: "manual/uploads" }, attachments: {} });
+    expect(save).toHaveBeenCalledWith({ installationName: "", pathAccess: { allowedPaths: [] }, uploads: { defaultFolder: "manual/uploads" }, attachments: {} });
     expect(gatewaySave).not.toHaveBeenCalled();
   });
 });
 
-const machineInput = 'section[aria-label="Selected machine file access and upload settings"] input';
+const machineInput = 'section[aria-label="Selected machine settings"] input:not([name="installationName"])';
 
 async function mountPanel(): Promise<SettingsGeneralPanel> {
   const panel = new SettingsGeneralPanel();

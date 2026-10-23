@@ -9,8 +9,11 @@ export function mergeSelectedMachineAccessConfig(base: PiWebConfigResponse, sele
 }
 
 function mergeAccessConfig(base: PiWebConfigValues, selectedMachine: PiWebConfigValues): PiWebConfigValues {
+  const remainder = { ...base };
+  delete remainder.installationName;
   return {
-    ...base,
+    ...remainder,
+    ...(selectedMachine.installationName === undefined ? {} : { installationName: selectedMachine.installationName }),
     ...(selectedMachine.pathAccess === undefined ? {} : { pathAccess: selectedMachine.pathAccess }),
     ...(selectedMachine.uploads === undefined ? {} : { uploads: selectedMachine.uploads }),
     ...(selectedMachine.attachments === undefined ? {} : { attachments: selectedMachine.attachments }),

@@ -27,6 +27,20 @@ afterEach(async () => {
 });
 
 describe("config routes", () => {
+  it.each(["/api/config", "/api/machines/local/config"])("updates and clears installation identity through %s", async (url) => {
+    const response = await app.inject({ method: "PUT", url, payload: { config: { installationName: "  Build lab  " } } });
+    expect(response.statusCode).toBe(200);
+    expect(parsePiWebConfigResponseBody(response.json()).config.installationName).toBe("Build lab");
+    const cleared = await app.inject({ method: "PUT", url, payload: { config: { installationName: "" } } });
+    expect(cleared.statusCode).toBe(200);
+    expect(savedConfig.installationName).toBe("");
+  });
+
+  it.each([null, 42, "x".repeat(121), "Lab\nOffice"])("rejects malformed installation identity %j", async (installationName) => {
+    const response = await app.inject({ method: "PUT", url: "/api/config", payload: { config: { installationName } } });
+    expect(response.statusCode).toBe(400);
+    expect(service.write).not.toHaveBeenCalled();
+  });
   it("returns the PI WEB config contract", async () => {
     const response = await app.inject({ method: "GET", url: "/api/config" });
 

@@ -25,6 +25,7 @@ export class MachineList extends LitElement implements KeyboardNavigableSection 
   @property({ type: Boolean, reflect: true }) collapsible = false;
   @property({ type: Boolean, reflect: true }) collapsed = false;
   @property({ attribute: false }) onSelect?: (machine: Machine) => void;
+  @property({ attribute: false }) onEdit?: (machine: Machine) => void;
   @property({ attribute: false }) onRemove?: (machine: Machine) => void | Promise<void>;
   @property({ attribute: false }) onToggleCollapsed?: () => void;
   @property({ attribute: false }) onFocusNextSection?: () => void | Promise<void>;
@@ -61,7 +62,7 @@ export class MachineList extends LitElement implements KeyboardNavigableSection 
   private renderMachine(machine: Machine) {
     const status = this.statuses[machine.id]?.status ?? machine.status ?? "unknown";
     const statusLabel = status === "online" ? "online" : status === "offline" ? "offline" : status === "error" ? "error" : "unknown";
-    const hasRemoveAction = canRemoveMachine(machine) && this.onRemove !== undefined;
+    const hasRemoveAction = canRemoveMachine(machine) && (this.onRemove !== undefined || this.onEdit !== undefined);
     return html`
       <div
         class=${`action-row machine-row ${this.selected?.id === machine.id ? "selected" : ""} ${hasRemoveAction ? "" : "no-actions"}`}
@@ -105,7 +106,8 @@ export class MachineList extends LitElement implements KeyboardNavigableSection 
         >⋯</button>
         ${open ? html`
           <div popover="auto" class="action-menu-panel machine-menu-panel ui-menu" id=${menuId} @click=${(event: MouseEvent) => { event.stopPropagation(); }}>
-            <button class="danger ui-button ui-menu-item" title=${`Remove ${machine.name}`} @click=${() => { this.removeMachine(machine); }}>Remove</button>
+            ${this.onEdit === undefined ? null : html`<button class="ui-button ui-menu-item" @click=${() => { this.openMenuMachineId = undefined; this.onEdit?.(machine); }}>Edit display name</button>`}
+            ${this.onRemove === undefined ? null : html`<button class="danger ui-button ui-menu-item" title=${`Remove ${machine.name}`} @click=${() => { this.removeMachine(machine); }}>Remove</button>`}
           </div>
         ` : null}
       </div>

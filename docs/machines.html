@@ -191,7 +191,7 @@ PI WEB gateway you opened
                 <li>Open the PI WEB instance you want to use as the gateway.</li>
                 <li>Open <strong>Actions → Add Machine</strong>.</li>
                 <li>Enter the remote PI WEB base URL, including <code>http://</code> or <code>https://</code>.</li>
-                <li>Accept the suggested name or enter a friendlier sidebar label.</li>
+                <li>Leave <strong>Local display name</strong> blank to use the remote machine's name, or enter a name to show only here.</li>
                 <li>Paste an optional bearer token if the remote endpoint requires one.</li>
               </ol>
               <p>
@@ -208,24 +208,26 @@ PI WEB gateway you opened
             <section id="instance-identity">
               <h2>Which instance is this?</h2>
               <p>
-                An installed PWA window has no browser URL bar or tab favicon, so PI WEB names the instance there
-                itself: with several machines, the header dropdown lists every machine with its own brand icon and the
-                local entry shows the gateway address; with only the local machine, a static bubble shows the instance
-                favicon and the gateway address (host and any deployment path). On narrow layouts the breadcrumb leads
-                with a Machine chip carrying the same icon and address. In a regular browser tab these location
-                indicators stay hidden — the browser chrome already identifies the instance — and the machine control
-                remains a pure selector.
+                Set the <strong>Machine name</strong> in <strong>Settings → General</strong> for the selected machine. The local
+                entry uses that name, or <strong>PI-WEB</strong> when unnamed. With several machines, the selector shows
+                the selected machine's name; with only one, a static identity remains visible in both browsers and PWAs.
+                Narrow layouts show the same identity in the location bar. Installed PWAs also show the address because
+                they have no browser URL bar.
               </p>
               <p>
                 The address is the ground truth for which gateway serves the window; the selected machine decides which
                 runtime your projects, workspaces, and sessions live on.
               </p>
               <p>
-                Development deployments recolor the identity purple instead of the stock teal: the favicon, the PWA
-                icons, and the installed PWA name, which becomes <strong>PI WEB (dev)</strong>. Docker dev containers
-                and source checkouts count as development deployments; package installs and Docker runtime deployments
-                stay teal. Already-installed PWAs keep the icon and name captured at install time, so reinstall the PWA
-                after a deployment changes flavor.
+                Remote machines use their reported name unless you set a <strong>Local display name</strong>. Clear that
+                field to use the remote machine's name again. Existing saved names remain overrides. If discovery fails,
+                the last discovered name is retained for the gateway process lifetime, or <strong>PI-WEB</strong> is used.
+              </p>
+              <p>
+                The installed PWA uses the gateway's name, independently of the selected machine. Development deployments
+                append <strong>(dev)</strong> and recolor the favicon and PWA icons purple. Docker dev containers and
+                source checkouts count as development deployments; package installs and Docker runtime deployments stay
+                teal. Browser updates to existing launcher names and icons can be delayed; reinstall the PWA if needed.
               </p>
             </section>
 

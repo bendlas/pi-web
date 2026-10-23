@@ -54,6 +54,7 @@ export class SettingsDialog extends LitElement {
   private generalPanel: SettingsGeneralPanel | undefined;
   @property({ attribute: false }) onNavigate?: (section: SettingsSection) => void;
   @property({ attribute: false }) onClose?: () => void;
+  @property({ attribute: false }) onMachineConfigSaved?: (machineId: string) => void;
   @property({ attribute: false }) onConfigSaved?: (config: PiWebConfigValues) => void;
   @property({ attribute: false }) onRefreshMachineRuntime?: (machineId: string) => void | Promise<void>;
   @state() private configResponse: PiWebConfigResponse | undefined;
@@ -578,21 +579,38 @@ export class SettingsDialog extends LitElement {
   private async saveMachineAccessConfig(config: PiWebConfigValues): Promise<void> {
     if (this.saving) return;
     const target = this.settingsTarget();
+    this.accessLoadRequestSeq += 1;
+    this.accessLoading = false;
+    if (target.kind === "local") {
+      this.loadRequestSeq += 1;
+      this.loading = false;
+    }
     this.saving = true;
     this.accessError = "";
     this.savedMessage = "";
     try {
       const response = await configApi.saveConfig(config, target.id);
-      if (!this.isCurrentSettingsTarget(target)) return;
-      this.accessConfigResponse = response;
-      if (target.kind === "local" && this.configResponse !== undefined) {
-        this.configResponse = mergeSelectedMachineAccessConfig(this.configResponse, response);
-        this.onConfigSaved?.(this.configResponse.effectiveConfig);
+      // The save belongs to its captured target even if the dialog has moved on.
+      // Notify the owner, but never install that response into another target's draft.
+      this.onMachineConfigSaved?.(target.id);
+      if (target.kind === "local") {
+        // The gateway snapshot is not owned by the current settings target.
+        // Retire older loads so a later gateway save cannot restore the old name.
+        this.loadRequestSeq += 1;
+        this.loading = false;
+        if (this.configResponse !== undefined) {
+          this.configResponse = mergeSelectedMachineAccessConfig(this.configResponse, response);
+          this.onConfigSaved?.(this.configResponse.effectiveConfig);
+        }
       }
-      this.showSavedMessage(`File access and upload settings saved for ${target.name}.`, "general");
+      if (!this.isCurrentSettingsTarget(target)) return;
+      this.accessLoadRequestSeq += 1;
+      this.accessLoading = false;
+      this.accessConfigResponse = response;
+      this.showSavedMessage(`Machine settings saved for ${target.name}.`, "general");
     } catch (error) {
       if (this.isCurrentSettingsTarget(target)) {
-        this.accessError = `Failed to save file access/upload config on ${settingsMachineTargetLabel(target)}: ${friendlySelectedMachineSettingsErrorMessage(errorMessage(error), target)}`;
+        this.accessError = `Failed to save machine config on ${settingsMachineTargetLabel(target)}: ${friendlySelectedMachineSettingsErrorMessage(errorMessage(error), target)}`;
       }
     } finally {
       this.saving = false;

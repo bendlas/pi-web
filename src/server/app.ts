@@ -37,6 +37,7 @@ import {
 } from "./activeAgentProfileProvider.js";
 import { MachineService } from "./machines/machineService.js";
 import { registerMachineRoutes } from "./machines/machineRoutes.js";
+import { installationDisplayName } from "../shared/installationName.js";
 import { registerMachineProxyRoutes } from "./machines/machineProxyRoutes.js";
 import { registerPluginBackendChannelProxyRoutes } from "./plugins/pluginBackendChannelProxyRoutes.js";
 import { installPluginBackendChannelWebSocketPayloadLimit } from "./webSocketBridge.js";
@@ -171,6 +172,7 @@ export async function buildApp(deps: AppDependencies = {}): Promise<FastifyInsta
   const projects = deps.projects ?? new ProjectService(new ProjectStore());
   const configService = deps.config ?? createFilePiWebConfigService();
   const readConfig = () => readEffectiveConfig(configService);
+  const readInstallationName = async () => installationDisplayName((await readConfig()).installationName);
   const sessionDaemon = deps.sessionDaemon ?? new SessionDaemonClient();
   const daemonWorkspaces = new SessionDaemonWorkspaceCatalog(sessionDaemon);
   const workspaces = deps.workspaceCatalog ?? daemonWorkspaces;
@@ -193,6 +195,8 @@ export async function buildApp(deps: AppDependencies = {}): Promise<FastifyInsta
     { onError: (error) => { app.log.warn({ err: error }, "failed to refresh PI WEB status cache"); } },
   );
   const machines = deps.machines ?? new MachineService(undefined, {
+    localName: readInstallationName,
+    onNameDiscoveryError: (machineId, error) => { app.log.warn({ machineId, err: error }, "Remote installation name discovery failed; using cached or default name"); },
     localRuntime: () => getPiWebRuntime(sessionDaemon),
   });
 
@@ -223,6 +227,7 @@ export async function buildApp(deps: AppDependencies = {}): Promise<FastifyInsta
   // only after the web-owned initial build and API startup have completed.
   app.get("/api/pi-web/health", () => Promise.resolve({ ok: true }));
   app.get("/api/pi-web/runtime", async () => getPiWebRuntime(sessionDaemon));
+  app.get("/api/pi-web/identity", async () => ({ name: await readInstallationName() }));
   app.get("/api/plugins", async (_request, reply) => withProfileDependency(reply, () => piWebPlugins.plugins()));
   app.get("/api/machines/local/plugins", async (_request, reply) => withProfileDependency(reply, () => piWebPlugins.plugins()));
   registerPiPackageRoutes(app, piPackages);
@@ -277,7 +282,7 @@ export async function buildApp(deps: AppDependencies = {}): Promise<FastifyInsta
       },
       (error) => { app.log.warn({ err: error }, "failed to detect PI WEB deployment flavor"); },
     );
-    registerDeploymentIdentityAssetRoutes(app, { clientDist, flavor: deploymentFlavor });
+    registerDeploymentIdentityAssetRoutes(app, { clientDist, flavor: deploymentFlavor, installationName: readInstallationName });
     app.setNotFoundHandler((_request, reply) => reply.sendFile("index.html"));
   }
 

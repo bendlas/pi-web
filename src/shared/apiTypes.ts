@@ -83,6 +83,10 @@ export const PI_WEB_CAPABILITIES = {
 export type PiWebCapability = typeof PI_WEB_CAPABILITIES[keyof typeof PI_WEB_CAPABILITIES];
 
 export interface Machine {
+  /** Explicit remote display-name override; absent when following the remote installation. */
+  nameOverride?: string;
+  /** Last discovered remote installation name, when available. */
+  reportedName?: string;
   id: string;
   name: string;
   kind: MachineKind;
@@ -167,6 +171,8 @@ export interface PiWebThemePreference {
 }
 
 export interface PiWebConfigValues {
+  /** Installation identity shared with federated gateways and the PWA manifest. */
+  installationName?: string;
   /** App-wide theme default; browser-local theme preferences take precedence. */
   defaultTheme?: PiWebThemePreference;
   /** Gateway-wide send behavior while streaming; defaults to steer. */

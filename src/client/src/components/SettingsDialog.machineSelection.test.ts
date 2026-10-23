@@ -115,7 +115,7 @@ function general(dialog: SettingsDialog): SettingsGeneralPanel {
 }
 
 function uploadInput(panel: SettingsGeneralPanel): HTMLInputElement {
-  return query(root(panel), 'section[aria-label="Selected machine file access and upload settings"] input');
+  return query(root(panel), 'section[aria-label="Selected machine settings"] input:not([name="installationName"])');
 }
 
 function hostInput(panel: SettingsGeneralPanel): HTMLInputElement {
