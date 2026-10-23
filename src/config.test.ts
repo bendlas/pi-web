@@ -155,6 +155,29 @@ describe("PI WEB config persistence", () => {
     expect(await readFile(configPath, "utf8")).toBe(original);
   });
 
+  it("round-trips and clears quietMode", async () => {
+    savePiWebConfig({ quietMode: true }, testOptions());
+    expect(loadPiWebConfig(testOptions()).config.quietMode).toBe(true);
+    expect(effectivePiWebConfig(testOptions()).config.quietMode).toBe(true);
+    savePiWebConfig({ ...loadPiWebConfig(testOptions()).config, port: 9000 }, testOptions());
+    expect(effectivePiWebConfig(testOptions()).config.quietMode).toBe(true);
+
+    savePiWebConfig({ port: 9000 }, testOptions());
+    expect(loadPiWebConfig(testOptions()).config).not.toHaveProperty("quietMode");
+    expect(JSON.parse(await readFile(configPath, "utf8"))).not.toHaveProperty("quietMode");
+  });
+
+  it.each(["true", 1, null, {}, []])("rejects invalid quietMode %j on load and save", async (value) => {
+    await writeFile(configPath, JSON.stringify({ quietMode: value }), "utf8");
+    expect(() => loadPiWebConfig(testOptions())).toThrow("PI WEB config quietMode");
+    const original = await readFile(configPath, "utf8");
+    // Model an untyped caller at the persistence boundary.
+    const invalid = { quietMode: value };
+    // @ts-expect-error Deliberately exercise invalid untyped config input.
+    expect(() => savePiWebConfig(invalid, testOptions())).toThrow("PI WEB config quietMode");
+    expect(await readFile(configPath, "utf8")).toBe(original);
+  });
+
   it("rejects invalid plugin config", async () => {
     await writeFile(configPath, `${JSON.stringify({ plugins: { info: { enabled: "no" } } }, null, 2)}\n`, "utf8");
 

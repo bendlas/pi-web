@@ -91,6 +91,12 @@ describe("settings config drafts", () => {
     expect(gatewayServerConfigFromDraft(draft)).not.toHaveProperty("defaultStreamingBehavior");
   });
 
+  it.each([true, false])("preserves quietMode %s during gateway edits", (quietMode) => {
+    const draft = gatewayServerDraftFromConfig({ host: "gateway.local" });
+    expect(gatewayServerConfigFromDraft(draft, { quietMode }).quietMode).toBe(quietMode);
+    expect(gatewayServerConfigFromDraft(draft)).not.toHaveProperty("quietMode");
+  });
+
   it("builds selected-machine access/upload patches only from selected-machine-safe fields", () => {
     const patch = machineAccessConfigPatchFromDraft({
       allowedPathsText: "/tmp\n~/SDKs\n",

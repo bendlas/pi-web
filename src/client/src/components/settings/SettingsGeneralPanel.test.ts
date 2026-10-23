@@ -47,18 +47,18 @@ describe("General settings", () => {
     expect(panel.shadowRoot?.textContent).toContain("Save file access and upload defaults on Lab Mac (remote machine)");
     expect(panel.shadowRoot?.textContent).toContain("Environment overrides take priority.");
     expect(panel.shadowRoot?.textContent).toContain("env.local");
-    expect(input(panel, "input").value).toBe("saved.local");
+    expect(input(panel, gatewayHostInput).value).toBe("saved.local");
   });
 
   it("preserves dirty fields across refresh while updating untouched fields and save remainders", async () => {
     const panel = await mountPanel();
-    edit(panel, "input", "draft.local");
+    edit(panel, gatewayHostInput, "draft.local");
     edit(panel, machineInput, "draft/uploads");
     panel.configResponse = configResponse({ host: "refreshed.local", port: 9000, plugins: { info: { enabled: false } } });
     panel.machineConfigResponse = configResponse({ uploads: { defaultFolder: "remote/uploads" }, attachments: { defaultFolder: "new/attachments" } });
     await settle(panel);
-    expect(input(panel, "input").value).toBe("draft.local");
-    expect(input(panel, "input[inputmode]").value).toBe("9000");
+    expect(input(panel, gatewayHostInput).value).toBe("draft.local");
+    expect(input(panel, gatewayHostInput + "[inputmode]").value).toBe("9000");
     expect(input(panel, machineInput).value).toBe("draft/uploads");
     const save = vi.fn();
     panel.onSave = save;
@@ -69,18 +69,18 @@ describe("General settings", () => {
 
   it("acknowledges only the saved scope, including normalized values", async () => {
     const panel = await mountPanel();
-    edit(panel, "input", " saved.local ");
+    edit(panel, gatewayHostInput, " saved.local ");
     edit(panel, machineInput, "dirty/uploads");
     panel.onSave = (config) => { panel.configResponse = configResponse(config); };
     submit(panel, 0);
     await settle(panel);
-    expect(input(panel, "input").value).toBe("saved.local");
+    expect(input(panel, gatewayHostInput).value).toBe("saved.local");
     expect(input(panel, machineInput).value).toBe("dirty/uploads");
     panel.configResponse = configResponse({ host: "later.local" });
     await settle(panel);
-    expect(input(panel, "input").value).toBe("later.local");
+    expect(input(panel, gatewayHostInput).value).toBe("later.local");
 
-    edit(panel, "input", "unsaved-gateway.local");
+    edit(panel, gatewayHostInput, "unsaved-gateway.local");
     edit(panel, machineInput, " normalized\\uploads/. ");
     panel.onSaveMachineConfig = (config) => {
       panel.machineConfigResponse = configResponse(config);
@@ -92,7 +92,7 @@ describe("General settings", () => {
     panel.machineConfigResponse = configResponse({ uploads: { defaultFolder: "later/uploads" } });
     await settle(panel);
     expect(input(panel, machineInput).value).toBe("later/uploads");
-    expect(input(panel, "input").value).toBe("unsaved-gateway.local");
+    expect(input(panel, gatewayHostInput).value).toBe("unsaved-gateway.local");
   });
 
   it("preserves edits made during save and after failed saves", async () => {
@@ -101,29 +101,29 @@ describe("General settings", () => {
     panel.onSave = (config) => new Promise<void>((resolve) => {
       acknowledge = () => { panel.configResponse = configResponse(config); resolve(); };
     });
-    edit(panel, "input", "submitted.local");
+    edit(panel, gatewayHostInput, "submitted.local");
     submit(panel, 0);
-    edit(panel, "input", "newer.local");
+    edit(panel, gatewayHostInput, "newer.local");
     required(acknowledge)();
     await settle(panel);
-    expect(input(panel, "input").value).toBe("newer.local");
+    expect(input(panel, gatewayHostInput).value).toBe("newer.local");
     panel.onSave = () => { throw new Error("Save failed"); };
     submit(panel, 0);
     await settle(panel);
     panel.configResponse = configResponse({ host: "server.local" });
     await settle(panel);
-    expect(input(panel, "input").value).toBe("newer.local");
+    expect(input(panel, gatewayHostInput).value).toBe("newer.local");
   });
 
   it("does not carry machine drafts across a target change or unavailable transition", async () => {
     const panel = await mountPanel();
-    edit(panel, "input", "gateway-draft.local");
+    edit(panel, gatewayHostInput, "gateway-draft.local");
     edit(panel, machineInput, "old-machine/uploads");
     panel.targetLabel = "Other machine";
     panel.machineConfigResponse = configResponse({ uploads: { defaultFolder: "other/uploads" } });
     await settle(panel);
     expect(input(panel, machineInput).value).toBe("other/uploads");
-    expect(input(panel, "input").value).toBe("gateway-draft.local");
+    expect(input(panel, gatewayHostInput).value).toBe("gateway-draft.local");
     edit(panel, machineInput, "dirty/uploads");
     panel.machineConfigResponse = undefined;
     await settle(panel);
@@ -160,8 +160,43 @@ describe("General settings", () => {
     expect(save).toHaveBeenCalledWith({ pathAccess: { allowedPaths: [] }, uploads: { defaultFolder: "manual/uploads" }, attachments: {} });
     expect(gatewaySave).not.toHaveBeenCalled();
   });
+  it("reflects the saved quiet-mode setting and shows dialog save failures", async () => {
+    const panel = await mountPanel();
+    panel.configResponse = configResponse({ host: "gateway.local", quietMode: true });
+    await settle(panel);
+    const toggle = quietToggle(panel);
+    expect(toggle.checked).toBe(true);
+
+    const setQuietMode = vi.fn();
+    panel.onSetQuietMode = setQuietMode;
+    toggle.checked = false;
+    toggle.dispatchEvent(new Event("change", { bubbles: true }));
+    await settle(panel);
+    expect(setQuietMode).toHaveBeenCalledWith(false);
+
+    // The dialog owns quiet-mode failures and passes them down as its error prop.
+    panel.error = "Couldn't save quiet mode: Disk is read-only";
+    await settle(panel);
+    const notices = panel.shadowRoot?.querySelector("settings-panel-frame")?.shadowRoot?.querySelector('[role="alert"]');
+    expect(notices?.textContent).toContain("Disk is read-only");
+  });
+
+  it("does not save quiet mode while the gateway configuration is loading or unavailable", async () => {
+    const panel = await mountPanel();
+    const setQuietMode = vi.fn();
+    panel.onSetQuietMode = setQuietMode;
+    panel.loading = true;
+    await settle(panel);
+    expect(quietToggle(panel).disabled).toBe(true);
+    panel.loading = false;
+    panel.configResponse = undefined;
+    await settle(panel);
+    expect(panel.shadowRoot?.querySelector("#quiet-mode")).toBeNull();
+    expect(setQuietMode).not.toHaveBeenCalled();
+  });
 });
 
+const gatewayHostInput = 'section[aria-label="Gateway server settings"] input';
 const machineInput = 'section[aria-label="Selected machine file access and upload settings"] input';
 
 async function mountPanel(): Promise<SettingsGeneralPanel> {
@@ -176,6 +211,12 @@ async function mountPanel(): Promise<SettingsGeneralPanel> {
 async function settle(panel: SettingsGeneralPanel): Promise<void> {
   await panel.updateComplete;
   await panel.updateComplete;
+}
+
+function quietToggle(panel: SettingsGeneralPanel): HTMLInputElement {
+  const toggle = panel.shadowRoot?.querySelector<HTMLInputElement>("#quiet-mode");
+  if (toggle === null || toggle === undefined) throw new Error("Expected the quiet-mode toggle");
+  return toggle;
 }
 
 function input(panel: SettingsGeneralPanel, selector: string): HTMLInputElement {

@@ -173,6 +173,37 @@ describe("config routes", () => {
     expect(savedConfig.defaultStreamingBehavior).toBe("steer");
   });
 
+  it.each([true, false])("accepts quietMode %s through config routes and response parsing", async (quietMode) => {
+    const config = { quietMode };
+    const response = await app.inject({ method: "PUT", url: "/api/config", payload: { config } });
+    expect(response.statusCode).toBe(200);
+    expect(savedConfig).toEqual(config);
+    expect(parsePiWebConfigResponseBody(response.json())).toMatchObject({ config, effectiveConfig: config });
+  });
+
+  it.each(["true", 1, null, {}, []])("rejects invalid quietMode %j before writing and in responses", async (quietMode) => {
+    const config = { quietMode };
+    const response = await app.inject({ method: "PUT", url: "/api/config", payload: { config } });
+    expect(response.statusCode).toBe(400);
+    expect(response.json<{ error: string }>().error).toContain("quietMode");
+    expect(service.write).not.toHaveBeenCalled();
+    const valid = responseFor({}, true);
+    for (const field of ["config", "effectiveConfig"]) {
+      expect(() => parsePiWebConfigResponseBody({ ...valid, [field]: config })).toThrow("quietMode");
+    }
+  });
+
+  it("keeps quietMode gateway-only", async () => {
+    savedConfig.quietMode = true;
+    const read = await app.inject({ method: "GET", url: "/api/machines/local/config" });
+    expect(read.json<PiWebConfigResponse>().config).not.toHaveProperty("quietMode");
+    expect(read.json<PiWebConfigResponse>().effectiveConfig).not.toHaveProperty("quietMode");
+    const write = await app.inject({ method: "PUT", url: "/api/machines/local/config", payload: { config: { quietMode: false } } });
+    expect(write.statusCode).toBe(400);
+    expect(service.write).not.toHaveBeenCalled();
+    expect(savedConfig.quietMode).toBe(true);
+  });
+
   it("rejects malformed theme defaults before writing", async () => {
     const response = await app.inject({ method: "PUT", url: "/api/config", payload: { config: { defaultTheme: { themeId: "themes:pi-web-dark", auto: "yes" } } } });
     expect(response.statusCode).toBe(400);

@@ -330,6 +330,7 @@ export class SettingsDialog extends LitElement {
         .onReload=${() => this.loadConfig()}
         .onReloadMachine=${() => this.loadAccessConfigForTarget()}
         .onSave=${(config: PiWebConfigValues) => this.saveConfig(config)}
+        .onSetQuietMode=${(quietMode: boolean) => this.saveQuietMode(quietMode)}
         .onSaveMachineConfig=${(config: PiWebConfigValues) => this.saveMachineAccessConfig(config)}
       >
         <settings-theme-panel
@@ -554,9 +555,24 @@ export class SettingsDialog extends LitElement {
   }
 
   private async saveDefaultTheme(preference: ThemePreference): Promise<void> {
+    await this.saveFocusedGatewayConfig({ defaultTheme: preference }, "Default theme saved. Saved browser choices are unchanged.", "Couldn't save the default theme");
+  }
+
+  private async saveQuietMode(quietMode: boolean): Promise<void> {
+    await this.saveFocusedGatewayConfig({ quietMode }, quietMode
+      ? "Quiet mode is on. Chat events start collapsed into one expandable “events” line."
+      : "Quiet mode is off. Chat events expand as you follow the conversation.", "Couldn't save quiet mode");
+  }
+
+  /**
+   * Save one gateway setting without disturbing the rest. `PUT /api/config`
+   * replaces the whole config file (unlike the selected-machine endpoint, which
+   * merges a patch), so read a fresh copy instead of reusing the dialog's
+   * snapshot. That read also retires an older Refresh result, so this focused
+   * action cannot lose to a stale reload.
+   */
+  private async saveFocusedGatewayConfig(patch: PiWebConfigValues, savedMessage: string, failurePrefix: string): Promise<void> {
     if (this.saving) return;
-    // Retire an older Reload result and read fresh gateway config so this
-    // focused action does not replace other settings with the dialog's snapshot.
     this.loadRequestSeq += 1;
     this.loading = false;
     this.saving = true;
@@ -564,12 +580,12 @@ export class SettingsDialog extends LitElement {
     this.savedMessage = "";
     try {
       const current = await configApi.config();
-      const response = await configApi.saveConfig({ ...current.config, defaultTheme: preference });
+      const response = await configApi.saveConfig({ ...current.config, ...patch });
       this.configResponse = response;
       this.onConfigSaved?.(response.effectiveConfig);
-      this.showSavedMessage("Default theme saved. Saved browser choices are unchanged.", "general");
+      this.showSavedMessage(savedMessage, "general");
     } catch (error) {
-      this.error = `Couldn't save the default theme: ${errorMessage(error)}`;
+      this.error = `${failurePrefix}: ${errorMessage(error)}`;
     } finally {
       this.saving = false;
     }

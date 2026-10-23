@@ -167,6 +167,11 @@ export interface PiWebConfigValues {
   defaultTheme?: PiWebThemePreference;
   /** Gateway-wide send behavior while streaming; defaults to steer. */
   defaultStreamingBehavior?: "steer" | "followUp";
+  /**
+   * Collapse transcript event groups (tool calls, thinking, results) into one
+   * summary line by default, including the growing live group. Off by default.
+   */
+  quietMode?: boolean;
   host?: string;
   port?: number;
   allowedHosts?: string[] | true;

@@ -118,13 +118,15 @@ function isToolExecutionOnlyMessage(message: ChatLine): boolean {
 
 // Detached cached bodies retain nested native/tool state without rendering while closed.
 // Inline question forms remain standalone readable messages, outside these groups.
-export function renderMessageGroup(context: TranscriptRenderContext, group: Extract<ChatGroup, { kind: "group" }>, defaultOpen: boolean, entryActionHeaders: ReadonlySet<ChatLine>, disclosure: TranscriptGroupDisclosure) {
+// `live` distinguishes the growing tail group; the disclosure object owns the
+// expanded state so quiet mode can collapse the same group without relabeling it.
+export function renderMessageGroup(context: TranscriptRenderContext, group: Extract<ChatGroup, { kind: "group" }>, live: boolean, entryActionHeaders: ReadonlySet<ChatLine>, disclosure: TranscriptGroupDisclosure) {
     const { messages, startIndex } = group;
     const { open, anchor, toggle } = disclosure;
     return html`
-      <details class=${`${chatMessageGroupClassName(defaultOpen)} ui-transcript-surface ui-transcript-activity`} data-index=${startIndex} data-scroll-anchor-id=${anchor ?? nothing} ?open=${open} @toggle=${toggle}>
+      <details class=${`${chatMessageGroupClassName(live)} ui-transcript-surface ui-transcript-activity`} data-index=${startIndex} data-scroll-anchor-id=${anchor ?? nothing} ?open=${open} @toggle=${toggle}>
         <summary class="ui-transcript-disclosure ui-transcript-heading">
-          <span class="label">${chatMessageGroupLabel(defaultOpen)}</span>
+          <span class="label">${chatMessageGroupLabel(live)}</span>
           <span>${summarizeChatGroup(messages.map((event) => event.message))}</span>
         </summary>
         ${cache(open ? renderMessageGroupBody(context, group, entryActionHeaders) : nothing)}
