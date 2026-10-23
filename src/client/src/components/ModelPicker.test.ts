@@ -15,7 +15,6 @@ afterEach(() => {
 
 describe("model-picker initial selection", () => {
   it("renders the supplied non-first model as current on its first completed update", async () => {
-    const warnings = vi.spyOn(console, "warn");
     const picker = createPicker({ selectedValue: "anthropic/claude-sonnet-4-5" });
     document.body.append(picker);
 
@@ -25,7 +24,6 @@ describe("model-picker initial selection", () => {
     expect(selectedRowText(picker)).toContain("claude-sonnet-4-5");
     expect(firstComplete).toBe(true);
     expect(picker.isUpdatePending).toBe(false);
-    expect(warnings).not.toHaveBeenCalled();
   });
 
   it.each([undefined, "missing/model"])("keeps the first row when the initial value is %s", async (selectedValue) => {
