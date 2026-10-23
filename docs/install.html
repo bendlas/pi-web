@@ -91,6 +91,7 @@
             <strong>On this page</strong>
             <a href="#requirements">Requirements</a>
             <a href="#user-services">User service install</a>
+            <a href="#bun">Best-effort Bun support</a>
             <a href="#one-line">One-line install</a>
             <a href="#pi-package">Install through Pi</a>
             <a href="#manual-run">WSL / manual run</a>
@@ -106,9 +107,9 @@
             <section id="requirements">
               <h2>Requirements</h2>
               <ul>
-                <li><strong>Node.js 22.19.0 or newer</strong> and npm.</li>
-                <li><strong>Pi Coding Agent</strong> installed through npm and configured so the <code>pi</code> command works for your user. Binary-only installations without the Node SDK are not supported.</li>
-                <li>A shell login environment that exposes Node, npm, Pi, git, and any tools your agents need.</li>
+                <li><strong>Node.js 22.19.0 or newer</strong> and npm (recommended), or <a href="#bun">Bun on a best-effort basis</a>.</li>
+                <li><strong>Pi Coding Agent</strong> installed as an npm SDK package through npm or Bun and configured so the <code>pi</code> command works for your user. Binary-only installations without the SDK are not supported.</li>
+                <li>A shell login environment that exposes your runtime, Pi, git, and any tools your agents need. The package launchers use POSIX <code>sh</code>. Pi's Bash tool and some service scripts still require Bash.</li>
                 <li>For the automatic installer: a supported per-user service manager.</li>
               </ul>
               <p>PI WEB reuses your existing Pi installation; it does not install a separate Pi engine or pin its version. After upgrading or downgrading Pi in that installation, restart the web/API service before the session daemon to use the changed version. Restarting the daemon interrupts active sessions. If a Pi upgrade causes compatibility problems, you can downgrade Pi. If Pi was previously installed only as part of PI WEB, install Pi itself before updating PI WEB.</p>
@@ -144,6 +145,27 @@
               <p>Then open <a href="http://127.0.0.1:8504">http://127.0.0.1:8504</a>.</p>
               <p>If preflight fails, no config or existing services are changed. Follow the detected shell guidance: zsh services read <code>~/.zprofile</code>, not interactive-only <code>~/.zshrc</code>; bash uses <code>~/.bash_profile</code> or <code>~/.profile</code>.</p>
               <p>On Linux servers, also consider <code>sudo loginctl enable-linger "$USER"</code> so user services survive logout/reboot.</p>
+            </section>
+
+            <section id="bun">
+              <h2>Best-effort Bun support</h2>
+              <p>Bun support is provided on a best-effort basis. The maintainers use Node.js, not Bun, for day-to-day development. Reported Bun bugs will be addressed where possible, but Bun compatibility is not guaranteed. Node.js remains the recommended runtime.</p>
+              <p>PI WEB can run without Node.js using Bun's native terminals. Linux is verified with Bun 1.4.3; macOS service installation has not been verified with Bun. Bun must provide <code>Bun.Terminal</code> and <code>Bun.spawn</code>; an older Bun cannot use <code>node-pty</code> as a fallback.</p>
+              <div class="code-card">
+                <div class="copy-row">
+                  <strong>Bun global install</strong>
+                  <button class="copy-button" data-copy="#bun-install">Copy</button>
+                </div>
+                <pre id="bun-install"><code><span class="comment"># Keep using your existing Pi SDK installation. If Pi is not installed:</span>
+<span class="prompt">$</span> bun add --global --bun @earendil-works/pi-coding-agent
+<span class="prompt">$</span> bun add --global @jmfederico/pi-web
+<span class="prompt">$</span> PI_WEB_RUNTIME=bun pi-web install
+<span class="prompt">$</span> PI_WEB_RUNTIME=bun pi-web doctor</code></pre>
+              </div>
+              <p><code>PI_WEB_RUNTIME</code> selects <code>node</code>, <code>bun</code>, or <code>auto</code> (the default). Auto prefers a supported Node.js, then Bun, regardless of which package manager installed PI WEB. An explicit selection fails rather than silently switching engines. <code>pi-web --print-runtime</code> reports the launcher's selection without starting a service. Service preflight checks sessiond's terminal prerequisites using the selected service interpreter before replacing definitions. Once running, doctor reports the activated Terminal plugin's state; recovery safe start is shown as disabled, not as a healthy terminal service.</p>
+              <p>The installer retains an explicit runtime preference in the service definitions. Services choose the interpreter again at each start. Rerun <code>pi-web install</code> to replace older definitions that launch an interpreter directly; changing definitions or restarting sessiond interrupts active sessions. For manual operation, prefix both <code>pi-web-sessiond</code> and <code>pi-web-server</code> with <code>PI_WEB_RUNTIME=bun</code>.</p>
+              <p>Bun terminals do not load <code>node-pty</code>, so its optional native build can be skipped. Node terminals still require a working <code>node-pty</code> installation. Pi extensions may load other native modules whose Bun compatibility PI WEB cannot guarantee; an incompatible native module can abort the daemon. The agent's <code>httpIdleTimeoutMs</code> setting is not applied under Bun; see <a href="faq#model-response-terminated">HTTP timeout troubleshooting</a>. Both runtimes enforce PI WEB's channel message limits. Node can also apply these limits during message assembly; Bun's native transport buffers messages before delivering them to PI WEB.</p>
+              <p>For Bun global installations, update with <code>bun add --global @jmfederico/pi-web@latest</code>, then restart the web/API service before sessiond. Automatic <code>pi-web update</code> is not provided for Bun global installs. Development service scripts still use the Node/npm toolchain; Bun support here covers the installed application.</p>
             </section>
 
             <section id="one-line">

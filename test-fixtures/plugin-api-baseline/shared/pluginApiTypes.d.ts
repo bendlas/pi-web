@@ -186,7 +186,13 @@ export interface PiWebInstallationInfo {
     npmRoot?: string;
     dockerMode?: PiWebDockerMode;
 }
+export interface PiWebRuntimeIdentity {
+    name: "node" | "bun";
+    version: string;
+}
 export interface PiWebComponentStatus {
+    /** Actual JavaScript engine of the reporting process, absent on older peers. */
+    runtime?: PiWebRuntimeIdentity;
     component: PiWebServiceComponent;
     label: string;
     runtimeVersion?: string;

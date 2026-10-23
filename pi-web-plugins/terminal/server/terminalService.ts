@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { mkdirSync } from "node:fs";
 import { isAbsolute } from "node:path";
-import * as pty from "node-pty";
+import type { PtyHandle, PtyProvider } from "./ptyProvider.js";
 import type { ServerPluginNoticeInput } from "@jmfederico/pi-web/server-plugin-api";
 
 const MAX_REPLAY_BUFFER = 200_000;
@@ -81,7 +81,8 @@ export interface TerminalActivitySink {
 }
 
 type TerminalRecord = TerminalInfo & {
-  pty: pty.IPty;
+  pty?: PtyHandle;
+  generation: number;
   buffer: string;
   events: EventEmitter;
   commandRunId?: string;
@@ -116,7 +117,10 @@ export class TerminalService {
 
   private maintenanceExecutionContext: MaintenanceExecutionContext | undefined;
 
-  constructor(private readonly recordNotice?: (input: ServerPluginNoticeInput) => void) {}
+  constructor(
+    private readonly provider: PtyProvider,
+    private readonly recordNotice?: (input: ServerPluginNoticeInput) => void,
+  ) {}
 
   bindMaintenanceExecutionContext(context: MaintenanceExecutionContext): void {
     if (this.maintenanceExecutionContext !== undefined) throw new Error("Terminal maintenance execution context is already bound");
@@ -278,37 +282,39 @@ export class TerminalService {
 
   write(scope: TerminalScope, id: string, data: string): void {
     const terminal = this.requireScoped(scope, id);
-    if (!terminal.exited) terminal.pty.write(data);
+    if (!terminal.exited) terminal.pty?.write(data);
   }
 
   resize(scope: TerminalScope, id: string, cols: number, rows: number): void {
     const terminal = this.requireScoped(scope, id);
     if (!terminal.exited && Number.isFinite(cols) && Number.isFinite(rows) && cols > 0 && rows > 0) {
-      terminal.pty.resize(Math.floor(cols), Math.floor(rows));
+      terminal.pty?.resize(Math.floor(cols), Math.floor(rows));
     }
   }
 
   continue(scope: TerminalScope, id: string): TerminalInfo {
+    this.requireAvailable();
     const record = this.requireScoped(scope, id);
     this.prepareCwd(record);
     if (!record.exited) return toInfo(record);
-    const env = this.executionEnvironment(record);
-    const shell = env["SHELL"] ?? "/bin/bash";
-    const terminal = pty.spawn(shell, interactiveShellArgs(shell), {
-      name: "xterm-256color",
-      cwd: record.cwd,
-      cols: 100,
-      rows: 30,
-      env,
-    });
-    record.pty = terminal;
+    const previousExitCode = record.exitCode;
+    const previousCommandRunId = record.commandRunId;
+    const previousFailureNotice = record.failureNotice;
     delete record.exitCode;
     delete record.commandRunId;
+    delete record.failureNotice;
     record.exited = false;
-    const marker = "\r\n[continued in interactive shell]\r\n";
-    record.buffer = trimReplayBuffer(record.buffer + marker);
-    record.events.emit("output", marker);
-    this.attachPtyEvents(record);
+    const shell = this.executionEnvironment(record)["SHELL"] ?? "/bin/bash";
+    try {
+      this.spawnPty(record, interactiveShellArgs(shell), 100, 30, "\r\n[continued in interactive shell]\r\n");
+    } catch (error) {
+      record.exited = true;
+      if (previousExitCode !== undefined) record.exitCode = previousExitCode;
+      if (previousCommandRunId !== undefined) record.commandRunId = previousCommandRunId;
+      if (previousFailureNotice !== undefined) record.failureNotice = previousFailureNotice;
+      throw error;
+    }
+
     const info = toInfo(record);
     this.activitySink?.updateTerminal(info);
     return info;
@@ -332,7 +338,11 @@ export class TerminalService {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
-    for (const terminal of [...this.terminals.values()]) this.closeRecord(terminal);
+    const errors: unknown[] = [];
+    for (const terminal of [...this.terminals.values()]) {
+      try { this.closeRecord(terminal); } catch (error) { errors.push(error); }
+    }
+    if (errors.length > 0) throw new AggregateError(errors, "Failed to dispose terminal PTYs");
   }
 
   private createTerminal(options: CreateTerminalOptions & { id?: string; shellArgs: string[]; commandRunId?: string; failureNotice?: TerminalCommandFailureNotice }): TerminalInfo {
@@ -341,15 +351,6 @@ export class TerminalService {
     this.prepareCwd(options);
     const id = options.id ?? randomUUID();
     const createdAt = new Date().toISOString();
-    const env = this.executionEnvironment(options);
-    const shell = env["SHELL"] ?? "/bin/bash";
-    const terminal = pty.spawn(shell, options.shellArgs, {
-      name: "xterm-256color",
-      cwd: options.cwd,
-      cols: options.cols ?? 100,
-      rows: options.rows ?? 30,
-      env,
-    });
     const requestedName = options.name?.trim();
     const record: TerminalRecord = {
       id,
@@ -358,32 +359,62 @@ export class TerminalService {
       name: requestedName !== undefined && requestedName !== "" ? requestedName : `Shell ${String(this.list(options).length + 1)}`,
       createdAt,
       exited: false,
-      pty: terminal,
+      generation: 0,
       buffer: "",
       events: new EventEmitter(),
       ...(options.commandRunId === undefined ? {} : { commandRunId: options.commandRunId }),
       ...(options.failureNotice === undefined ? {} : { failureNotice: options.failureNotice }),
     };
-    this.attachPtyEvents(record);
     this.terminals.set(id, record);
+    try {
+      this.spawnPty(record, options.shellArgs, options.cols ?? 100, options.rows ?? 30);
+    } catch (error) {
+      this.terminals.delete(id);
+      throw error;
+    }
     const info = toInfo(record);
     this.activitySink?.updateTerminal(info);
     return info;
   }
 
-  private attachPtyEvents(record: TerminalRecord): void {
-    record.pty.onData((data) => {
-      record.buffer = trimReplayBuffer(record.buffer + data);
-      record.events.emit("output", data);
+  private spawnPty(record: TerminalRecord, args: string[], cols: number, rows: number, marker = ""): void {
+    const generation = ++record.generation;
+    // Stage synchronous spawn callbacks until the handle and continuation marker are installed.
+    const pending: (() => void)[] = [];
+    let ready = false;
+    const deliver = (callback: () => void): void => {
+      if (!ready) pending.push(callback);
+      else callback();
+    };
+    const current = (): boolean => this.terminals.get(record.id) === record
+      && record.generation === generation && !record.exited;
+    const env = this.executionEnvironment(record);
+    const handle = this.provider.spawn({
+      shell: env["SHELL"] ?? "/bin/bash", args, cwd: record.cwd, cols, rows, env,
+    }, {
+      output: (data) => { deliver(() => {
+        if (!current()) return;
+        record.buffer = trimReplayBuffer(record.buffer + data);
+        record.events.emit("output", data);
+      }); },
+      exit: (exitCode) => { deliver(() => {
+        if (!current()) return;
+        record.exited = true;
+        if (exitCode !== undefined) record.exitCode = exitCode;
+        record.pty?.dispose();
+        delete record.pty;
+        this.completeCommandRun(record.commandRunId, exitCode, record.failureNotice);
+        record.events.emit("exit", exitCode);
+        this.activitySink?.updateTerminal(toInfo(record));
+      }); },
     });
-    record.pty.onExit(({ exitCode }) => {
-      record.exited = true;
-      record.exitCode = exitCode;
-      this.completeCommandRun(record.commandRunId, exitCode, record.failureNotice);
-      record.events.emit("exit", exitCode);
-      const info = toInfo(record);
-      this.activitySink?.updateTerminal(info);
-    });
+    record.pty = handle;
+    if (marker !== "") {
+      record.buffer = trimReplayBuffer(record.buffer + marker);
+      record.events.emit("output", marker);
+    }
+    ready = true;
+    for (const callback of pending) callback();
   }
 
   private completeCommandRun(
@@ -430,16 +461,23 @@ export class TerminalService {
     if (isTerminalCommandRunFinal(run.status)) return copyCommandRun(run);
     const terminal = this.terminals.get(run.terminalId);
     if (terminal === undefined) throw new Error("Terminal not found");
-    if (!terminal.exited) terminal.pty.write("\x03");
+    if (!terminal.exited) terminal.pty?.write("\x03");
     return copyCommandRun(run);
   }
 
   private closeRecord(terminal: TerminalRecord): void {
     if (!this.terminals.delete(terminal.id)) return;
-    terminal.events.emit("closed");
-    terminal.events.removeAllListeners();
-    this.activitySink?.removeTerminal(terminal.id, terminal.cwd);
-    if (!terminal.exited) terminal.pty.kill();
+    // Closing is final even if a provider never publishes an exit after disposal.
+    terminal.generation += 1;
+    this.completeCommandRun(terminal.commandRunId, undefined, undefined);
+    try {
+      terminal.pty?.dispose();
+    } finally {
+      delete terminal.pty;
+      terminal.events.emit("closed");
+      terminal.events.removeAllListeners();
+      this.activitySink?.removeTerminal(terminal.id, terminal.cwd);
+    }
   }
 
   private requireAvailable(): void {

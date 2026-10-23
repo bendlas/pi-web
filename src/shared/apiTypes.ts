@@ -1247,6 +1247,8 @@ export interface ActiveAgentProfileDescriptor {
 }
 
 export interface PiWebRuntimeComponent {
+  /** Actual JavaScript engine of the reporting process, absent on older peers. */
+  runtime?: import("./piWebRuntime.js").PiWebRuntimeIdentity;
   component: PiWebServiceComponent;
   label: string;
   runtimeVersion?: string;

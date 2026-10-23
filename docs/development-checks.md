@@ -124,6 +124,18 @@ CI runs it after merges/pushes to `main` and on manual runs, on Linux only. Ordi
 
 The implementation lives in [`scripts/smoke-package-install.mjs`](../scripts/smoke-package-install.mjs), [`scripts/plugin-api-package-smoke.mjs`](../scripts/plugin-api-package-smoke.mjs), and [`scripts/captains-log-package-smoke.mjs`](../scripts/captains-log-package-smoke.mjs).
 
+## Bun runtime delivery check
+
+After building, run `npm run smoke:bun-install` with Bun 1.4.3 or newer on PATH (or set `BUN_EXECUTABLE` to its absolute path). The check packs a disposable payload copy, installs PI WEB and a separate fixture Pi with Bun, then verifies CLI selection, SDK session/extension loading, both services, HTTP, a real PTY over the paired WebSocket channel, size-specific rejection of valid oversized open/data envelopes on both direct and proxied paths, and clean exit after SIGTERM with a live shell. It also restarts the disposable daemon in recovery safe start to verify that Terminal status changes from active to disabled even though the runtime prerequisites are unchanged. It does not call a model or install user services. State, package-manager caches and prefixes are temporary; application children have no Node/npm on PATH. A machine may still have Node at the launcher's fixed discovery paths, so that test explicitly selects Bun.
+
+Use `PI_WEB_SMOKE_WEB_RUNTIME=node` or `PI_WEB_SMOKE_SESSIOND_RUNTIME=node` to check mixed-runtime deployments. The default daemon transport is a Unix socket; set `PI_WEB_SMOKE_DAEMON_TRANSPORT=tcp` to cover TCP instead. For a genuine Bun-only check, run the script with Bun inside a disposable Linux container that has Bash, git and coreutils but no Node engine, mounting this checkout and its existing dependencies read-only. Set `PI_WEB_SMOKE_PREFERENCE=auto PI_WEB_SMOKE_NODE_ABSENT=1`; this additionally asserts that forced Node selection fails. The main/manual Linux CI gate runs this container check and both mixed-runtime cells. `PI_WEB_SMOKE_TARBALL` can supply an already-built tarball instead of packing the checkout.
+
+Node's receiver can enforce channel payload limits during assembly. Bun's native transport does not expose that control, so shared decoders apply the same application limits after message delivery. Keep the real Bun oversized-frame and teardown regressions; they protect PI WEB's protocol behavior without depending on Bun's private buffer sizes or constructor names.
+
+### Terminal composition and diagnostics
+
+`ptyProvider.ts` defines the behavior consumed by `TerminalService`; `ptyComposition.ts` selects the implementation at activation. Keep runtime choices there rather than in terminal operations. Preflight checks whether the selected runtime's provider prerequisites are available, without activating plugins. Once sessiond is running, `/terminal-status` reports the activated plugin's lifecycle and its own health verdict, including deliberate recovery disablement. Neither check promises that every future operation will succeed; operation failures belong to the owning adapter/service and should be fixed there when discovered.
+
 ## Shared Pi runtime
 
 PI WEB reuses the user's existing Pi installation. The `/pi-web` extension gets that installation through Pi's public `getPackageDir()` API and passes it to the CLI as `PI_WEB_PI_PACKAGE_DIR`. Native service definitions retain that selection. Without an explicit selection, ordinary npm SDK resolution takes precedence; if no peer is locally resolvable, standalone commands can find an existing npm-installed `pi` executable on `PATH`. An invalid explicit selection is an error, not permission to silently select a different Pi or install one.

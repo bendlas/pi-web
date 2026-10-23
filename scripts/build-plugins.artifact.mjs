@@ -75,6 +75,7 @@ describe("plugin delivery artifacts", () => {
     expect(packagedFiles.filter(isTestArtifact)).toEqual([]);
     expect(packagedFiles).toEqual(expect.arrayContaining([
       "dist/cli.js", "dist/server/app.js", "dist/server/index.js", "dist/server/sessiond.js",
+      "dist/bin/pi-web.sh", "dist/bin/pi-web-server.sh", "dist/bin/pi-web-sessiond.sh", "dist/runtimePreflight.js",
       "dist/plugin-api.d.ts", "dist/server-plugin-api.d.ts", "dist/server-plugin-api.js",
       "dist/shared/pluginApiTypes.d.ts", "dist/shared/pluginCatalogTypes.d.ts", "dist/shared/pluginCatalogTypes.js",
       "plugin-api.d.ts", "server-plugin-api.d.ts", "dist/client/index.html",

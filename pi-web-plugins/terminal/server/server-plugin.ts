@@ -26,6 +26,8 @@ import {
   type TerminalScope,
 } from "./terminalService.js";
 
+import { createDefaultPtyProvider } from "./ptyComposition.js";
+
 const TERMINAL_CHANNEL_OUTPUT_FRAME_TARGET_BYTES = 60 * 1024;
 
 interface RequiredTerminalServiceContribution {
@@ -72,7 +74,7 @@ export function activateTerminalPlugin(context: ServerPluginActivationContext): 
   if (notices?.version !== 1) {
     throw new Error("Terminal server entry requires server notice reporter version 1");
   }
-  const service = new TerminalService((input) => { notices.record(input); });
+  const service = new TerminalService(createDefaultPtyProvider(), (input) => { notices.record(input); });
   const requiredTerminalService: RequiredTerminalServiceContribution = Object.freeze({
     closeForCwd: (cwd: string) => { service.closeForCwd(cwd); },
     runCommand: (options: RunTerminalCommandOptions) => service.runCommand(options),

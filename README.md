@@ -20,7 +20,7 @@ Run agents where your code, tools, credentials, and build caches live. Supervise
 
 ## Quick start
 
-Requires Node.js 22.19.0+, npm, Pi Coding Agent installed and configured for your user, git, and the development tools your agents need.
+The recommended setup uses Node.js 22.19.0+, npm, Pi Coding Agent installed and configured for your user, git, and the development tools your agents need. [Best-effort Bun support](https://pi-web.dev/install#bun) is also available.
 
 ```bash
 npm install -g @jmfederico/pi-web --allow-scripts=node-pty

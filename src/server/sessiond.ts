@@ -5,6 +5,7 @@ import { MAINTENANCE_TERMINAL_CAPABILITY } from "./terminals/maintenanceTerminal
 import { resolveMaintenanceExecutionContext } from "./terminals/maintenanceExecutionContext.js";
 import Fastify from "fastify";
 import fastifyWebsocket from "@fastify/websocket";
+import { registerTerminalStatusRoutes } from "./terminals/terminalStatusRoutes.js";
 import { WorkspaceActivityService } from "./activity/workspaceActivityService.js";
 import { MachineStatusService } from "./status/machineStatusService.js";
 import { registerMachineStatusRoutes } from "./status/machineStatusRoutes.js";
@@ -191,14 +192,13 @@ try {
 type SessionDaemonRuntime = Awaited<ReturnType<typeof createSessionDaemonRuntime>>;
 
 async function createSessionDaemonRuntime() {
-  // Apply the active agent profile's httpIdleTimeoutMs before any other
-  // startup work so even catalog-refresh fetches run under the configured
-  // HTTP idle timeouts (issue #113).
-  const appliedHttpIdleTimeout = applyAgentHttpIdleTimeout({ agentDir: activeAgentProfile.dir, cwd: process.cwd() });
-  if (appliedHttpIdleTimeout.warning !== undefined) {
-    app.log.warn({ httpIdleTimeoutMs: appliedHttpIdleTimeout.timeoutMs }, appliedHttpIdleTimeout.warning);
-  } else {
-    app.log.info({ httpIdleTimeoutMs: appliedHttpIdleTimeout.timeoutMs }, "applied agent profile HTTP idle timeout to the session daemon HTTP stack");
+  // Configure HTTP policy before catalog/session fetches. The result distinguishes
+  // applied Node dispatcher settings from unsupported Bun timeout configuration.
+  const httpIdleTimeout = applyAgentHttpIdleTimeout({ agentDir: activeAgentProfile.dir, cwd: process.cwd() });
+  if (httpIdleTimeout.warning !== undefined) {
+    app.log.warn({ requestedHttpIdleTimeoutMs: httpIdleTimeout.timeoutMs, httpIdleTimeoutApplied: httpIdleTimeout.applied }, httpIdleTimeout.warning);
+  } else if (httpIdleTimeout.applied) {
+    app.log.info({ httpIdleTimeoutMs: httpIdleTimeout.timeoutMs }, "applied agent profile HTTP idle timeout to the session daemon HTTP stack");
   }
   // Reconcile local bundled sources before plugin/resource snapshots can load
   // an obsolete copy. Failures remain non-fatal and are logged per package.
@@ -457,7 +457,7 @@ async function createSessionDaemonRuntime() {
   }
 }
 
-function registerSessionDaemonRoutes({ eventHub, machineStatus, statusAttribution, workspaceChanges, projectLifecycle, auth, sessions, serverNotices, runtimeComponent, projects, workspaceProviders, pluginBackends, workspaceProviderRuntime, workspaceRemovals }: SessionDaemonRuntime): void {
+function registerSessionDaemonRoutes({ eventHub, machineStatus, statusAttribution, workspaceChanges, projectLifecycle, auth, sessions, serverNotices, runtimeComponent, projects, workspaceProviders, pluginBackends, workspaceProviderRuntime, workspaceRemovals, serverPlugins }: SessionDaemonRuntime): void {
   registerProjectMutationRoutes(app, projectLifecycle);
   registerPluginCatalogRoutes(app, { projects, workspaces: workspaceProviders, sessions });
   registerMachineStatusRoutes(app, machineStatus);
@@ -493,6 +493,7 @@ function registerSessionDaemonRoutes({ eventHub, machineStatus, statusAttributio
     version: {
       component: runtimeComponent.component,
       label: runtimeComponent.label,
+      runtime: runtimeComponent.runtime,
       ...(runtimeComponent.runtimeVersion === undefined ? {} : { runtimeVersion: runtimeComponent.runtimeVersion }),
       ...(runtimeComponent.piVersion === undefined ? {} : { piVersion: runtimeComponent.piVersion }),
       stale: false,
@@ -501,6 +502,7 @@ function registerSessionDaemonRoutes({ eventHub, machineStatus, statusAttributio
   }));
 
   app.get("/runtime", () => runtimeComponent);
+  registerTerminalStatusRoutes(app, serverPlugins);
 }
 
 async function listenSessionDaemon({ shutdown, projects, workspaceProviders }: SessionDaemonRuntime): Promise<void> {
