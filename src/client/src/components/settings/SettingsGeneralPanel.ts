@@ -1,6 +1,7 @@
 import { stylesheetIntegrationCapability } from "../../plugins/styles";
 import { css, html, LitElement, type PropertyValues, type TemplateResult } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
+import { live } from "lit/directives/live.js";
 import { DEFAULT_WORKSPACE_ATTACHMENTS_FOLDER, DEFAULT_WORKSPACE_UPLOADS_FOLDER, type PiWebConfigEnvOverrides, type PiWebConfigResponse, type PiWebConfigValues } from "../../api";
 import { uiButtonStyles } from "../ui/controlStyles";
 import { uiFormStyles } from "../ui/formStyles";
@@ -43,6 +44,7 @@ export class SettingsGeneralPanel extends LitElement {
   @property({ attribute: false }) onReload?: () => void | Promise<void>;
   @property({ attribute: false }) onReloadMachine?: () => void | Promise<void>;
   @property({ attribute: false }) onSave?: (config: PiWebConfigValues) => void | Promise<void>;
+  @property({ attribute: false }) onSetQuietMode?: (quietMode: boolean) => void | Promise<void>;
   @property({ attribute: false }) onSaveMachineConfig?: (config: PiWebConfigValues) => void | Promise<void>;
   @state() private gatewayDraft: GatewayServerConfigDraft = emptyGatewayServerConfigDraft();
   @state() private machineDraft: MachineAccessConfigDraft = emptyMachineAccessConfigDraft();
@@ -102,10 +104,40 @@ export class SettingsGeneralPanel extends LitElement {
       >
         <div class="settings-sections ui-settings-list">
           <slot name="appearance"></slot>
+          ${this.renderChatDisplaySettings()}
           ${this.renderGatewayServerSettings()}
           ${this.renderSelectedMachineAccessSettings()}
         </div>
       </settings-panel-frame>
+    `;
+  }
+
+  private renderChatDisplaySettings(): TemplateResult {
+    const config = this.configResponse;
+    const quietMode = config?.config.quietMode === true;
+    return html`
+      <section class="settings-card ui-settings-section" aria-label="Chat display settings">
+        <div class="card-heading ui-settings-heading">
+          <h3>Chat display</h3>
+          <p>Choose how much agent activity the transcript shows before you open it.</p>
+        </div>
+        ${config === undefined ? html`<div class="loading-card">${this.loading ? "Loading gateway configuration…" : "Chat display settings are unavailable. Choose Refresh settings to try again."}</div>` : html`
+          <div class="field ui-form-field">
+            <label class="ui-checkbox-field">
+              <input
+                type="checkbox"
+                id="quiet-mode"
+                aria-describedby="quiet-mode-help"
+                .checked=${live(quietMode)}
+                ?disabled=${this.loading || this.saving}
+                @change=${(event: Event) => { this.setQuietMode(event); }}
+              >
+              <span>Quiet mode</span>
+            </label>
+            <small id="quiet-mode-help">Collapse tool calls, thinking, and other agent activity into one “events” line you can expand. Off by default.</small>
+          </div>
+        `}
+      </section>
     `;
   }
 
@@ -276,6 +308,17 @@ export class SettingsGeneralPanel extends LitElement {
   private reloadAll(): void {
     void this.onReload?.();
     void this.onReloadMachine?.();
+  }
+
+  // The dialog owns quiet-mode failure reporting through its error notice; this
+  // toggle only forwards the new value. A second change arriving before the
+  // dialog's `saving` prop reaches this panel is ignored by the dialog's own
+  // saving guard.
+  private setQuietMode(event: Event): void {
+    const quietMode = event.target instanceof HTMLInputElement && event.target.checked;
+    if (this.configResponse === undefined || this.loading || this.saving || this.onSetQuietMode === undefined) return;
+    this.gatewayLocalError = "";
+    void this.onSetQuietMode(quietMode);
   }
 
   private async saveGatewayConfig(event: Event): Promise<void> {

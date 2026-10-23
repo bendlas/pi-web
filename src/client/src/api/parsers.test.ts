@@ -133,6 +133,22 @@ describe("API parsers", () => {
     }
   });
 
+  it("preserves quiet mode and rejects invalid values in both config fields", () => {
+    const response = {
+      path: "/tmp/config.json", exists: true, config: {}, effectiveConfig: {},
+      envOverrides: { host: false, port: false, allowedHosts: false, spawnSessions: false, subsessions: false, askUser: false },
+    };
+    for (const field of ["config", "effectiveConfig"] as const) {
+      expect(parsePiWebConfigResponse(response)[field]).not.toHaveProperty("quietMode");
+      for (const quietMode of [true, false]) {
+        expect(parsePiWebConfigResponse({ ...response, [field]: { quietMode } })[field]).toEqual({ quietMode });
+      }
+      for (const quietMode of ["true", 1, null, {}, []]) {
+        expect(() => parsePiWebConfigResponse({ ...response, [field]: { quietMode } })).toThrow("quietMode");
+      }
+    }
+  });
+
   it("preserves naming configuration and rejects malformed naming fields", () => {
     const response = {
       path: "/tmp/config.json", exists: true, config: {}, effectiveConfig: {},

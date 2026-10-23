@@ -154,6 +154,10 @@ function parseConfigRequest(value: unknown, agentPathHost: AgentPathHost = "curr
   if (shortcuts !== undefined) config.shortcuts = parseShortcutsRequest(shortcuts);
   if (value["defaultTheme"] !== undefined) config.defaultTheme = requireDefaultThemePreference(value["defaultTheme"], "request");
   if (value["defaultStreamingBehavior"] !== undefined) config.defaultStreamingBehavior = requireDefaultStreamingBehavior(value["defaultStreamingBehavior"], "request");
+  if (value["quietMode"] !== undefined) {
+    if (typeof value["quietMode"] !== "boolean") throw new Error("PI WEB config quietMode must be a boolean");
+    config.quietMode = value["quietMode"];
+  }
   if (value["sessionNaming"] !== undefined) config.sessionNaming = parseSessionNamingConfig(value["sessionNaming"], "request");
   if (value["sessionArchive"] !== undefined) config.sessionArchive = parseSessionArchiveConfig(value["sessionArchive"], "request");
   if (plugins !== undefined) config.plugins = parsePluginsRequest(plugins);
