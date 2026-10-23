@@ -1,8 +1,8 @@
 import type { TemplateResult } from "lit";
-import type { HtmlTemplateTag, PiWebComponentStatus, PiWebPlugin, PiWebStatusMessage, PluginRuntimeState, WorkspacePanelTerminal } from "@jmfederico/pi-web/plugin-api";
+import type { HtmlTemplateTag, PiWebComponentStatus, PiWebPlugin, PiWebStatusMessage, PluginRuntimeState, MaintenanceTerminal } from "@jmfederico/pi-web/plugin-api";
 import { additionalCommands, fallbackDockerStatus, formatVersion, installationLabel, messageCount, recommendedCommand, shouldShowUpdatesPanel, statusFor, type CommandEntry, type UpdatesRuntimeHint } from "./updatesLogic.js";
 
-function runCommandInTerminal(terminal: WorkspacePanelTerminal, label: string, command: string): void {
+function runCommandInTerminal(terminal: MaintenanceTerminal, label: string, command: string): void {
   void terminal.runCommand({
     title: label,
     command,
@@ -29,7 +29,7 @@ function renderComponent(html: HtmlTemplateTag, component: PiWebComponentStatus)
   `;
 }
 
-function renderCommandActions(html: HtmlTemplateTag, terminal: WorkspacePanelTerminal | undefined, label: string, command: string): TemplateResult {
+function renderCommandActions(html: HtmlTemplateTag, terminal: MaintenanceTerminal | undefined, label: string, command: string): TemplateResult {
   return html`
     <span class="updates-command-actions">
       <button type="button" class="ui-button ui-button--action ui-button--compact" @click=${() => { void navigator.clipboard.writeText(command); }}>Copy</button>
@@ -38,7 +38,7 @@ function renderCommandActions(html: HtmlTemplateTag, terminal: WorkspacePanelTer
   `;
 }
 
-function renderCommand(html: HtmlTemplateTag, terminal: WorkspacePanelTerminal | undefined, label: string, command: string): TemplateResult {
+function renderCommand(html: HtmlTemplateTag, terminal: MaintenanceTerminal | undefined, label: string, command: string): TemplateResult {
   return html`
     <div class="updates-command">
       <span>${label}</span>
@@ -80,7 +80,7 @@ function renderNotices(html: HtmlTemplateTag, messages: readonly PiWebStatusMess
   `;
 }
 
-function renderRecommended(html: HtmlTemplateTag, terminal: WorkspacePanelTerminal | undefined, recommended: CommandEntry, messages: readonly PiWebStatusMessage[]): TemplateResult {
+function renderRecommended(html: HtmlTemplateTag, terminal: MaintenanceTerminal | undefined, recommended: CommandEntry, messages: readonly PiWebStatusMessage[]): TemplateResult {
   return html`
     <section class="updates-recommended">
       <strong>Recommended</strong>
@@ -92,7 +92,7 @@ function renderRecommended(html: HtmlTemplateTag, terminal: WorkspacePanelTermin
   `;
 }
 
-function renderAdditionalCommands(html: HtmlTemplateTag, terminal: WorkspacePanelTerminal | undefined, additional: readonly CommandEntry[], hasRecommended: boolean): TemplateResult | undefined {
+function renderAdditionalCommands(html: HtmlTemplateTag, terminal: MaintenanceTerminal | undefined, additional: readonly CommandEntry[], hasRecommended: boolean): TemplateResult | undefined {
   if (additional.length === 0) return undefined;
   return html`
     <section>
@@ -103,7 +103,7 @@ function renderAdditionalCommands(html: HtmlTemplateTag, terminal: WorkspacePane
   `;
 }
 
-function renderUpdatesPanel(html: HtmlTemplateTag, terminal: WorkspacePanelTerminal | undefined, state: PluginRuntimeState | undefined): TemplateResult {
+function renderUpdatesPanel(html: HtmlTemplateTag, terminal: MaintenanceTerminal | undefined, state: PluginRuntimeState | undefined): TemplateResult {
   const status = statusFor(state) ?? fallbackDockerStatus(runtimeHint);
   if (status === undefined) {
     return html`
@@ -198,7 +198,7 @@ const plugin = {
             const count = messageCount(context.state);
             return count > 0 ? count : undefined;
           },
-          render: (context) => renderUpdatesPanel(html, context.terminal, context.state),
+          render: (context) => renderUpdatesPanel(html, context.maintenanceTerminal, context.state),
         },
       ],
     },

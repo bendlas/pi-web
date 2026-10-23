@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
+import { mkdirSync } from "node:fs";
+import { isAbsolute } from "node:path";
 import * as pty from "node-pty";
 import type { ServerPluginNoticeInput } from "@jmfederico/pi-web/server-plugin-api";
 
@@ -7,11 +9,13 @@ const MAX_REPLAY_BUFFER = 200_000;
 
 export type TerminalCommandRunStatus = "queued" | "running" | "succeeded" | "failed";
 
-export interface TerminalCommandRun {
+export type TerminalIdentity =
+  | { scope?: "workspace"; projectId: string; workspaceId: string }
+  | { scope: "maintenance"; projectId?: never; workspaceId?: never };
+
+export type TerminalCommandRun = TerminalIdentity & {
   id: string;
   origin: string;
-  projectId: string;
-  workspaceId: string;
   terminalId: string;
   title: string;
   command: string;
@@ -31,7 +35,7 @@ export interface TerminalCommandRunFilter {
   metadata?: Record<string, string>;
 }
 
-export interface TerminalInfo {
+export type TerminalInfo = TerminalIdentity & {
   id: string;
   cwd: string;
   name: string;
@@ -42,12 +46,14 @@ export interface TerminalInfo {
 }
 
 export interface TerminalWorkspaceScope {
+  scope?: "workspace";
   projectId: string;
   workspaceId: string;
   cwd: string;
 }
+export type TerminalScope = TerminalIdentity & { cwd: string };
 
-export interface CreateTerminalOptions extends TerminalWorkspaceScope {
+export type CreateTerminalOptions = TerminalScope & {
   name?: string;
   cols?: number;
   rows?: number;
@@ -58,7 +64,7 @@ export interface TerminalCommandFailureNotice {
   readonly context: Readonly<Record<string, string>>;
 }
 
-export interface RunTerminalCommandOptions extends TerminalWorkspaceScope {
+export type RunTerminalCommandOptions = TerminalScope & {
   origin: string;
   title: string;
   command: string;
@@ -74,12 +80,32 @@ export interface TerminalActivitySink {
   removeTerminal(terminalId: string, cwd?: string): void;
 }
 
-interface TerminalRecord extends TerminalInfo, TerminalWorkspaceScope {
+type TerminalRecord = TerminalInfo & {
   pty: pty.IPty;
   buffer: string;
   events: EventEmitter;
   commandRunId?: string;
   failureNotice?: TerminalCommandFailureNotice;
+}
+
+export interface MaintenanceExecutionContext {
+  readonly cwd: string;
+  readonly env: Readonly<NodeJS.ProcessEnv>;
+}
+
+/** Validate the private host boundary without interpreting host configuration. */
+export function snapshotMaintenanceExecutionContext(value: unknown): MaintenanceExecutionContext {
+  if (typeof value !== "object" || value === null) throw new Error("Terminal maintenance execution context is required");
+  const cwd: unknown = Reflect.get(value, "cwd");
+  const env: unknown = Reflect.get(value, "env");
+  if (typeof cwd !== "string" || !isAbsolute(cwd)) throw new Error("Terminal maintenance cwd must be absolute");
+  if (!isRecord(env)) throw new Error("Terminal maintenance env is required");
+  const snapshot: NodeJS.ProcessEnv = {};
+  for (const [key, entry] of Object.entries(env)) {
+    if (entry !== undefined && typeof entry !== "string") throw new Error("Terminal maintenance env must contain only strings or undefined");
+    Object.defineProperty(snapshot, key, { value: entry, enumerable: true });
+  }
+  return Object.freeze({ cwd, env: Object.freeze(snapshot) });
 }
 
 export class TerminalService {
@@ -88,14 +114,41 @@ export class TerminalService {
   private activitySink: TerminalActivitySink | undefined;
   private disposed = false;
 
+  private maintenanceExecutionContext: MaintenanceExecutionContext | undefined;
+
   constructor(private readonly recordNotice?: (input: ServerPluginNoticeInput) => void) {}
+
+  bindMaintenanceExecutionContext(context: MaintenanceExecutionContext): void {
+    if (this.maintenanceExecutionContext !== undefined) throw new Error("Terminal maintenance execution context is already bound");
+    this.maintenanceExecutionContext = snapshotMaintenanceExecutionContext(context);
+  }
+
+  maintenanceScope(): TerminalScope {
+    return { scope: "maintenance", cwd: this.requireMaintenanceExecutionContext().cwd };
+  }
+
+  private requireMaintenanceExecutionContext(): MaintenanceExecutionContext {
+    if (this.maintenanceExecutionContext === undefined) throw new Error("Terminal maintenance directory is unavailable");
+    return this.maintenanceExecutionContext;
+  }
+
+  private executionEnvironment(scope: TerminalIdentity): NodeJS.ProcessEnv {
+    const env = scope.scope === "maintenance" ? this.requireMaintenanceExecutionContext().env : process.env;
+    return { ...env, TERM: "xterm-256color", PI_WEB_TERMINAL: "1" };
+  }
+
+  private prepareCwd(scope: TerminalScope): void {
+    if (scope.scope !== "maintenance") return;
+    if (scope.cwd !== this.requireMaintenanceExecutionContext().cwd) throw new Error("Invalid Terminal maintenance directory");
+    mkdirSync(scope.cwd, { recursive: true });
+  }
 
   bindActivitySink(sink: TerminalActivitySink): void {
     if (this.activitySink !== undefined) throw new Error("Terminal activity sink is already bound");
     this.activitySink = sink;
   }
 
-  list(scope: TerminalWorkspaceScope): TerminalInfo[] {
+  list(scope: TerminalScope): TerminalInfo[] {
     validateScope(scope);
     return [...this.terminals.values()]
       .filter((terminal) => matchesScope(terminal, scope))
@@ -111,7 +164,7 @@ export class TerminalService {
 
   create(options: CreateTerminalOptions): TerminalInfo {
     validateScope(options);
-    const shell = process.env["SHELL"] ?? "/bin/bash";
+    const shell = this.executionEnvironment(options)["SHELL"] ?? "/bin/bash";
     return this.createTerminal({ ...options, shellArgs: interactiveShellArgs(shell) });
   }
 
@@ -129,8 +182,7 @@ export class TerminalService {
     const queued: TerminalCommandRun = {
       id: commandRunId,
       origin: options.origin,
-      projectId: options.projectId,
-      workspaceId: options.workspaceId,
+      ...terminalIdentity(options),
       terminalId,
       title: options.title,
       command: options.command,
@@ -144,8 +196,7 @@ export class TerminalService {
     try {
       this.createTerminal({
         id: terminalId,
-        projectId: options.projectId,
-        workspaceId: options.workspaceId,
+        ...terminalIdentity(options),
         cwd: options.cwd,
         name: options.title,
         ...(options.cols === undefined ? {} : { cols: options.cols }),
@@ -168,9 +219,9 @@ export class TerminalService {
       .map(copyCommandRun);
   }
 
-  listCommandRunsForScope(scope: TerminalWorkspaceScope, filter: TerminalCommandRunFilter = {}): TerminalCommandRun[] {
+  listCommandRunsForScope(scope: TerminalScope, filter: TerminalCommandRunFilter = {}): TerminalCommandRun[] {
     validateScope(scope);
-    return this.listCommandRuns({ ...filter, projectId: scope.projectId, workspaceId: scope.workspaceId });
+    return this.listCommandRuns(filter).filter((run) => matchesIdentity(run, scope));
   }
 
   getCommandRun(runId: string): TerminalCommandRun | undefined {
@@ -178,10 +229,10 @@ export class TerminalService {
     return run === undefined ? undefined : copyCommandRun(run);
   }
 
-  getCommandRunForScope(scope: TerminalWorkspaceScope, runId: string): TerminalCommandRun | undefined {
+  getCommandRunForScope(scope: TerminalScope, runId: string): TerminalCommandRun | undefined {
     validateScope(scope);
     const run = this.commandRuns.get(runId);
-    return run?.projectId === scope.projectId && run.workspaceId === scope.workspaceId
+    return run !== undefined && matchesIdentity(run, scope)
       ? copyCommandRun(run)
       : undefined;
   }
@@ -190,19 +241,19 @@ export class TerminalService {
     return this.cancelCommandRunRecord(this.requireCommandRun(runId));
   }
 
-  cancelCommandRunForScope(scope: TerminalWorkspaceScope, runId: string): TerminalCommandRun {
+  cancelCommandRunForScope(scope: TerminalScope, runId: string): TerminalCommandRun {
     const run = this.getCommandRunForScope(scope, runId);
     if (run === undefined) throw new Error("Terminal command run not found in this workspace");
     return this.cancelCommandRunRecord(this.requireCommandRun(runId));
   }
 
-  get(scope: TerminalWorkspaceScope, id: string): TerminalInfo | undefined {
+  get(scope: TerminalScope, id: string): TerminalInfo | undefined {
     const terminal = this.terminals.get(id);
     return terminal === undefined || !matchesScope(terminal, scope) ? undefined : toInfo(terminal);
   }
 
   attach(
-    scope: TerminalWorkspaceScope,
+    scope: TerminalScope,
     id: string,
     handlers: { output(data: string, replay: boolean): void; exit(exitCode: number | undefined): void; closed?(): void },
   ): () => void {
@@ -225,49 +276,52 @@ export class TerminalService {
     };
   }
 
-  write(scope: TerminalWorkspaceScope, id: string, data: string): void {
+  write(scope: TerminalScope, id: string, data: string): void {
     const terminal = this.requireScoped(scope, id);
     if (!terminal.exited) terminal.pty.write(data);
   }
 
-  resize(scope: TerminalWorkspaceScope, id: string, cols: number, rows: number): void {
+  resize(scope: TerminalScope, id: string, cols: number, rows: number): void {
     const terminal = this.requireScoped(scope, id);
     if (!terminal.exited && Number.isFinite(cols) && Number.isFinite(rows) && cols > 0 && rows > 0) {
       terminal.pty.resize(Math.floor(cols), Math.floor(rows));
     }
   }
 
-  continue(scope: TerminalWorkspaceScope, id: string): TerminalInfo {
+  continue(scope: TerminalScope, id: string): TerminalInfo {
     const record = this.requireScoped(scope, id);
+    this.prepareCwd(record);
     if (!record.exited) return toInfo(record);
+    const env = this.executionEnvironment(record);
+    const shell = env["SHELL"] ?? "/bin/bash";
+    const terminal = pty.spawn(shell, interactiveShellArgs(shell), {
+      name: "xterm-256color",
+      cwd: record.cwd,
+      cols: 100,
+      rows: 30,
+      env,
+    });
+    record.pty = terminal;
     delete record.exitCode;
     delete record.commandRunId;
     record.exited = false;
     const marker = "\r\n[continued in interactive shell]\r\n";
     record.buffer = trimReplayBuffer(record.buffer + marker);
     record.events.emit("output", marker);
-    const shell = process.env["SHELL"] ?? "/bin/bash";
-    record.pty = pty.spawn(shell, interactiveShellArgs(shell), {
-      name: "xterm-256color",
-      cwd: record.cwd,
-      cols: 100,
-      rows: 30,
-      env: terminalEnvironment(),
-    });
     this.attachPtyEvents(record);
     const info = toInfo(record);
     this.activitySink?.updateTerminal(info);
     return info;
   }
 
-  closeAll(scope: TerminalWorkspaceScope): void {
+  closeAll(scope: TerminalScope): void {
     validateScope(scope);
     for (const terminal of [...this.terminals.values()].filter((candidate) => matchesScope(candidate, scope))) {
       this.closeRecord(terminal);
     }
   }
 
-  close(scope: TerminalWorkspaceScope, id: string): void {
+  close(scope: TerminalScope, id: string): void {
     validateScope(scope);
     const terminal = this.terminals.get(id);
     if (terminal === undefined) return;
@@ -284,21 +338,22 @@ export class TerminalService {
   private createTerminal(options: CreateTerminalOptions & { id?: string; shellArgs: string[]; commandRunId?: string; failureNotice?: TerminalCommandFailureNotice }): TerminalInfo {
     this.requireAvailable();
     validateScope(options);
+    this.prepareCwd(options);
     const id = options.id ?? randomUUID();
     const createdAt = new Date().toISOString();
-    const shell = process.env["SHELL"] ?? "/bin/bash";
+    const env = this.executionEnvironment(options);
+    const shell = env["SHELL"] ?? "/bin/bash";
     const terminal = pty.spawn(shell, options.shellArgs, {
       name: "xterm-256color",
       cwd: options.cwd,
       cols: options.cols ?? 100,
       rows: options.rows ?? 30,
-      env: terminalEnvironment(),
+      env,
     });
     const requestedName = options.name?.trim();
     const record: TerminalRecord = {
       id,
-      projectId: options.projectId,
-      workspaceId: options.workspaceId,
+      ...terminalIdentity(options),
       cwd: options.cwd,
       name: requestedName !== undefined && requestedName !== "" ? requestedName : `Shell ${String(this.list(options).length + 1)}`,
       createdAt,
@@ -350,13 +405,13 @@ export class TerminalService {
       this.recordNotice?.({
         severity: "error",
         message: failureNotice.message,
-        scope: { projectId: completed.projectId },
+        ...(completed.scope === "maintenance" ? {} : { scope: { projectId: completed.projectId } }),
         context: { ...failureNotice.context, commandRunId: completed.id },
       });
     }
   }
 
-  private requireScoped(scope: TerminalWorkspaceScope, id: string): TerminalRecord {
+  private requireScoped(scope: TerminalScope, id: string): TerminalRecord {
     validateScope(scope);
     const terminal = this.terminals.get(id);
     if (terminal === undefined || !matchesScope(terminal, scope)) {
@@ -395,6 +450,7 @@ export class TerminalService {
 function toInfo(record: TerminalRecord): TerminalInfo {
   return {
     id: record.id,
+    ...terminalIdentity(record),
     cwd: record.cwd,
     name: record.name,
     createdAt: record.createdAt,
@@ -415,10 +471,6 @@ export function interactiveShellArgs(shell: string): string[] {
   return executable === "bash" || executable === "zsh" || executable === "fish" ? ["-l"] : [];
 }
 
-function terminalEnvironment(): NodeJS.ProcessEnv {
-  return { ...process.env, TERM: "xterm-256color", PI_WEB_TERMINAL: "1" };
-}
-
 function commandRunShellScript(command: string): string {
   return `printf '%s\\n' ${shellQuote(`$ ${command}`)}\n${command}`;
 }
@@ -427,16 +479,30 @@ function shellQuote(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
-function validateScope(scope: TerminalWorkspaceScope): void {
-  if (scope.projectId.trim() === "") throw new Error("projectId is required");
-  if (scope.workspaceId.trim() === "") throw new Error("workspaceId is required");
+function validateScope(scope: { scope?: string; projectId?: string; workspaceId?: string; cwd: string }): void {
+  if (scope.scope === "maintenance") {
+    if (scope.projectId !== undefined || scope.workspaceId !== undefined) throw new Error("Maintenance scope cannot include workspace ids");
+  } else {
+    if (scope.scope !== undefined && scope.scope !== "workspace") throw new Error("Invalid Terminal scope");
+    if (typeof scope.projectId !== "string" || scope.projectId.trim() === "") throw new Error("projectId is required");
+    if (typeof scope.workspaceId !== "string" || scope.workspaceId.trim() === "") throw new Error("workspaceId is required");
+  }
   if (scope.cwd.trim() === "") throw new Error("cwd is required");
 }
 
-function matchesScope(record: TerminalWorkspaceScope, scope: TerminalWorkspaceScope): boolean {
-  return record.projectId === scope.projectId
-    && record.workspaceId === scope.workspaceId
-    && record.cwd === scope.cwd;
+function terminalIdentity(scope: TerminalIdentity): TerminalIdentity {
+  return scope.scope === "maintenance"
+    ? { scope: "maintenance" }
+    : { ...(scope.scope === undefined ? {} : { scope: "workspace" as const }), projectId: scope.projectId, workspaceId: scope.workspaceId };
+}
+
+function matchesIdentity(record: TerminalIdentity, scope: TerminalIdentity): boolean {
+  if (record.scope === "maintenance" || scope.scope === "maintenance") return record.scope === scope.scope;
+  return record.projectId === scope.projectId && record.workspaceId === scope.workspaceId;
+}
+
+function matchesScope(record: TerminalScope, scope: TerminalScope): boolean {
+  return matchesIdentity(record, scope) && record.cwd === scope.cwd;
 }
 
 function validateCommandRunOptions(options: RunTerminalCommandOptions): void {

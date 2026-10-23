@@ -54,7 +54,7 @@ describe("plugin delivery artifacts", () => {
       if (!isRecord(imported)) throw new Error(`Built server plugin did not import as a module: ${plugin.id}`);
       const pluginExport = imported["default"];
       if (!isRecord(pluginExport)) throw new Error(`Built server plugin has no default object export: ${plugin.id}`);
-      expect(pluginExport["apiVersion"]).toBe(3);
+      expect(pluginExport["apiVersion"]).toBe(plugin.id === "pi-web.terminal" ? 5 : 3);
       expect(typeof pluginExport["activate"]).toBe("function");
     }
     // npm 10 can still execute prepare with --ignore-scripts. Pack a copy of

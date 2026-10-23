@@ -3,16 +3,19 @@ import type {
   JsonValue,
   PluginCapability,
   PluginCapabilityProvision,
-  ServerPluginPeer,
+  ServerPluginPeerV5 as ServerPluginPeer,
   ServerPluginPeerChannel,
-  ServerPluginPeerChannelOpenContext,
-  ServerPluginPeerRequestContext,
+  ServerPluginPeerChannelOpenContextV5 as ServerPluginPeerChannelOpenContext,
+  ServerPluginPeerRequestContextV5 as ServerPluginPeerRequestContext,
   PiWebServerPlugin,
-  ServerPluginActivation,
-  ServerPluginActivationContext,
+  ServerPluginStartContext,
+  ServerPluginActivationV5 as ServerPluginActivation,
+  ServerPluginActivationContextV5 as ServerPluginActivationContext,
 } from "@jmfederico/pi-web/server-plugin-api";
 import {
   TerminalService,
+  snapshotMaintenanceExecutionContext,
+  type MaintenanceExecutionContext,
   type CreateTerminalOptions,
   type RunTerminalCommandOptions,
   type TerminalActivitySink,
@@ -20,7 +23,7 @@ import {
   type TerminalCommandRunFilter,
   type TerminalCommandRunStatus,
   type TerminalInfo,
-  type TerminalWorkspaceScope,
+  type TerminalScope,
 } from "./terminalService.js";
 
 const TERMINAL_CHANNEL_OUTPUT_FRAME_TARGET_BYTES = 60 * 1024;
@@ -42,8 +45,17 @@ interface TerminalActivation extends ServerPluginActivation {
   provides: readonly [PluginCapabilityProvision<RequiredTerminalServiceContribution, 1>];
 }
 
+/** Private host composition capability; never derived from plugin dataDirectory. */
+export const MAINTENANCE_TERMINAL_CAPABILITY = Object.freeze({
+  pluginId: "pi-web.host",
+  id: "terminal-maintenance",
+  version: 1,
+  parse: snapshotMaintenanceExecutionContext,
+}) satisfies PluginCapability<MaintenanceExecutionContext, 1>;
+
 const plugin: PiWebServerPlugin = {
-  apiVersion: 3,
+  apiVersion: 5,
+  requires: [MAINTENANCE_TERMINAL_CAPABILITY],
   name: "Terminal",
   activate(context) {
     return activateTerminalPlugin(context);
@@ -73,6 +85,9 @@ export function activateTerminalPlugin(context: ServerPluginActivationContext): 
   let stopped = false;
   return Object.freeze({
     peer: createTerminalPeer(service, context),
+    start: ({ capabilities }: ServerPluginStartContext) => {
+      service.bindMaintenanceExecutionContext(capabilities.resolve(MAINTENANCE_TERMINAL_CAPABILITY));
+    },
     provides: Object.freeze([serviceProvision] as const),
     health: () => stopped
       ? Object.freeze({ status: "unhealthy" as const, message: "Terminal service is stopped" })
@@ -115,12 +130,13 @@ export function createTerminalPeer(
 
 function terminalRequest(service: TerminalService, context: ServerPluginPeerRequestContext): JsonValue {
   throwIfAborted(context.signal);
-  const scope = terminalScope(context);
+  const scope = terminalScope(service, context);
   switch (context.operation) {
     case "terminal.list":
       requireNullishInput(context.input, context.operation);
       return service.list(scope).map(terminalInfoJson);
     case "terminal.create": {
+      if (scope.scope === "maintenance") throw new Error("New terminals require a workspace. Maintenance terminals start from actions such as Update.");
       const input = requireObject(context.input, context.operation);
       return terminalInfoJson(service.create({
         ...scope,
@@ -162,7 +178,7 @@ function openTerminalChannel(
     throw new Error(`Unsupported Terminal channel operation: ${context.operation}`);
   }
   throwIfAborted(context.signal);
-  const scope = terminalScope(context);
+  const scope = terminalScope(service, context);
   const input = requireObject(context.input, context.operation);
   const terminalId = requireString(input, "terminalId", context.operation);
   const size = optionalTerminalSize(input);
@@ -231,18 +247,22 @@ function openTerminalChannel(
   });
 }
 
-function terminalScope(context: Pick<ServerPluginPeerRequestContext, "project" | "workspace">): TerminalWorkspaceScope {
-  if (context.workspace.projectId !== context.project.id) {
+function terminalScope(service: TerminalService, context: Pick<ServerPluginPeerRequestContext, "scope">): TerminalScope {
+  const scope = context.scope;
+  if (scope.kind === "machine") return service.maintenanceScope();
+  if (scope.kind !== "workspace") throw new Error("Terminal requires machine or workspace scope");
+  if (scope.workspace.projectId !== scope.project.id) {
     throw new Error("Terminal workspace project scope does not match the host project");
   }
   return Object.freeze({
-    projectId: context.project.id,
-    workspaceId: context.workspace.id,
-    cwd: context.workspace.path,
+    scope: "workspace",
+    projectId: scope.project.id,
+    workspaceId: scope.workspace.id,
+    cwd: scope.workspace.path,
   });
 }
 
-function parseRunCommand(scope: TerminalWorkspaceScope, input: JsonObject): RunTerminalCommandOptions {
+function parseRunCommand(scope: TerminalScope, input: JsonObject): RunTerminalCommandOptions {
   const metadata = input["metadata"];
   return {
     ...scope,
@@ -270,6 +290,7 @@ function parseCommandRunFilter(input: JsonObject): TerminalCommandRunFilter {
 function terminalInfoJson(info: TerminalInfo): JsonObject {
   return {
     id: info.id,
+    ...scopeJson(info),
     cwd: info.cwd,
     name: info.name,
     createdAt: info.createdAt,
@@ -283,8 +304,7 @@ function commandRunJson(run: TerminalCommandRun): JsonObject {
   return {
     id: run.id,
     origin: run.origin,
-    projectId: run.projectId,
-    workspaceId: run.workspaceId,
+    ...scopeJson(run),
     terminalId: run.terminalId,
     title: run.title,
     command: run.command,
@@ -295,6 +315,12 @@ function commandRunJson(run: TerminalCommandRun): JsonObject {
     ...(run.completedAt === undefined ? {} : { completedAt: run.completedAt }),
     metadata: { ...run.metadata },
   };
+}
+
+function scopeJson(value: TerminalInfo | TerminalCommandRun): JsonObject {
+  return value.scope === "maintenance"
+    ? { scope: "maintenance" }
+    : { ...(value.scope === undefined ? {} : { scope: "workspace" }), projectId: value.projectId, workspaceId: value.workspaceId };
 }
 
 function optionalTerminalName(input: JsonObject): Pick<CreateTerminalOptions, "name"> {

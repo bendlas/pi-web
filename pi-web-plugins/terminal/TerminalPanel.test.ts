@@ -1,9 +1,10 @@
 // @vitest-environment happy-dom
 
 import type { JsonValue, PluginPeerChannelOptions, PluginPeer, StylesheetIntegrationCapabilityV1, WorkspacePanelContext, WorkspacePanelNavigationV1 } from "@jmfederico/pi-web/plugin-api";
-import { Terminal, type ITerminalOptions } from "@xterm/xterm";
-import * as xterm from "@xterm/xterm";
+import { Terminal } from "@xterm/xterm";
+import { installTerminalRendererFake as fakeTerminalBoundary } from "./terminalRenderer.testSupport";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { TerminalContext, WorkspaceTerminalBinding } from "./TerminalContext";
 import { TerminalBrowserRuntime } from "./TerminalBrowserRuntime";
 import { TerminalPanel, filterTerminalInput } from "./TerminalPanel";
 import { defineTerminalCustomElements, TERMINAL_SOFT_KEYS_ELEMENT } from "./pi-web-plugin";
@@ -265,7 +266,7 @@ describe("Terminal panel lifecycle", () => {
     // Project resolution supplies a fresh setter, but neither the empty query
     // nor the remembered shell changes. No second list response should be needed.
     const acceptedNavigation = vi.fn(() => true);
-    panel.context = { ...context, navigation: { ...terminalNavigation(), set: acceptedNavigation } };
+    panel.context = { ...context, workspace: { ...context.workspace, navigation: { ...terminalNavigation(), set: acceptedNavigation } } };
     callPanelMethod(panel, "willUpdate");
     callPanelMethod(panel, "updated");
 
@@ -294,6 +295,127 @@ describe("Terminal panel lifecycle", () => {
     create.resolve(terminalInfo("new-shell"));
     await start;
     expect(Reflect.get(panel, "selectedId")).toBe("new-shell");
+  });
+
+  it("lists existing maintenance terminals without allowing shell creation",  async () => {
+    const panel = createTerminalPanel();
+    const runtime = new TerminalBrowserRuntime(new InMemoryTerminalSelectionMemory());
+    const request = vi.fn((operation: string): Promise<JsonValue> =>
+      Promise.resolve(operation === "terminal.create" ? terminalInfo("maintenance-shell") : []));
+    const workspace = terminalContext();
+    const context = { machine: workspace.machine, host: workspace.host, maintenance: { scope: "maintenance" as const, peer: terminalPeer(request) } };
+    panel.context = context;
+    panel.runtime = runtime;
+    callPanelMethod(panel, "willUpdate");
+    await callAsyncPanelMethod(panel, "loadTerminals");
+    await callAsyncPanelMethod(panel, "startTerminal");
+    expect(request.mock.calls.map(([operation]) => operation)).toEqual(["terminal.list", "terminal.list-runs"]);
+    expect(runtime.selectedTerminalId(context)).toBeUndefined();
+    document.body.append(panel);
+    await panel.updateComplete;
+    expect(panel.shadowRoot?.querySelector<HTMLButtonElement>("button.new")?.disabled).toBe(true);
+  });
+
+  it("keeps machine-only terminal selection stable across fresh host contexts", async () => {
+    fakeTerminalBoundary();
+    const panel = createTerminalPanel();
+    let hostRenders = 0;
+    const requestRender = vi.fn(() => {
+      hostRenders += 1;
+      if (hostRenders > 8) throw new Error("Terminal selection caused an unbounded host render loop");
+      // Recreate the binding as well as the context, just like a real host.
+      panel.context = { ...context, maintenance: { ...context.maintenance } };
+    });
+    const channel = { closed: new Promise<never>(() => undefined), send: vi.fn(), close: vi.fn() };
+    const attach = vi.fn(() => Promise.resolve(channel));
+    const request = vi.fn((operation: string): Promise<JsonValue> => Promise.resolve(
+      operation === "terminal.list" ? [{ ...terminalInfo("maintenance"), scope: "maintenance" }] : []));
+    const context = {
+      machine: terminalContext().machine,
+      host: { requestRender },
+      maintenance: { scope: "maintenance" as const, peer: terminalPeer(request, attach) },
+    };
+    const runtime = new TerminalBrowserRuntime(new InMemoryTerminalSelectionMemory());
+    panel.context = context;
+    panel.runtime = runtime;
+    document.body.append(panel);
+    await vi.waitFor(() => { expect(attach).toHaveBeenCalledOnce(); });
+    await panel.updateComplete;
+    expect(hostRenders).toBeLessThanOrEqual(2);
+    requestRender.mockClear();
+
+    // The host recreates contexts when requestRender is called. Bound the
+    // simulation so a regression fails rather than locking up the test runner.
+    for (let render = 0; render < 4; render += 1) {
+      panel.context = { ...context };
+      await panel.updateComplete;
+    }
+
+    expect(requestRender).not.toHaveBeenCalled();
+    expect(panel.shadowRoot?.querySelector("button.selected")?.textContent).toContain("maintenance");
+    expect(attach).toHaveBeenCalledOnce();
+    panel.remove();
+    runtime.dispose();
+  });
+
+  it("combines workspace and maintenance tabs and keeps maintenance channel authority across workspace switches", async () => {
+    fakeTerminalBoundary();
+    const channel = { closed: new Promise<never>(() => undefined), send: vi.fn(), close: vi.fn() };
+    const maintenanceAttach = vi.fn(() => Promise.resolve(channel));
+    const workspaceAttach = vi.fn(() => new Promise<never>(() => undefined));
+    const maintenanceRequest = vi.fn((operation: string): Promise<JsonValue> => Promise.resolve(
+      operation === "terminal.list" ? [{ ...terminalInfo("maintenance"), scope: "maintenance" }]
+        : operation === "terminal.close" ? { closed: true } : []));
+    const workspaceRequest = vi.fn((operation: string): Promise<JsonValue> => Promise.resolve(
+      operation === "terminal.list" ? [terminalInfo("workspace")] : []));
+    const context = {
+      ...terminalContext({ peer: terminalPeer(workspaceRequest, workspaceAttach) }),
+      maintenance: { scope: "maintenance" as const, peer: terminalPeer(maintenanceRequest, maintenanceAttach) },
+    };
+    const panel = createTerminalPanel();
+    panel.context = context;
+    panel.runtime = new TerminalBrowserRuntime(new InMemoryTerminalSelectionMemory());
+    document.body.append(panel);
+    await vi.waitFor(() => { expect(panel.shadowRoot?.textContent).toContain("Maintenance · maintenance"); });
+    const maintenanceTab = Array.from(panel.shadowRoot?.querySelectorAll("button") ?? []).find((button) => button.textContent.includes("Maintenance · maintenance"));
+    maintenanceTab?.click();
+    await panel.updateComplete;
+    await vi.waitFor(() => { expect(Reflect.get(panel, "channel")).toBe(channel); });
+    expect(maintenanceAttach).toHaveBeenCalledOnce();
+    callPanelMethod(panel, "sendTerminalInput", "hello");
+    callPanelMethod(panel, "send", { type: "resize", cols: 80, rows: 24 });
+    expect(channel.send).toHaveBeenCalledWith({ type: "input", data: "hello" });
+    expect(channel.send).toHaveBeenCalledWith({ type: "resize", cols: 80, rows: 24 });
+    panel.context = { ...context, workspace: { ...context.workspace, workspace: { ...context.workspace.workspace, id: "workspace-2", path: "/other" } } };
+    await panel.updateComplete;
+    await vi.waitFor(() => { expect(maintenanceAttach).toHaveBeenCalledTimes(2); });
+    expect(panel.shadowRoot?.querySelector("button.selected")?.textContent).toContain("maintenance");
+    expect(workspaceRequest.mock.calls.some(([operation]) => operation === "terminal.create")).toBe(false);
+    expect(maintenanceRequest.mock.calls.some(([operation]) => operation === "terminal.create")).toBe(false);
+    const close = panel.shadowRoot?.querySelector<HTMLButtonElement>("button.selected small");
+    close?.click();
+    await vi.waitFor(() => { expect(maintenanceRequest).toHaveBeenCalledWith("terminal.close", { terminalId: "maintenance" }, expect.anything()); });
+    expect(workspaceRequest.mock.calls.some(([operation]) => operation === "terminal.close")).toBe(false);
+  });
+
+  it("continues and cancels existing maintenance commands with only machine authority", async () => {
+    const panel = createTerminalPanel();
+    const workspace = terminalContext();
+    const info = { ...terminalInfo("terminal-1"), scope: "maintenance" as const, commandRunId: "run-1" };
+    const run = { ...commandRun("running"), scope: "maintenance" };
+    Reflect.deleteProperty(run, "projectId");
+    Reflect.deleteProperty(run, "workspaceId");
+    const request = vi.fn((operation: string): Promise<JsonValue> => Promise.resolve(
+      operation === "terminal.list" ? [info]
+        : operation === "terminal.continue" ? info : operation === "terminal.list-runs" ? [run] : null));
+    panel.context = { machine: workspace.machine, host: workspace.host, maintenance: { scope: "maintenance" as const, peer: terminalPeer(request) } };
+    panel.runtime = new TerminalBrowserRuntime(new InMemoryTerminalSelectionMemory());
+    callPanelMethod(panel, "willUpdate");
+    await callAsyncPanelMethod(panel, "loadTerminals");
+    await callAsyncPanelMethod(panel, "continueTerminal", "terminal-1");
+    await callAsyncPanelMethod(panel, "cancelCommandRun", run);
+    expect(request).toHaveBeenCalledWith("terminal.continue", { terminalId: "terminal-1" }, expect.anything());
+    expect(request).toHaveBeenCalledWith("terminal.cancel-run", { runId: "run-1" }, expect.anything());
   });
 
   it("starts an empty panel only for an explicit one-shot open request", async () => {
@@ -344,6 +466,7 @@ describe("Terminal panel lifecycle", () => {
     if (phase === "load") await callAsyncPanelMethod(panel, "loadTerminals");
     else {
       Reflect.set(panel, "loadedWorkspaceScope", runtime.workspaceScope(context));
+      runtime.selectionController.loaded(context, []);
       callPanelMethod(panel, "applyAutoStartRequest");
     }
 
@@ -356,7 +479,7 @@ describe("Terminal panel lifecycle", () => {
     const acceptedNavigation = vi.fn(() => true);
     Reflect.set(panel, "context", {
       ...context,
-      navigation: { ...terminalNavigation(undefined, "open-1"), set: acceptedNavigation },
+      workspace: { ...context.workspace, navigation: { ...terminalNavigation(undefined, "open-1"), set: acceptedNavigation } },
     });
     callPanelMethod(panel, "willUpdate");
     await callAsyncPanelMethod(panel, "loadTerminals");
@@ -384,6 +507,7 @@ describe("Terminal panel lifecycle", () => {
       navigation: { ...terminalNavigation("terminal-newer"), set: setNavigation },
     });
     Reflect.set(panel, "terminals", [terminalInfo("terminal-newer")]);
+    runtime.selectionController.loaded(initialContext, [terminalInfo("terminal-newer")]);
     Reflect.set(panel, "context", newerContext);
     callPanelMethod(panel, "willUpdate");
     setNavigation.mockClear();
@@ -394,6 +518,36 @@ describe("Terminal panel lifecycle", () => {
     expect(Reflect.get(panel, "terminals")).toEqual([terminalInfo("terminal-newer"), terminalInfo("terminal-created")]);
     expect(Reflect.get(panel, "selectedId")).toBe("terminal-newer");
     expect(setNavigation).not.toHaveBeenCalled();
+  });
+
+  it("keeps a repeated explicit maintenance open over an older pending shell creation", async () => {
+    const panel = createTerminalPanel();
+    const runtime = new TerminalBrowserRuntime(new InMemoryTerminalSelectionMemory());
+    const pendingCreate = deferred<JsonValue>();
+    const request = vi.fn((operation: string): Promise<JsonValue> => operation === "terminal.create" ? pendingCreate.promise : Promise.resolve([]));
+    const context = {
+      ...terminalContext({ peer: terminalPeer(request) }),
+      maintenance: { scope: "maintenance" as const, peer: terminalPeer(vi.fn(() => Promise.resolve([]))) },
+    };
+    const maintenance = { ...terminalInfo("maintenance"), scope: "maintenance" as const };
+    Reflect.set(panel, "context", context);
+    Reflect.set(panel, "runtime", runtime);
+    callPanelMethod(panel, "willUpdate");
+    Reflect.set(panel, "terminals", [maintenance]);
+    runtime.selectionController.loaded(context, [maintenance]);
+    callPanelMethod(panel, "willUpdate");
+    expect(Reflect.get(panel, "selectedId")).toBe("maintenance");
+
+    const starting = callAsyncPanelMethod(panel, "startTerminal");
+    await vi.waitFor(() => { expect(request).toHaveBeenCalledWith("terminal.create", expect.anything(), expect.anything()); });
+    runtime.requestMaintenanceTerminal(context.machine.id, "maintenance");
+    callPanelMethod(panel, "willUpdate");
+    pendingCreate.resolve(terminalInfo("created-shell"));
+    await starting;
+
+    expect(Reflect.get(panel, "terminals")).toEqual([maintenance, terminalInfo("created-shell")]);
+    expect(Reflect.get(panel, "selectedId")).toBe("maintenance");
+    runtime.dispose();
   });
 
   it("lets only the latest terminal start select its result", async () => {
@@ -577,9 +731,9 @@ describe("Terminal panel lifecycle", () => {
     Reflect.set(panel, "channelAbort", channelAbort);
     Reflect.set(panel, "channel", channel);
     Reflect.set(panel, "terminal", terminal);
-    const movedContext: WorkspacePanelContext = {
+    const movedContext: TerminalContext = {
       ...context,
-      workspace: { ...context.workspace, path: "/repo-moved" },
+      workspace: { ...context.workspace, workspace: { ...context.workspace.workspace, path: "/repo-moved" } },
     };
     Reflect.set(panel, "context", movedContext);
 
@@ -814,6 +968,7 @@ describe("Terminal panel lifecycle", () => {
     await Promise.resolve();
     expect(reload).toHaveBeenCalledOnce();
     expect(terminal.reset).not.toHaveBeenCalled();
+    Reflect.set(panel, "terminals", [terminalInfo("terminal-1")]);
 
     callPanelMethod(panel, "handleChannelClosed", 1, "terminal-1", terminal, {
       code: 1011,
@@ -869,6 +1024,7 @@ describe("Terminal panel lifecycle", () => {
     Reflect.set(panel, "terminal", terminal);
     Reflect.set(panel, "channelGeneration", 1);
     Reflect.set(panel, "context", context);
+    Reflect.set(panel, "terminals", [terminalInfo("terminal-1")]);
 
     callPanelMethod(panel, "handleChannelClosed", 1, "terminal-1", terminal, {
       code: 1011,
@@ -897,6 +1053,7 @@ describe("Terminal panel lifecycle", () => {
     Reflect.set(panel, "selectedId", "terminal-1");
     Reflect.set(panel, "terminal", terminal);
     Reflect.set(panel, "connectionError", "Terminal connection closed: offline");
+    Reflect.set(panel, "terminals", [terminalInfo("terminal-1")]);
 
     callPanelMethod(panel, "connectChannel", context, "terminal-1", terminal, undefined);
     await vi.waitFor(() => { expect(openChannel).toHaveBeenCalledOnce(); });
@@ -1039,29 +1196,6 @@ describe("Terminal panel lifecycle", () => {
   });
 });
 
-// Replace only Xterm's external rendering boundary; panel setup and updates use
-// its public properties, peer protocol, and connected custom-element lifecycle.
-function fakeTerminalBoundary() {
-  const terminals: { options: ITerminalOptions; dispose: ReturnType<typeof vi.fn> }[] = [];
-  class FakeTerminal {
-    options: ITerminalOptions;
-    dispose = vi.fn();
-    loadAddon = vi.fn();
-    open = vi.fn();
-    onData = vi.fn();
-    focus = vi.fn();
-    constructor(options: ITerminalOptions = {}) {
-      this.options = options;
-      terminals.push(this);
-    }
-  }
-  // The renderer fake deliberately implements only the Xterm boundary used here.
-  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
-  vi.spyOn(xterm, "Terminal").mockImplementation(FakeTerminal as unknown as typeof Terminal);
-  vi.stubGlobal("IntersectionObserver", undefined);
-  return terminals;
-}
-
 async function mountPalettePanel(integration?: StylesheetIntegrationCapabilityV1): Promise<TerminalPanel> {
   const panel = createTerminalPanel();
   panel.stylesheetIntegration = integration;
@@ -1123,21 +1257,16 @@ function createTerminalPanel(): TerminalPanel {
   return element;
 }
 
-function terminalContext(overrides: Partial<WorkspacePanelContext> = {}): WorkspacePanelContext {
+function terminalContext(overrides: Partial<WorkspacePanelContext> = {}): TerminalContext & { workspace: WorkspaceTerminalBinding } {
   return {
-    navigate: () => Promise.resolve(),
-    machine: { id: "local", name: "Local", kind: "local" },
-    workspace: { id: "workspace-1", projectId: "project-1", path: "/repo", label: "main", isMain: true },
-    files: { readFile: vi.fn(), listFiles: vi.fn(), writeFile: vi.fn(), deleteFile: vi.fn(), moveFile: vi.fn() },
-    peer: terminalPeer(
-      vi.fn(() => Promise.resolve([])),
-      vi.fn(() => new Promise<never>(() => undefined)),
-    ),
-    host: { requestRender: vi.fn() },
-    prompt: { insertText: vi.fn(), getText: vi.fn(() => ""), getSelection: vi.fn(() => null) },
-    terminal: { open: vi.fn(), runCommand: vi.fn() },
-    navigation: terminalNavigation(),
-    ...overrides,
+    machine: overrides.machine ?? { id: "local", name: "Local", kind: "local" },
+    workspace: {
+      scope: "workspace",
+      workspace: overrides.workspace ?? { id: "workspace-1", projectId: "project-1", path: "/repo", label: "main", isMain: true },
+      peer: overrides.peer ?? terminalPeer(vi.fn(() => Promise.resolve([])), vi.fn(() => new Promise<never>(() => undefined))),
+      navigation: overrides.navigation ?? terminalNavigation(),
+    },
+    host: overrides.host ?? { requestRender: vi.fn() },
   };
 }
 
@@ -1163,11 +1292,11 @@ function terminalNavigation(terminalId?: string, autoStartRequest?: string): Wor
   };
 }
 
-function terminalInfo(id: string): JsonValue & { id: string; cwd: string; name: string; createdAt: string; exited: boolean } {
+function terminalInfo(id: string): { id: string; cwd: string; name: string; createdAt: string; exited: boolean } {
   return { id, cwd: "/repo", name: id, createdAt: "now", exited: false };
 }
 
-function commandRun(status: "running" | "succeeded"): JsonValue & { status: "running" | "succeeded" } {
+function commandRun(status: "running" | "succeeded") {
   return {
     id: "run-1",
     origin: "test",

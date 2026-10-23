@@ -1,7 +1,7 @@
 import type { TemplateResult } from "lit";
 import type { PluginBackend, PluginCatalog, PluginNavigate, PluginProjects, PluginPromptEditor, PluginSelectedSession, PluginSelectionService } from "../../../plugin-api";
 import type { AppAction } from "../actions";
-import type { DeleteWorkspaceFileResponse, FileContentResponse, FileTreeResponse, JsonValue, Machine, MoveWorkspaceFileOptions, MoveWorkspaceFileResponse, TerminalCommandRunHandle, WriteWorkspaceFileOptions, WriteWorkspaceFileResponse, Workspace } from "../api";
+import type { DeleteWorkspaceFileResponse, FileContentResponse, FileTreeResponse, JsonValue, Machine, MoveWorkspaceFileOptions, MoveWorkspaceFileResponse, MaintenanceTerminalCommandRun, TerminalCommandRunHandle, WriteWorkspaceFileOptions, WriteWorkspaceFileResponse, Workspace } from "../api";
 import type { PluginCapability, PluginCapabilityProvision } from "../../../shared/pluginApiTypes";
 import type { AppState } from "../appState";
 import type { SettingsSection } from "../settingsRoute";
@@ -219,6 +219,11 @@ export interface WorkspacePanelTerminal {
   runCommand(input: WorkspaceTerminalCommandInput): Promise<TerminalCommandRunHandle>;
 }
 
+export interface MaintenanceTerminal {
+  open(options?: { terminalId?: string | undefined }): void;
+  runCommand(input: WorkspaceTerminalCommandInput): Promise<TerminalCommandRunHandle<MaintenanceTerminalCommandRun>>;
+}
+
 export interface PiWebUnstableRuntimeContext {
   openSettings?: (section?: SettingsSection) => void;
   openMcpAuth?: (mode: "login" | "logout") => void | Promise<void>;
@@ -311,6 +316,10 @@ export interface ApplicationPanelContext {
   projects?: PluginProjects;
   workspace?: Workspace;
   terminal?: WorkspacePanelTerminal;
+  /** Runs on this machine in PI WEB's maintenance directory, independent of workspace selection. */
+  maintenanceTerminal?: MaintenanceTerminal;
+  /** Contribution-scoped workspace queries; present only when a workspace is selected. */
+  navigation?: WorkspacePanelNavigationV1;
   navigate: PluginNavigate;
   prompt: PluginPromptEditor;
   host: WorkspaceHost;
@@ -323,6 +332,7 @@ export interface ApplicationPanelContribution {
   order?: number;
   visible?: (context: ApplicationPanelContext) => boolean;
   badge?: (context: ApplicationPanelContext) => string | number | TemplateResult | undefined;
+  onInvalidate?: (context: ApplicationPanelContext) => void | Promise<void>;
   render: (context: ApplicationPanelContext) => TemplateResult;
 }
 

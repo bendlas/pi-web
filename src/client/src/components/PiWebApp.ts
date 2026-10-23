@@ -40,7 +40,7 @@ import { initialSessionWarningVisibilityState, reconcileSessionWarningVisibility
 import { RealtimeSocket, type BrowserRealtimeEvent } from "../sessionSocket";
 import { ServerNoticesController, visibleServerNotices } from "../serverNotices";
 import type { ServerNotice } from "../../../shared/apiTypes";
-import type { ApplicationPanelContext, PluginNavigationPatchDestination, PluginNavigationOptions, ContributionQueryValue, PiWebPluginRegistration, PluginMachine, PluginPromptEditor, QualifiedContributionId, PluginRuntimeContext, SessionLabelContext, SessionLabelItem, WorkspaceFilesCapabilityV1, WorkspaceHost, WorkspaceInvalidation, WorkspaceLabelContext, WorkspaceLabelItem, WorkspacePanelContext, WorkspacePanelNavigationV1, WorkspacePanelTerminal, WorkspacePluginBinding, WorkspaceTerminalCommandInput } from "../plugins/types";
+import type { ApplicationPanelContext, MaintenanceTerminal, PluginNavigationPatchDestination, PluginNavigationOptions, ContributionQueryValue, PiWebPluginRegistration, PluginMachine, PluginPromptEditor, QualifiedContributionId, PluginRuntimeContext, SessionLabelContext, SessionLabelItem, WorkspaceFilesCapabilityV1, WorkspaceHost, WorkspaceInvalidation, WorkspaceLabelContext, WorkspaceLabelItem, WorkspacePanelContext, WorkspacePanelNavigationV1, WorkspacePanelTerminal, WorkspacePluginBinding, WorkspaceTerminalCommandInput } from "../plugins/types";
 import { CLASSIC_THEME_ID, applyPiWebTheme, clearStoredThemePreference, effectiveThemePreference, readStoredThemePreference, resolveThemePreference, writeStoredThemePreference, type ThemePreference, type ThemePreferenceResolution } from "../theme";
 import { corePlugin } from "../plugins/core";
 import { themePackPlugin } from "../plugins/themes";
@@ -52,7 +52,7 @@ import { messageActionMessage } from "../plugins/messageActions";
 import { createPluginProjects } from "../plugins/projects";
 import { REQUIRED_TERMINAL_PLUGIN_ID, type TerminalPluginMode } from "../../../shared/requiredTerminalPlugin";
 import { PluginRegistry, installApplicationPanelScope, installPluginRuntimeScope, installSessionLabelScope, installWorkspaceLabelScope, installWorkspacePanelScope, type BrowserPluginLifecyclePhase, type PluginRegistrationFailure } from "../plugins/registry";
-import { createPluginPeer } from "../plugins/pluginPeer";
+import { createPluginBackend, createPluginPeer } from "../plugins/pluginPeer";
 import { REQUIRED_TERMINAL_BROWSER_FACADE_CAPABILITY, requiredTerminalUnavailableError, type RequiredTerminalBrowserComposition, type WorkspaceContributionNavigationV1 } from "../plugins/requiredTerminalFacade";
 import { createWorkspaceFiles as createPluginWorkspaceFiles } from "../plugins/workspaceFiles";
 import { contributionQueryFromRecord, isContributionQueryLocalKey, patchContributionQueryRecord, readContributionQuery, readContributionQueryRecord, setContributionQueryKey, writeContributionQueryRecord, type ContributionQueryRecord } from "../namespacedQueryArgs";
@@ -821,9 +821,8 @@ export class PiWebApp extends LitElement {
   }
 
   private async refreshCurrentWorkspaceSurface(): Promise<void> {
-    const workspace = this.state.selectedWorkspace;
     const tool = this.effectiveWorkspaceTool();
-    if (workspace !== undefined && tool !== undefined) await this.invalidateWorkspacePanels(tool);
+    if (tool !== undefined) await this.invalidateWorkspacePanels(tool);
   }
 
   private hardReloadApp(): void {
@@ -1531,12 +1530,18 @@ export class PiWebApp extends LitElement {
   private openTerminal(options?: { terminalId?: string | undefined }): void {
     const machineId = selectedMachineId(this.state);
     const workspace = this.state.selectedWorkspace;
-    if (workspace === undefined) return;
+    if (workspace === undefined) {
+      const terminal = this.maintenanceTerminal("core", machineId, this.beginNavigationOperation(WORKSPACE_SURFACE_SCOPE));
+      if (terminal === undefined) this.setState({ error: requiredTerminalUnavailableError(machineId).message });
+      else terminal.open(options);
+      return;
+    }
     this.workspaceTerminal("core", workspace, machineId).open(options);
   }
 
   private workspacePanelSourceQueryIds(contributionId: QualifiedContributionId): readonly QualifiedContributionId[] {
-    const sourceContributionId = this.plugins.getWorkspacePanels().find((panel) => panel.id === contributionId)?.sourceContributionId;
+    const sourceContributionId = [...this.plugins.getWorkspacePanels(), ...this.plugins.getApplicationPanels()]
+      .find((panel) => panel.id === contributionId)?.sourceContributionId;
     return sourceContributionId === undefined || sourceContributionId === contributionId ? [] : [sourceContributionId];
   }
 
@@ -1622,6 +1627,39 @@ export class PiWebApp extends LitElement {
         if (!contextIsCurrent(input.open === true)) return Promise.reject(new Error("Workspace panel context is no longer current"));
         const expected = navigationUrlContext(input.open === true ? navigation : undefined);
         return createTerminal(expected).runCommand(input);
+      },
+    });
+  }
+
+  private maintenanceTerminal(origin: string, machineId: string, navigation: NavigationFreshness): MaintenanceTerminal | undefined {
+    const composition = this.requiredTerminalByMachine.get(machineId);
+    const createTerminal = composition?.facade.createMaintenanceTerminal?.bind(composition.facade);
+    const peer = composition === undefined ? undefined : createPluginBackend(composition.binding, machineId)?.forScope({ kind: "machine" });
+    if (composition === undefined || createTerminal === undefined || peer === undefined) return undefined;
+    const isCurrent = (): boolean => selectedMachineId(this.state) === machineId && navigation.isCurrent();
+    const terminal = createTerminal({
+      origin,
+      machineId,
+      registrationPluginId: composition.binding.registrationPluginId,
+      peer,
+      host: {
+        navigateApplicationContribution: (contributionId) => {
+          if (!isCurrent()) return false;
+          this.publishWorkspaceTool(contributionId);
+          return true;
+        },
+      },
+    });
+    return Object.freeze({
+      open: (options?: { terminalId?: string | undefined }) => { if (isCurrent()) terminal.open(options); },
+      runCommand: async (input: WorkspaceTerminalCommandInput) => {
+        if (!isCurrent()) throw new Error("Maintenance terminal context is no longer current");
+        try {
+          return await terminal.runCommand(input);
+        } catch (error) {
+          if (isCurrent()) this.setState({ error: error instanceof Error ? error.message : String(error) });
+          throw error;
+        }
       },
     });
   }
@@ -2318,14 +2356,14 @@ export class PiWebApp extends LitElement {
   };
 
   private visibleWorkspacePanels(): WorkspaceToolPanel[] {
-    const applicationContext = this.createApplicationPanelContext();
-    const panels: WorkspaceToolPanel[] = this.plugins.getApplicationPanels()
-      .filter((panel) => panel.visible?.(applicationContext) ?? true)
-      .map((panel) => ({
+    const panels: WorkspaceToolPanel[] = this.plugins.getApplicationPanels().flatMap((panel) => {
+      const applicationContext = this.createApplicationPanelContext(panel.id, panel.sourceContributionId);
+      return (panel.visible?.(applicationContext) ?? true) ? [{
         ...panel,
         badge: () => panel.badge?.(applicationContext),
         render: () => panel.render(applicationContext),
-      }));
+      }] : [];
+    });
     const workspace = this.state.selectedWorkspace;
     if (workspace !== undefined) {
       const context = this.createWorkspacePanelContext(workspace);
@@ -2517,16 +2555,25 @@ export class PiWebApp extends LitElement {
     };
   }
 
-  private createApplicationPanelContext(): ApplicationPanelContext {
+  private createApplicationPanelContext(
+    contributionId?: QualifiedContributionId,
+    sourceContributionId: QualifiedContributionId | undefined = contributionId,
+    contributionQueryRestore?: WorkspaceContributionQueryRestore,
+  ): ApplicationPanelContext {
     const machine = pluginMachineFromState(this.state);
     const workspace = this.state.selectedWorkspace;
     const createContext = (pluginId: string): ApplicationPanelContext => {
       const navigation = this.beginNavigationOperation(WORKSPACE_SURFACE_SCOPE);
+      const maintenanceTerminal = this.maintenanceTerminal(pluginId, machine.id, navigation);
       return installApplicationPanelScope({
+        ...(maintenanceTerminal === undefined ? {} : { maintenanceTerminal }),
         machine,
         state: this.state,
         projects: createPluginProjects(projectsApi, machine.id),
         ...(workspace === undefined ? {} : { workspace }),
+        ...(workspace === undefined || contributionId === undefined ? {} : {
+          navigation: this.createWorkspacePanelNavigation(workspace, machine, contributionId, sourceContributionId, contributionQueryRestore, navigation),
+        }),
         ...(workspace === undefined || !this.terminalAvailableForMachine(machine.id) ? {} : {
           terminal: this.workspaceTerminal(pluginId, workspace, machine.id, navigation),
         }),
@@ -2626,12 +2673,19 @@ export class PiWebApp extends LitElement {
     panelId?: QualifiedContributionId,
     contributionQueryRestore?: WorkspaceContributionQueryRestore,
   ): Promise<void> {
+    const applicationPanels = this.plugins.getApplicationPanels().filter((panel) => panelId === undefined || panel.id === panelId);
+    const refreshApplicationPanels = applicationPanels.map(async (panel) => {
+      const context = this.createApplicationPanelContext(panel.id, panel.sourceContributionId, contributionQueryRestore);
+      if (panel.visible?.(context) ?? true) await panel.onInvalidate?.(context);
+    });
     const workspace = this.state.selectedWorkspace;
-    if (workspace === undefined) return Promise.resolve();
-    return this.plugins.invalidateWorkspacePanels(
-      this.createWorkspacePanelContext(workspace, pluginMachineFromState(this.state), contributionQueryRestore),
-      panelId,
-    );
+    return Promise.all([
+      ...refreshApplicationPanels,
+      ...(workspace === undefined ? [] : [this.plugins.invalidateWorkspacePanels(
+        this.createWorkspacePanelContext(workspace, pluginMachineFromState(this.state), contributionQueryRestore),
+        panelId,
+      )]),
+    ]).then(() => undefined);
   }
 
   private invalidateWorkspaceResources(workspace: Workspace, machine: PluginMachine, invalidation: WorkspaceInvalidation): Promise<void> {
