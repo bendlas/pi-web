@@ -159,6 +159,12 @@ export class ChatView extends LitElement {
   @property({ attribute: false }) onToggleWarnings?: () => void;
   @property({ attribute: false }) onLoadMore?: () => void;
   @property({ attribute: false }) behaviors: ChatBehaviors = DEFAULT_CHAT_BEHAVIORS;
+  /**
+   * Start every event group collapsed, including the growing live group. The
+   * groups stay in the transcript and remain expandable; only their default
+   * disclosure changes.
+   */
+  @property({ type: Boolean }) quietMode = false;
   @query(".chat") private chat?: HTMLDivElement;
   @query("pi-web-image-gallery-dialog") private imageGalleryDialog?: ImageGalleryDialog;
   @state() private followingLive = false;
@@ -557,12 +563,15 @@ export class ChatView extends LitElement {
     return transcript.renderToolImageOutputs(this.transcriptRenderContext(), group, entryActionHeaders);
   }
 
-  private renderMessageGroup(group: Extract<ChatGroup, { kind: "group" }>, defaultOpen: boolean, entryActionHeaders: ReadonlySet<ChatLine> = new Set()) {
-    const disclosureKey = this.groupDisclosureKey(group, defaultOpen);
+  private renderMessageGroup(group: Extract<ChatGroup, { kind: "group" }>, liveTail: boolean, entryActionHeaders: ReadonlySet<ChatLine> = new Set()) {
+    // Quiet mode keeps the live group expanded-on-demand: it is the one group a
+    // reader opens while work is running, so its identity must not change as it grows.
+    const defaultOpen = liveTail && !this.quietMode;
+    const disclosureKey = this.groupDisclosureKey(group, liveTail);
     const open = this.isDisclosureOpen(disclosureKey, defaultOpen);
-    return transcript.renderMessageGroup(this.transcriptRenderContext(), group, defaultOpen, entryActionHeaders, {
+    return transcript.renderMessageGroup(this.transcriptRenderContext(), group, liveTail, entryActionHeaders, {
       open,
-      anchor: this.groupAnchorKey(group, defaultOpen),
+      anchor: this.groupAnchorKey(group, liveTail),
       toggle: (event) => { this.onDisclosureToggle(disclosureKey, event, defaultOpen); },
     });
   }
@@ -641,8 +650,8 @@ export class ChatView extends LitElement {
     return Array.from(this.renderRoot.querySelectorAll<HTMLElement>("[data-scroll-anchor-id]"));
   }
 
-  private groupDisclosureKey(group: Extract<ChatGroup, { kind: "group" }>, defaultOpen: boolean): string {
-    return defaultOpen
+  private groupDisclosureKey(group: Extract<ChatGroup, { kind: "group" }>, liveTail: boolean): string {
+    return liveTail
       ? `${this.sessionId}:live:${chatLineIdentity(group.startIndex, group.messages[0]?.message)}`
       : `${this.sessionId}:${chatLineIdentity(group.endIndex, group.messages.at(-1)?.message)}`;
   }

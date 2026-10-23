@@ -38,6 +38,39 @@ describe("settings-dialog general settings machine targeting", () => {
     expect(getDialogProperty(dialog, "saving")).toBe(false);
   });
 
+  it("saves quiet mode on the gateway endpoint from fresh config", async () => {
+    stubWindowTimers();
+    const current = configResponse({ host: "127.0.0.1", shortcuts: { "core:view.chat": "mod+1" } });
+    const savedConfig = configResponse({ ...current.config, quietMode: true });
+    const configSpy = vi.spyOn(configApi, "config").mockResolvedValue(current);
+    const saveSpy = vi.spyOn(configApi, "saveConfig").mockResolvedValue(savedConfig);
+    const onConfigSaved = vi.fn();
+    const dialog = new SettingsDialog();
+    dialog.onConfigSaved = onConfigSaved;
+
+    await callDialogPromise(dialog, "saveQuietMode", true);
+
+    expect(configSpy.mock.calls).toEqual([[]]);
+    expect(saveSpy.mock.calls).toEqual([[{ host: "127.0.0.1", shortcuts: { "core:view.chat": "mod+1" }, quietMode: true }]]);
+    expect(getDialogProperty(dialog, "configResponse")).toBe(savedConfig);
+    expect(onConfigSaved).toHaveBeenCalledWith(savedConfig.effectiveConfig);
+    expect(getDialogProperty(dialog, "savedMessage")).toBe("Quiet mode is on. Chat events start collapsed into one expandable “events” line.");
+    expect(getDialogProperty(dialog, "saving")).toBe(false);
+  });
+
+  it("reports a failed quiet-mode save without claiming it was saved", async () => {
+    stubWindowTimers();
+    vi.spyOn(configApi, "config").mockResolvedValue(configResponse({ host: "127.0.0.1" }));
+    vi.spyOn(configApi, "saveConfig").mockRejectedValue(new Error("Disk is read-only"));
+    const dialog = new SettingsDialog();
+
+    await callDialogPromise(dialog, "saveQuietMode", false);
+
+    expect(getDialogProperty(dialog, "error")).toBe("Couldn't save quiet mode: Disk is read-only");
+    expect(getDialogProperty(dialog, "savedMessage")).toBe("");
+    expect(getDialogProperty(dialog, "saving")).toBe(false);
+  });
+
   it("loads file access and upload config from the selected machine", async () => {
     const config = configResponse({ pathAccess: { allowedPaths: ["/mnt/share"] }, uploads: { defaultFolder: "manual/uploads" } });
     const configSpy = vi.spyOn(configApi, "config").mockResolvedValue(config);

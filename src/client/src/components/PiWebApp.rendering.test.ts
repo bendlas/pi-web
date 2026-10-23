@@ -7,6 +7,7 @@ import { useDeferredContent, settleDeferredContent } from "../formatting/deferre
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { initialAppState, type AppState } from "../appState";
 import type { SessionInfo, SessionStatus, SessionWarning, Workspace } from "../api";
+import { configApi } from "../api";
 import { SessionController } from "../controllers/sessionController";
 import { reportBrowserError, sessionBrowserErrorScope, workspaceBrowserErrorScope, type BrowserErrorRecovery } from "../browserErrors";
 import { machineSessionKey } from "../machineKeys";
@@ -34,6 +35,7 @@ import { loadNavigationPreferences, saveNavigationPreferences } from "../navigat
 import { NavigationDialog } from "./appShell/NavigationDialog";
 import { deepActiveElement } from "./modalLayerRegistry";
 import { AppShellController } from "../appShell/appShellController";
+import { configResponse } from "./SettingsDialog.testSupport";
 
 // Exercise the real shell and child rendering without starting API/socket
 // orchestration. The inherited Lit controllers and update lifecycle still run.
@@ -1086,6 +1088,25 @@ it.each([false, true])("hides only folder workspace UI and retains its workspace
     expect(navigation()?.shadowRoot?.querySelector("workspace-list")).toBeInstanceOf(WorkspaceList);
     if (mobile) expect(app.shadowRoot?.querySelector("app-context-bar")?.shadowRoot?.querySelector('button[aria-label^="Workspace:"]')).not.toBeNull();
   }
+});
+
+it("applies the quiet-mode gateway setting to the rendered transcript", async () => {
+  const app = await mountApp({ selectedWorkspace: workspace, workspaces: [workspace], selectedSession: session, sessions: [session], mainView: "chat" });
+  await settle(app);
+  const chat = (): ChatView | null | undefined => app.shadowRoot?.querySelector("chat-view");
+  expect(chat()).toBeInstanceOf(ChatView);
+  expect(chat()?.quietMode).toBe(false);
+
+  vi.spyOn(configApi, "config").mockResolvedValue(configResponse({ quietMode: true }));
+  const loadConfig: unknown = Reflect.get(app, "loadClientConfig");
+  if (typeof loadConfig !== "function") throw new Error("Expected loadClientConfig");
+  await Reflect.apply(loadConfig, app, []);
+  await settle(app);
+  expect(chat()?.quietMode).toBe(true);
+
+  patchState(app, { selectedSession: { ...session, id: "another-session" } });
+  await settle(app);
+  expect(chat()?.quietMode).toBe(true);
 });
 
 function namedButton(root: ParentNode | null | undefined, name: string): HTMLButtonElement {

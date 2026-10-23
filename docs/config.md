@@ -80,7 +80,7 @@ Process restarts depend on the key:
 - `plugins`: browser-only changes need a tab reload. Server-backed enablement, settings, or package changes require a manual session-daemon restart, then a tab reload. See [Project plugin settings](#project-plugin-settings).
 - `serverPlugins.safeStart`: persistent offline recovery state applied before server-plugin discovery/import on the next sessiond start; use the `pi-web plugins safe-start ...` CLI rather than hand-editing it.
 - Pi package changes: use `/reload` in each idle session for ordinary extensions, skills, templates, and themes. Packages containing server plugins require a manual session-daemon restart and browser reload. Global provider registration or connection changes also require a daemon restart; model-list-only updates do not. See [Pi extension provider baseline](#pi-extension-provider-baseline).
-- `shortcuts` / `defaultStreamingBehavior`: saved settings apply in the browser after config refresh/save; no service restart.
+- `shortcuts` / `defaultStreamingBehavior` / `quietMode`: saved settings apply in the browser after config refresh/save; no service restart.
 - `defaultTheme`: applies after settings save or browser config refresh when the browser has no local theme override; no service restart.
 
 ### Streaming send default
@@ -88,6 +88,16 @@ Process restarts depend on the key:
 In **Settings → Keyboard shortcuts → Send while agent is running**, choose **Steer** (the default) to deliver input before the next model call, or **Follow-up** to queue it until the current response finishes. This changes only the keyboard shortcut, not the chat buttons. During compaction, messages queue as follow-ups.
 
 The global gateway key is `defaultStreamingBehavior`: `steer` or `followUp`. It is not project-local and needs no service restart.
+
+### Quiet mode
+
+Quiet mode collapses agent activity in the transcript. Tool calls, thinking, results, and skill loads stay in the conversation but start inside one expandable **live events** / **events** summary line instead of being expanded while the agent works. Conversation text, question forms, and tool output images are unchanged.
+
+Turn it on in **Settings → General → Chat display → Quiet mode**. It is off by default. The global gateway key is `quietMode`; it is not project-local and needs no service restart. Devices share the gateway setting, so it is not a per-browser preference.
+
+```json
+{ "quietMode": true }
+```
 
 ## Global config example
 
@@ -194,6 +204,7 @@ Rows with JSON key `—` are runtime-only environment variables, not config-file
 | Server-plugin safe start | `serverPlugins.safeStart` | — | Global/offline recovery | Not supported locally; manage with `pi-web plugins safe-start ...` | Applied before discovery/import on next sessiond start |
 | Default browser theme | `defaultTheme.themeId`, `defaultTheme.auto` | — | Gateway global | Not supported locally; device choices take precedence | Settings save / browser config refresh; no restart |
 | Streaming send default | `defaultStreamingBehavior` | — | Global gateway | Not supported locally | Applies after settings save/config refresh; defaults to `steer` |
+| Quiet mode | `quietMode` | — | Global gateway | Not supported locally | Applies after settings save/config refresh; defaults to off |
 | Keyboard shortcuts | `shortcuts.<actionId>` | — | Global | Not supported locally | Applies after settings save/config refresh |
 | Project config version | `version` | — | Project | Project-local only; must be `1` when present | Next project-config read |
 | **Runtime-only environment variables** |  |  |  |  |  |
