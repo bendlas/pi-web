@@ -266,6 +266,7 @@ describe("PiSessionService session-tree behavior", () => {
           parentId: null,
           kind: "assistant",
           summary: "safe answer",
+          summaryPresentation: { type: "content", parts: [{ type: "text", text: "safe answer" }], fallback: "assistant-response" },
           timestamp: "2026-01-01T00:00:00.000Z",
         }],
         activeLeafId: "leaf-1",

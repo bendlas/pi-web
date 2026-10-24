@@ -9,9 +9,12 @@ import type { SessionTreeNavigateResult, SessionTreeNodeKind } from "../api";
 import { SessionTreeNavigator } from "./SessionTreeNavigator";
 import { ModalSurface } from "./ModalSurface";
 import definitions from "./sessionTree.messages";
+import summaryDefinitions from "../sessionTreeSummary.messages";
+import { projectSessionTree } from "../../../server/sessions/sessionTreeProjection";
 import { deepActiveElement, settleRenderedDialog } from "./modalSurfaceTestSupport";
 
 let releaseCatalog: (() => void) | undefined;
+let releaseSummaryCatalog: (() => void) | undefined;
 beforeEach(async () => {
   Element.prototype.scrollIntoView = vi.fn();
   await localization.setPreferences({ language: "en", formatLocale: "en-US", timeZone: "UTC" });
@@ -27,12 +30,20 @@ beforeEach(async () => {
       aborting: "Zusammenfassung wird abgebrochen…", summarizing: "Zusammenfassung läuft…",
     }),
   });
+  releaseSummaryCatalog = localization.registerCatalog({
+    id: "tree-summary-test-de", namespace: "core.sessionTreeSummary", locale: "de", load: () => Promise.resolve({
+      ...Object.fromEntries(Object.entries(summaryDefinitions).map(([key, value]) => [key, value.message])),
+      image: "[Bild]",
+      toolResult: "{error, select, yes {Werkzeugfehler} other {Werkzeugergebnis}}{hasName, select, yes { ({name})} other {}}{hasContent, select, yes {: {content}} other {}}",
+    }),
+  });
   await localization.ready;
 });
 afterEach(async () => {
   document.body.replaceChildren();
   localStorage.clear();
   releaseCatalog?.();
+  releaseSummaryCatalog?.();
   await localization.setPreferences({ language: "en", formatLocale: "en" });
   vi.restoreAllMocks();
 });
@@ -74,6 +85,36 @@ function deferred<T>() {
 }
 
 describe("session tree live localization", () => {
+  it("renders projected summary provenance live in the tree and selected-entry step without translating or interpreting raw text", async () => {
+    const raw = "Tool error [image] <b>العربية</b>";
+    const element = new SessionTreeNavigator();
+    element.tree = projectSessionTree([{
+      entry: { id: "tool", parentId: null, type: "message", message: { role: "toolResult", toolName: "read", isError: true, content: [
+        { type: "text", text: raw }, { type: "image", data: "private" },
+      ] } }, children: [],
+    }], "tool");
+    document.body.append(element);
+    await settleRenderedDialog(element);
+    const selected = query(element, "[data-tree-node-id='tool']", HTMLElement);
+    expect(query(element, ".summary", HTMLElement).textContent).toBe(`Tool error (read): ${raw} [image]`);
+    await locale(element);
+    expect(query(element, ".summary", HTMLElement).textContent).toBe(`Werkzeugfehler (read): ${raw} [Bild]`);
+    expect(element.renderRoot.querySelector(".summary b")).toBeNull();
+    expect(query(element, "[aria-selected='true']", HTMLElement)).toBe(selected);
+    expect(deepActiveElement()).toBe(selected);
+    await action(element);
+    expect(query(element, ".selected-entry strong", HTMLElement).textContent).toBe(`Werkzeugfehler (read): ${raw} [Bild]`);
+    for (const language of ["en-XA", "ar-XB"]) {
+      await locale(element, language);
+      const summary = query(element, ".selected-entry strong", HTMLElement);
+      expect(summary.textContent).toContain(raw);
+      expect(summary.textContent).not.toContain("Werkzeugfehler");
+      expect(summary.textContent).not.toBe(`Tool error (read): ${raw} [image]`);
+      expect(summary.getAttribute("dir")).toBe("auto");
+      expect(query(element, "input[value='continue']", HTMLInputElement).checked).toBe(true);
+    }
+  });
+
   it("updates accessible labels, kind badges and native timestamps without changing selection, folds or focus", async () => {
     const element = await mount();
     const selected = query(element, "[data-tree-node-id='root']", HTMLElement);

@@ -1305,11 +1305,28 @@ export type SessionTreeNodeKind =
   | "custom"
   | "other";
 
+/** Safe display provenance; text values are never translation keys. */
+export type SessionTreeSummaryPart = { type: "text"; text: string } | { type: "image" };
+export type SessionTreeSummaryStatus =
+  | "message" | "user-message" | "assistant-response" | "assistant-error" | "assistant-aborted"
+  | "hidden-custom-message" | "compaction-summary" | "branch-summary";
+export type SessionTreeSummaryField = "shell" | "model" | "thinking-level" | "session-name" | "label" | "custom-entry" | "entry";
+export type SessionTreeSummaryPresentation =
+  | { type: "status"; status: SessionTreeSummaryStatus }
+  | { type: "content"; parts: SessionTreeSummaryPart[]; fallback: SessionTreeSummaryStatus }
+  | { type: "named"; field: SessionTreeSummaryField; value?: string }
+  | { type: "assistant-tools"; names: string[] }
+  | { type: "tool-result"; isError: boolean; toolName?: string; parts: SessionTreeSummaryPart[] }
+  | { type: "custom-message"; customType?: string; parts: SessionTreeSummaryPart[] };
+
 export interface SessionTreeNode {
   id: string;
   parentId: string | null;
   kind: SessionTreeNodeKind;
+  /** English compatibility preview for older clients. */
   summary: string;
+  /** Absent on older servers; clients must retain summary as a raw fallback. */
+  summaryPresentation?: SessionTreeSummaryPresentation;
   timestamp?: string;
   label?: string;
 }

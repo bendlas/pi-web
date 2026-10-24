@@ -1,5 +1,6 @@
 import { LocalizationController, localization } from "../localization/browser";
 import { sessionTreeMessages as messages } from "../sessionTreeMessages";
+import { sessionTreeSummary } from "../sessionTreeSummary";
 import type definitions from "./sessionTree.messages";
 import { stylesheetIntegrationCapability } from "../plugins/styles";
 import { LitElement, css, html, nothing, type PropertyValues, type TemplateResult } from "lit";
@@ -171,7 +172,7 @@ export class SessionTreeNavigator extends LitElement {
           </span>
         </span>
         <span class="entry">
-          <span class="summary" dir="auto">${row.node.summary}</span>
+          <span class="summary" dir="auto">${sessionTreeSummary(row.node)}</span>
           ${row.node.label === undefined ? null : html`<span class="label" dir="auto" title=${row.node.label}>${row.node.label}</span>`}
           ${row.node.timestamp === undefined ? null : html`<time datetime=${row.node.timestamp}>${sessionTreeTimestamp(row.node.timestamp)}</time>`}
         </span>
@@ -196,7 +197,7 @@ export class SessionTreeNavigator extends LitElement {
           ${selectedNode === undefined ? html`<div class="empty">${messages.t("unavailableEntry")}</div>` : html`
             <div class="selected-entry">
               ${this.renderKindBadge(sessionTreeKindPresentation(selectedNode.kind))}
-              <strong dir="auto">${selectedNode.summary}</strong>
+              <strong dir="auto">${sessionTreeSummary(selectedNode)}</strong>
               <p>${this.selectedEntryDescription(selectedNode.kind)}</p>
             </div>
           `}
