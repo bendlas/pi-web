@@ -19,7 +19,7 @@ export const chatStyles = css`
   .session-warnings:only-child { flex: 1 1 auto; max-height: 100%; border-bottom: 0; }
   .session-warnings-controls { display: flex; justify-content: flex-end; padding-inline: 16px; }
   .session-warnings-collapse-icon { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
-  .session-warning { --ui-transcript-bg: var(--pi-warning-surface); --warning-colour: var(--pi-warning); position: relative; display: grid; gap: 4px; min-height: 44px; padding: 10px 44px 10px 16px; color: var(--pi-text); }
+  .session-warning { --ui-transcript-bg: var(--pi-warning-surface); --warning-colour: var(--pi-warning); position: relative; display: grid; gap: 4px; min-height: 44px; padding-block: 10px; padding-inline: 16px 44px; color: var(--pi-text); }
   .session-warning.error { --ui-transcript-bg: color-mix(in srgb, var(--pi-danger) 12%, var(--pi-surface)); --warning-colour: var(--pi-danger); }
   .session-warning.info { --ui-transcript-bg: var(--pi-selection-bg); --warning-colour: var(--pi-accent); }
   .session-warning-head { display: flex; align-items: center; gap: 8px; min-height: 16px; color: var(--warning-colour); }
@@ -27,8 +27,8 @@ export const chatStyles = css`
   .session-warning-body { min-width: 0; display: grid; gap: 3px; }
   .session-warning-message { margin: 0; overflow-wrap: anywhere; }
   .session-warning-path { margin: 0; color: var(--pi-muted); font-size: 12px; font-family: var(--pi-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace); overflow-wrap: anywhere; }
-  .session-warning-source { color: var(--pi-muted); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
-  .session-warning-dismiss { position: absolute; top: 6px; right: 6px; font-size: 18px; }
+  .session-warning-source { min-width: 0; overflow-wrap: anywhere; color: var(--pi-muted); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+  .session-warning-dismiss { position: absolute; inset-block-start: 6px; inset-inline-end: 6px; font-size: 18px; }
   .visually-hidden { position: absolute !important; width: 1px !important; height: 1px !important; padding: 0 !important; margin: -1px !important; overflow: hidden !important; clip: rect(0 0 0 0) !important; clip-path: inset(50%) !important; white-space: nowrap !important; border: 0 !important; }
   /* Contain sticky headers in the scroller's paint context, below its overlay scrollbar. */
   .chat { isolation: isolate; --pi-chat-sticky-top: 0px; flex: 1 1 auto; min-width: 0; min-height: 0; overflow-x: hidden; overflow-y: auto; padding: 0; box-sizing: border-box; }
@@ -66,7 +66,7 @@ export const chatStyles = css`
   .history-load-button { color: var(--pi-text-secondary); }
   .queued-messages { --ui-transcript-bg: color-mix(in srgb, var(--pi-warning) 5%, var(--pi-bg)); max-width: 100%; min-width: 0; display: grid; gap: 8px; margin: 0; padding: 12px 16px; color: var(--pi-text); overflow: hidden; }
   .queued-header { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 10px; }
-  .queued-heading { min-width: 0; flex: 1 1 180px; display: grid; gap: 2px; }
+  .queued-heading { overflow-wrap: anywhere; min-width: 0; flex: 1 1 180px; display: grid; gap: 2px; }
   .queued-heading strong { color: var(--pi-warning); }
   .queued-heading small { color: var(--pi-muted); }
   .queued-clear-button { color: var(--pi-warning); }
@@ -77,9 +77,9 @@ export const chatStyles = css`
   .queued-action .prompt-action-icon { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
   .queued-message-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
   .queued-attachments { display: inline-flex; align-items: center; gap: 4px; color: var(--pi-text-secondary); font-size: 12px; }
-  .queued-kind { color: var(--pi-muted); font-size: 12px; text-transform: uppercase; }
+  .queued-kind { overflow-wrap: anywhere; color: var(--pi-muted); font-size: 12px; text-transform: uppercase; }
   .queued-dialogs { margin: -8px 0 14px; padding: 0 4px; color: var(--pi-muted); font-size: 12px; text-align: center; }
-  .session-activity { --ui-transcript-bg: var(--pi-chat-activity-bg, color-mix(in srgb, var(--pi-surface) 40%, var(--pi-bg))); max-width: 100%; min-width: 0; display: grid; gap: 4px; margin: 0 0 12px; padding: 12px 16px; color: var(--pi-text); overflow: hidden; }
+  .session-activity { overflow-wrap: anywhere; --ui-transcript-bg: var(--pi-chat-activity-bg, color-mix(in srgb, var(--pi-surface) 40%, var(--pi-bg))); max-width: 100%; min-width: 0; display: grid; gap: 4px; margin: 0 0 12px; padding: 12px 16px; color: var(--pi-text); overflow: hidden; }
   .session-activity.compacting { --ui-transcript-bg: var(--pi-chat-compacting-bg, color-mix(in srgb, var(--pi-purple) 5%, var(--pi-bg))); }
   .session-activity strong { color: var(--pi-purple); }
   .session-activity span, .session-activity small { color: var(--pi-muted); }

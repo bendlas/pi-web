@@ -11,10 +11,12 @@ export interface QueuedMessageActionTarget {
   expectedQueue: QueuedSessionMessage[];
 }
 
-export function queuedMessageAttachmentLabel(message: QueuedSessionMessage): string | undefined {
+export function queuedMessageAttachmentLabel(
+  message: QueuedSessionMessage,
+  present: (count: number) => string = (count) => count > 0 ? `${String(count)} ${count === 1 ? "attachment" : "attachments"}` : "Attachments",
+): string | undefined {
   const count = message.attachmentCount ?? 0;
-  if (count > 0) return `${String(count)} ${count === 1 ? "attachment" : "attachments"}`;
-  return message.hasAttachments === true ? "Attachments" : undefined;
+  return count > 0 || message.hasAttachments === true ? present(Math.max(0, count)) : undefined;
 }
 
 /** Queues are displayed in delivery order: steering first, then follow-ups. */

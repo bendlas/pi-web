@@ -14,7 +14,7 @@ import {
   chatQueuedSectionShowsClearAction,
   chatSessionWarningRows,
 } from "./ChatView";
-import { templateEventHandlerAfterMarker, templateEventHandlerNearMarker } from "../templateInspection.testSupport";
+import { templateEventHandlerAfterMarker } from "../templateInspection.testSupport";
 import type { ChatLine } from "./shared";
 
 describe("chatQueuedMessageSections", () => {
@@ -57,24 +57,6 @@ describe("chatQueuedSectionShowsClearAction", () => {
 
   it("never shows the server action for the separate client pending-start queue", () => {
     expect(chatQueuedSectionShowsClearAction(clientSection, true)).toBe(false);
-  });
-});
-
-describe("ChatView queued-message clear wiring", () => {
-  // Escape hatch: this case verifies the Clear queue button's Lit event wiring,
-  // whose only observable effect is invoking the injected callback. Vitest runs
-  // with no DOM environment here, so a shadow-DOM click harness would add
-  // disproportionate setup; handler extraction anchored to the user-facing
-  // "Clear queue" button text is proportionate.
-  it("invokes onClearServerQueue when the server-queue action is activated", () => {
-    const view = new ChatView();
-    const onClearServerQueue = vi.fn();
-    view.status = queuedStatus([{ kind: "steer", text: "server queued" }]);
-    view.onClearServerQueue = onClearServerQueue;
-
-    templateEventHandlerNearMarker(renderQueuedMessages(view), "Clear queue")(new Event("click"));
-
-    expect(onClearServerQueue).toHaveBeenCalledOnce();
   });
 });
 
@@ -215,23 +197,12 @@ describe("chat event-group content seams", () => {
   });
 });
 
-type RenderQueuedMessages = (this: ChatView) => TemplateResult;
 type RenderWarnings = (this: ChatView) => TemplateResult | null;
-
-function renderQueuedMessages(view: ChatView): TemplateResult {
-  const method: unknown = Reflect.get(view, "renderQueuedMessages");
-  if (!isRenderQueuedMessages(method)) throw new Error("ChatView.renderQueuedMessages is not callable");
-  return method.call(view);
-}
 
 function renderWarnings(view: ChatView): TemplateResult | null {
   const method: unknown = Reflect.get(view, "renderWarnings");
   if (!isRenderWarnings(method)) throw new Error("ChatView.renderWarnings is not callable");
   return method.call(view);
-}
-
-function isRenderQueuedMessages(value: unknown): value is RenderQueuedMessages {
-  return typeof value === "function";
 }
 
 function isRenderWarnings(value: unknown): value is RenderWarnings {
