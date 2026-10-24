@@ -4034,7 +4034,7 @@ export class PiWebApp extends LitElement {
     const errors = this.visibleBrowserErrorsForCurrentRoute(state);
     if (errors.length === 0) return null;
     return html`${errors.map((error) => errorBanner(
-      error.message,
+      error.displayMessage?.() ?? error.message,
       () => { this.dismissBrowserError(error); },
       "error",
       error.recovery === undefined ? undefined : () => { this.retryBrowserError(error); },
