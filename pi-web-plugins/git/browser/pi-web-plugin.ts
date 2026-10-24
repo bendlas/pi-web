@@ -22,13 +22,14 @@ const plugin = {
   apiVersion: 4,
   name: "Git",
   requires: [stylesheetIntegrationCapability],
-  activate: ({ pluginId, runtimePluginId, html, svg }) => {
+  activate: ({ pluginId, runtimePluginId, html, svg, localization }) => {
+    if (localization === undefined) throw new Error("The Git plugin requires a localization-capable PI WEB host");
     let stylesheetIntegration: StylesheetIntegrationCapabilityV1 | undefined;
     return {
       start: ({ capabilities }) => {
         stylesheetIntegration = capabilities.resolve(stylesheetIntegrationCapability);
       },
-      contributions: createGitBrowserContributions(pluginId, runtimePluginId, html, svg, () => stylesheetIntegration),
+      contributions: createGitBrowserContributions(pluginId, runtimePluginId, html, svg, () => stylesheetIntegration, localization),
     };
   },
 } satisfies PiWebPlugin;

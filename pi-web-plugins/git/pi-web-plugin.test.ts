@@ -5,6 +5,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { JsonValue, PluginCapability, PluginPeer, PluginRuntimeContext, Workspace, WorkspacePanelContext } from "@jmfederico/pi-web/plugin-api";
 import { GIT_FILE_VIEW_STORAGE_KEY } from "./browser/gitFileViewPreference.js";
 import plugin from "./browser/pi-web-plugin.js";
+import { LocalizationService } from "../../src/client/src/localization/service.js";
+import { createPluginLocalization } from "../../src/client/src/plugins/localization.js";
 
 const projectId = "project-1";
 const workspaceId = "workspace-1";
@@ -32,6 +34,103 @@ afterEach(() => {
 });
 
 describe("bundled Git browser plugin", () => {
+  it("updates live labels, cached diffs and regional numbers without refetching source", async () => {
+    const service = new LocalizationService({ development: true });
+    const panelContributions = activate("git", "remote.git", service);
+    const panel = requiredPanel(panelContributions);
+    const backend = backendFixture({ ahead: 1234, behind: 2 });
+    const context = panelContext(backend.request);
+    const container = document.createElement("div");
+    document.body.append(container);
+    await panel.onInvalidate?.(context);
+    render(panel.render(context), container);
+    button(container, "src/main.ts").click();
+    await settleBackend();
+    render(panel.render(context), container);
+    const source = [...container.querySelectorAll(".git-content")].map((node) => node.textContent);
+    expect(source.length).toBeGreaterThan(0);
+    backend.request.mockClear();
+    const requests = vi.spyOn(context.host, "requestRender").mockClear();
+
+    await service.setPreferences({ language: "en-XA", formatLocale: "de-DE" });
+    expect(requests).toHaveBeenCalled();
+    render(panel.render(context), container);
+    expect(panel.title).not.toBe("Git");
+    expect(panelContributions.actions?.[0]?.title).not.toBe("Go to Git");
+    expect(container.querySelector(".git-summary")?.textContent).toContain("1.234");
+    expect(container.querySelector('[role="group"]')?.getAttribute("aria-label")).not.toBe("Changed files view");
+    expect(container.querySelector(".ui-file-meta")?.getAttribute("title")).not.toBe("Modified");
+
+    await service.setPreferences({ language: "ar-XB", formatLocale: "ar-EG" });
+    render(panel.render(context), container);
+    expect(container.querySelector(".git-diff-grid")?.getAttribute("dir")).toBe("ltr");
+    expect(container.querySelector(".ui-file-label bdi")?.textContent).toBe("src/main.ts");
+    expect([...container.querySelectorAll(".git-content")].map((node) => node.textContent)).toEqual(source);
+    expect([...container.querySelectorAll(".git-line-number")].some((node) => node.textContent === new Intl.NumberFormat("ar-EG", { useGrouping: false }).format(1))).toBe(true);
+    expect(backend.request).not.toHaveBeenCalled();
+
+    const remove = service.registerCatalog({ id: "git-test", namespace: "plugin:git:panel", locale: "fr", load: () => Promise.resolve({
+      git: "Dépôt", refresh: "Actualiser", goToGit: "Ouvrir le dépôt", diffState: "{staged, select, yes {Index} other {Travail}}{truncated, select, yes { (limité)} other {}}",
+    }) });
+    await service.setPreferences({ language: "fr", formatLocale: "en" });
+    render(panel.render(context), container);
+    expect(panel.title).toBe("Dépôt");
+    expect(panelContributions.actions?.[0]?.title).toBe("Ouvrir le dépôt");
+    expect(button(container, "Actualiser")).toBeDefined();
+    expect(container.querySelector(".git-viewer-header small")?.textContent).toBe("Index");
+    remove();
+  });
+
+  it("owns localization observers across disconnect, reconnect and activation replacement", async () => {
+    const service = new LocalizationService({ development: true });
+    const panel = requiredPanel(activate("git", "git", service));
+    const context = panelContext(backendFixture().request);
+    await panel.onInvalidate?.(context);
+    const container = document.createElement("div");
+    document.body.append(container);
+    render(panel.render(context), container);
+    const requests = vi.spyOn(context.host, "requestRender");
+    requests.mockClear();
+    await service.setPreferences({ language: "en-XA", formatLocale: "en" });
+    expect(requests).toHaveBeenCalledTimes(1);
+    container.remove();
+    requests.mockClear();
+    await service.setPreferences({ language: "ar-XB", formatLocale: "en" });
+    expect(requests).not.toHaveBeenCalled();
+    document.body.append(container);
+    expect(requests).toHaveBeenCalledTimes(1);
+    render(panel.render(context), container);
+
+    const secondService = new LocalizationService({ development: true });
+    const lifetime = new AbortController();
+    const secondPanel = requiredPanel(activate("git", "git", secondService, lifetime));
+    await secondPanel.onInvalidate?.(context);
+    render(secondPanel.render(context), container);
+    await settleBackend();
+    requests.mockClear();
+    await service.setPreferences({ language: "en", formatLocale: "en" });
+    expect(requests).not.toHaveBeenCalled();
+    await secondService.setPreferences({ language: "en-XA", formatLocale: "en" });
+    expect(requests).toHaveBeenCalledTimes(1);
+    lifetime.abort();
+    requests.mockClear();
+    await secondService.setPreferences({ language: "ar-XB", formatLocale: "en" });
+    expect(requests).not.toHaveBeenCalled();
+  });
+
+  it("translates cached missing-backend errors after a language change", async () => {
+    const service = new LocalizationService({ development: true });
+    const panel = requiredPanel(activate("git", "git", service));
+    const context = panelContext(undefined);
+    await panel.onInvalidate?.(context);
+    const container = document.createElement("div");
+    render(panel.render(context), container);
+    const english = container.querySelector('[role="alert"]')?.textContent;
+    await service.setPreferences({ language: "en-XA", formatLocale: "en" });
+    render(panel.render(context), container);
+    expect(container.querySelector('[role="alert"]')?.textContent).not.toBe(english);
+  });
+
   it("requires stylesheet integration v1 and rejects invalid payloads", () => {
     const capability = plugin.requires[0];
     if (capability === undefined) throw new Error("Expected stylesheet integration requirement");
@@ -331,7 +430,7 @@ describe("bundled Git browser plugin", () => {
     await vi.advanceTimersByTimeAsync(8_000);
     expect(requestRender).toHaveBeenCalled();
     render(panel.render(context), container);
-    expect(container.querySelector('[role="alert"]')?.textContent).toContain("Polling failed");
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain("Could not refresh Git. Try refreshing again.");
     requestRender.mockClear();
     await vi.advanceTimersByTimeAsync(8_000);
     expect(requestRender).not.toHaveBeenCalled();
@@ -506,11 +605,12 @@ describe("bundled Git browser plugin", () => {
   });
 });
 
-function activate(pluginId: string, runtimePluginId = pluginId) {
+function activate(pluginId: string, runtimePluginId = pluginId, service = new LocalizationService(), lifetime = new AbortController()) {
   const result = plugin.activate({
     apiVersion: 4,
     pluginId,
     runtimePluginId,
+    localization: createPluginLocalization(service, pluginId, runtimePluginId, lifetime.signal),
     html,
     svg,
     signal: new AbortController().signal,
@@ -529,11 +629,13 @@ function requiredPanel(contributions: ReturnType<typeof activate>) {
   return panel;
 }
 
-function backendFixture(patch: { files?: ReturnType<typeof changedFile>[]; submodules?: string[]; branch?: string } = {}) {
+function backendFixture(patch: { files?: ReturnType<typeof changedFile>[]; submodules?: string[]; branch?: string; ahead?: number; behind?: number } = {}) {
   const status = {
     isGitRepo: true,
     hash: `status-hash-${patch.branch ?? "main"}`,
     branch: patch.branch ?? "main",
+    ahead: patch.ahead ?? 0,
+    behind: patch.behind ?? 0,
     files: patch.files ?? [changedFile("src/main.ts")],
     submodules: patch.submodules ?? [],
   };
