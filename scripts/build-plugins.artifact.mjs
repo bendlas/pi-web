@@ -9,6 +9,8 @@ import ts from "typescript";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { PiWebPluginCatalog, PI_WEB_PLUGIN_ARTIFACT_MAX_BYTES, PI_WEB_PLUGIN_ARTIFACT_MAX_ENTRIES } from "../src/server/piWebPluginCatalog.js";
 import { PluginRegistry } from "../src/client/src/plugins/registry.js";
+import { LocalizationService } from "../src/client/src/localization/service.js";
+import { createPluginLocalization } from "../src/client/src/plugins/localization.js";
 
 // Delivery-only: run after npm run build. Never build or mutate checkout artifacts here.
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -286,6 +288,7 @@ describe("plugin delivery artifacts", () => {
           apiVersion: 4,
           pluginId: "files",
           runtimePluginId: "files",
+          localization: createPluginLocalization(new LocalizationService(), "files", "files", new AbortController().signal),
           html: template,
           svg: template,
           signal: new AbortController().signal,

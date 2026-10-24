@@ -1,4 +1,5 @@
 import type { StylesheetIntegrationCapabilityV1, ContentRenderingCapability, PluginCapability, PiWebPlugin, PluginActivationContext, PluginActivationResult } from "@jmfederico/pi-web/plugin-api";
+import { createFilesContent } from "./filesLocalization";
 import { FilesCodeViewer } from "./FilesCodeViewer";
 import { WorkspaceFilesPanel } from "./FilesPanel";
 import { FilesRuntime } from "./FilesRuntime";
@@ -58,6 +59,9 @@ const plugin = {
 export default plugin;
 
 export function activateFilesPlugin(context: PluginActivationContext, filesRuntime: FilesRuntime): PluginActivationResult {
+  if (context.localization === undefined) throw new Error("The Files plugin requires a localization-capable PI WEB host");
+  const content = createFilesContent(context.localization);
+  filesRuntime.setLocalization(context.localization);
   defineFilesCustomElements();
   let contentRendering: ContentRenderingCapability | undefined;
   let stylesheetIntegration: StylesheetIntegrationCapabilityV1 | undefined;
@@ -75,30 +79,30 @@ export function activateFilesPlugin(context: PluginActivationContext, filesRunti
     contributions: {
       workspacePanels: [{
         id: "workspace.files",
-        title: "Files",
+        get title() { return content.messages.t("files"); },
         icon,
         order: 10,
         invalidationResources: ["workspace.files"],
         fileOpenQuery: (_workspaceContext, path) => ({ file: path }),
         onInvalidate: (workspaceContext, invalidation) => filesRuntime.invalidate(workspaceContext, invalidation),
-        render: (workspaceContext) => context.html`<pi-web-files-panel .stylesheetIntegration=${stylesheetIntegration} .context=${workspaceContext} .runtime=${filesRuntime} .contentRendering=${contentRendering}></pi-web-files-panel>`,
+        render: (workspaceContext) => context.html`<pi-web-files-panel .content=${content} .stylesheetIntegration=${stylesheetIntegration} .context=${workspaceContext} .runtime=${filesRuntime} .contentRendering=${contentRendering}></pi-web-files-panel>`,
       }],
       actions: [
         {
           id: "view.files",
-          title: "Go to Files",
+          get title() { return content.messages.t("goFiles"); },
           shortcut: "mod+2",
           shortcutAliases: ["core:view.files"],
-          group: "Navigation",
+          get group() { return content.messages.t("navigation"); },
           enabled: (runtimeContext) => runtimeContext.state.selectedWorkspace !== undefined,
           run: (runtimeContext) => { runtimeContext.selectWorkspaceTool(panelId); },
         },
         {
           id: "workspace.refresh-files",
-          title: "Refresh Files",
+          get title() { return content.messages.t("refreshFiles"); },
           shortcut: "mod+shift+f",
           shortcutAliases: ["core:workspace.refresh-files"],
-          group: "Workspace",
+          get group() { return content.messages.t("workspace"); },
           enabled: (runtimeContext) => runtimeContext.state.selectedWorkspace !== undefined,
           run: (runtimeContext) => runtimeContext.refreshWorkspacePanels(panelId),
         },

@@ -3,6 +3,7 @@
 import type { StylesheetIntegrationCapabilityV1, FileContentResponse, FileTreeResponse, WorkspaceFilesCapabilityV1, WorkspacePanelContext, WorkspacePanelNavigationV1, WriteWorkspaceFileResponse } from "@jmfederico/pi-web/plugin-api";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { WorkspaceFilesPanel, startDirectWorkspaceUpload, uploadBatchProgressValue, uploadBatchStatusLabel, workspaceUploadReviewDefaults, workspaceUploadReviewError } from "./FilesPanel";
+import { filesLocalizationFixture } from "./filesLocalization.testSupport";
 import { FilesRuntime, type WorkspaceUploadBatchState } from "./FilesRuntime";
 import { defineFilesCustomElements } from "./pi-web-plugin";
 
@@ -15,6 +16,55 @@ afterEach(() => {
 });
 
 describe("Files panel component boundary", () => {
+  it("retranslates an open upload review without changing focus, paths, options or starting an upload", async () => {
+    const { service, content } = filesLocalizationFixture("de-DE");
+    const uploadFile = vi.fn<WorkspaceFilesCapabilityV1["uploadFile"]>();
+    const listFiles = vi.fn<WorkspaceFilesCapabilityV1["listFiles"]>(() => Promise.resolve(treeResponse("")));
+    const panel = await mountPanel(createContext({ files: createFiles({ uploadFile, listFiles }) }));
+    panel.content = content;
+    panel.runtime?.setLocalization(content.localization);
+    await panel.updateComplete;
+    const input = requiredElement(panel.shadowRoot?.querySelector<HTMLInputElement>("#workspace-upload-input"), "upload input");
+    Object.defineProperty(input, "files", { configurable: true, value: [new File(["x".repeat(1536)], "user <img>.txt")] });
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+    await panel.updateComplete;
+    await panel.updateComplete;
+    const destination = requiredElement(panel.shadowRoot?.querySelector<HTMLInputElement>("#workspace-upload-destination"), "destination");
+    destination.value = "user/path";
+    destination.dispatchEvent(new Event("input", { bubbles: true }));
+    const overwrite = requiredElement(panel.shadowRoot?.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')[1], "overwrite");
+    overwrite.click();
+    destination.focus();
+    const calls = listFiles.mock.calls.length;
+    expect(panel.shadowRoot?.textContent).toContain("1,5 kB");
+    for (const language of ["en-XA", "ar-XB"]) {
+      await service.setPreferences({ ...service.preferences, language });
+      await panel.updateComplete;
+      await panel.updateComplete;
+      expect(panel.shadowRoot?.querySelector("dialog")).not.toBeNull();
+      expect(panel.shadowRoot?.querySelector("h2")?.textContent).not.toBe("Review file");
+      expect(destination.value).toBe("user/path");
+      expect(destination.dir).toBe("ltr");
+      expect(overwrite.checked).toBe(true);
+      expect(panel.shadowRoot?.activeElement).toBe(destination);
+      expect(panel.shadowRoot?.textContent).toContain("user <img>.txt");
+      expect(panel.shadowRoot?.querySelector("img")).toBeNull();
+    }
+    destination.value = "../escape";
+    destination.dispatchEvent(new Event("input", { bubbles: true }));
+    panel.shadowRoot?.querySelector("form")?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    await panel.updateComplete;
+    await service.setPreferences({ ...service.preferences, language: "en" });
+    await panel.updateComplete;
+    expect(panel.shadowRoot?.querySelector('[role="alert"]')?.textContent).toBe("upload destination must not contain path traversal");
+    await service.setPreferences({ ...service.preferences, language: "en-XA" });
+    await panel.updateComplete;
+    expect(panel.shadowRoot?.querySelector('[role="alert"]')?.textContent).not.toBe("upload destination must not contain path traversal");
+    expect(destination.value).toBe("../escape");
+    expect(uploadFile).not.toHaveBeenCalled();
+    expect(listFiles).toHaveBeenCalledTimes(calls);
+  });
+
   it("passes stylesheet integration through viewer and raw-code roots and releases the whole subtree", async () => {
     const context = createContext({
       files: createFiles({ readFile: (path) => Promise.resolve(fileResponse(path)) }),
@@ -309,16 +359,18 @@ describe("Files upload helpers", () => {
 
   it("shows terminal batch labels at full progress", () => {
     const failed = uploadBatch({ status: "error", percent: 0.31 });
-    expect(uploadBatchStatusLabel(failed)).toBe("Failed");
+    expect(uploadBatchStatusLabel(failed, filesLocalizationFixture().content)).toBe("Failed");
     expect(uploadBatchProgressValue(failed)).toBe(1);
     const uploading = uploadBatch({ status: "uploading", percent: 0.31 });
-    expect(uploadBatchStatusLabel(uploading)).toBe("31%");
+    expect(uploadBatchStatusLabel(uploading, filesLocalizationFixture().content)).toBe("31%");
     expect(uploadBatchProgressValue(uploading)).toBe(0.31);
   });
 });
 
 async function mountPanel(context: WorkspacePanelContext, runtime = new FilesRuntime({ createUploadBatchId: () => "batch-1", now: () => "now" })): Promise<WorkspaceFilesPanel> {
   const panel = new WorkspaceFilesPanel();
+  panel.content = filesLocalizationFixture().content;
+  runtime.setLocalization(panel.content.localization);
   panel.context = context;
   panel.runtime = runtime;
   // happy-dom has no layout engine; component visibility is an explicit

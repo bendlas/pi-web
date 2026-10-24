@@ -7,6 +7,7 @@ import { createContentRenderingCapability } from "../../src/client/src/formattin
 import { ContentRendererHost } from "../../src/client/src/components/ContentRendererHost";
 import type { ContentRenderingCapability, FileContentResponse } from "@jmfederico/pi-web/plugin-api";
 import { adoptWorkspaceFileViewMode, WORKSPACE_FILE_VIEW_MODE_STORAGE_KEY, type WorkspaceFileViewMode, type WorkspaceFileViewModeStore } from "./workspaceFileViewMode";
+import { filesLocalizationFixture } from "./filesLocalization.testSupport";
 import { DEFAULT_MAX_INLINE_PREVIEW_BYTES as MAX_INLINE_PREVIEW_BYTES, WorkspaceFileViewer, workspaceFilePreviewKind, workspaceFileViewerIdentityKey, type WorkspaceFileViewerIdentity } from "./FilesViewer";
 
 if (customElements.get("pi-web-files-viewer") === undefined) customElements.define("pi-web-files-viewer", WorkspaceFileViewer);
@@ -22,6 +23,60 @@ afterEach(() => {
 });
 
 describe("workspace-file-viewer", () => {
+  it("updates view controls and Markdown annotations live while preserving source, selected mode and focus", async () => {
+    const { service, content } = filesLocalizationFixture("de-DE");
+    const source = "![user <img>](https://example.com/remote.png)\n\n| User table |\n| --- |\n| user value |";
+    const file = textFile("user/path.md", source, { mediaType: "markdown", size: 1536 });
+    const viewer = await mountViewer(file);
+    viewer.content = content;
+    await settleDeferredContent(viewer);
+    modeButton(viewer, "Preview").click();
+    await settleDeferredContent(viewer);
+    const preview = viewer.shadowRoot?.querySelector<HTMLButtonElement>(".viewer-mode button");
+    preview?.focus();
+    for (const language of ["en-XA", "ar-XB"]) {
+      await service.setPreferences({ ...service.preferences, language });
+      await settleDeferredContent(viewer);
+      expect(viewer.shadowRoot?.activeElement).toBe(preview);
+      expect(preview?.getAttribute("aria-pressed")).toBe("true");
+      expect(preview?.textContent).not.toBe("Preview");
+      expect(viewer.shadowRoot?.querySelector(".markdown-preview")?.textContent).toContain("user <img>");
+      expect(viewer.shadowRoot?.querySelector("img")).toBeNull();
+      expect(viewer.shadowRoot?.querySelector(".table-scroll")?.getAttribute("aria-label")).not.toBe("Table");
+      expect(viewer.shadowRoot?.textContent).toContain("1,5 kB");
+      expect(viewer.shadowRoot?.querySelector("strong")?.textContent).toBe(file.path);
+      expect(viewer.file?.content).toBe(source);
+    }
+    service.registerCatalog({ id: "test-files", namespace: "plugin:files:files", locale: "fr", load: () => Promise.resolve({ raw: "Source", preview: "Aperçu", loadFailed: "Échec {path} : {error}" }) });
+    viewer.loadError = "backend <img> diagnostic";
+    await service.setPreferences({ ...service.preferences, language: "fr" });
+    await settleDeferredContent(viewer);
+    expect(viewer.shadowRoot?.querySelector('[role="alert"]')?.textContent).toBe("Échec user/path.md : backend <img> diagnostic");
+    expect(viewer.shadowRoot?.querySelector("img")).toBeNull();
+  });
+
+  it("keeps a failed image preview and recovery action live across language changes without retrying", async () => {
+    const { service, content } = filesLocalizationFixture();
+    const file = textFile("user/image.svg", "<svg/>", { mediaType: "image" });
+    const viewer = await mountViewer(file, { modeStore: fakeModeStore("preview") });
+    viewer.content = content;
+    await settleDeferredContent(viewer);
+    viewer.shadowRoot?.querySelector("img")?.dispatchEvent(new Event("error"));
+    await settleDeferredContent(viewer);
+    const retry = viewer.shadowRoot?.querySelector<HTMLButtonElement>(".preview-state button");
+    retry?.focus();
+    expect(retry?.textContent).toBe("Retry preview");
+    await service.setPreferences({ ...service.preferences, language: "ar-XB" });
+    await settleDeferredContent(viewer);
+    expect(retry?.textContent).not.toBe("Retry preview");
+    expect(viewer.shadowRoot?.querySelector("img")).toBeNull();
+    expect(viewer.shadowRoot?.activeElement).toBe(retry);
+    expect(viewer.shadowRoot?.textContent).toContain(file.path);
+    retry?.click();
+    await settleDeferredContent(viewer);
+    expect(viewer.shadowRoot?.querySelector("img")).not.toBeNull();
+  });
+
   it.each(["automatic", "manual"] as const)("uses a plugin's title for its %s view button", async (renderMode) => {
     const draw = vi.fn(() => html`<b>Named view</b>`);
     const contentRendering = createContentRenderingCapability(() => [{ id: "highlighted", label: "Highlighted", renderer: {
@@ -634,6 +689,7 @@ function fakeModeStore(adopted: WorkspaceFileViewMode = "raw"): FakeModeStore {
 
 async function mountViewer(file: FileContentResponse | undefined, patch: ViewerPatch = {}): Promise<WorkspaceFileViewer> {
   const viewer = new WorkspaceFileViewer();
+  viewer.content = filesLocalizationFixture().content;
   Object.assign(viewer, {
     machineId: "local",
     projectId: "project-1",

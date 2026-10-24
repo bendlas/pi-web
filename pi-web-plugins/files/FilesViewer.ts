@@ -4,6 +4,7 @@ import { property } from "lit/decorators.js";
 import { keyed } from "lit/directives/keyed.js";
 import { ifDefined } from "lit/directives/if-defined.js";
 import { unsafeHTML } from "lit/directives/unsafe-html.js";
+import { FilesLocalizationController, formatFileSize, type FilesContent } from "./filesLocalization";
 import { renderWorkspaceMarkdownHtml } from "./workspaceMarkdown";
 import { DEFAULT_WORKSPACE_FILE_VIEW_MODE, workspaceFileViewModeStore, type WorkspaceFileViewMode, type WorkspaceFileViewModeStore } from "./workspaceFileViewMode";
 
@@ -33,6 +34,11 @@ export interface WorkspaceFileViewerIdentity {
 }
 
 export class WorkspaceFileViewer extends LitElement {
+  private readonly text = new FilesLocalizationController(this);
+  @property({ attribute: false })
+  get content(): FilesContent | undefined { return this.text.content; }
+  set content(value: FilesContent | undefined) { this.text.content = value; }
+
   private integration: StylesheetIntegrationCapabilityV1 | undefined;
   private releaseStyles: (() => void) | undefined;
 
@@ -117,14 +123,15 @@ export class WorkspaceFileViewer extends LitElement {
   }
 
   override render(): TemplateResult {
+    if (this.content === undefined) return html``;
     const selectedPath = this.selectedPath;
-    if (selectedPath === undefined || selectedPath === "") return this.renderStatus("Select a file.");
-    if (this.loadError !== undefined) return this.renderStatus(`Unable to load ${selectedPath}: ${this.loadError}`, true);
+    if (selectedPath === undefined || selectedPath === "") return this.renderStatus(this.text.messages.t("selectFile"));
+    if (this.loadError !== undefined) return this.renderStatus(this.text.messages.t("loadFailed", { path: selectedPath, error: this.loadError }), true);
 
     const file = this.file;
-    if (file === undefined) return this.renderStatus(`Loading ${selectedPath}…`);
+    if (file === undefined) return this.renderStatus(this.text.messages.t("loadingFile", { path: selectedPath }));
     if (file.path !== selectedPath) {
-      return this.renderStatus(`Unable to preview ${selectedPath}: loaded content belongs to ${file.path}.`, true);
+      return this.renderStatus(this.text.messages.t("wrongFile", { selected: selectedPath, loaded: file.path }), true);
     }
 
     const token = this.selectionToken;
@@ -142,14 +149,14 @@ export class WorkspaceFileViewer extends LitElement {
       : undefined;
     const canOpen = isBrowserPreviewKind(kind) && file.size > 0 && file.size <= this.maxInlinePreviewBytes;
     return html`
-      ${this.renderViewerHeader(file, metadataForFile(file, kind), canOpen)}
+      ${this.renderViewerHeader(file, metadataForFile(file, kind, this.requireContent()), canOpen)}
       ${keyed(this.activeFileKey, this.renderLoadedFile(file, kind, token))}
     `;
   }
 
   private renderLoadedFile(file: FileContentResponse, kind: WorkspaceFilePreviewKind, token: number): TemplateResult {
     if (this.selectionHasRawAndPreviewModes() && this.mode === "raw") return this.renderRawSource(file);
-    if (file.size === 0) return this.renderStatus("This file is empty.");
+    if (file.size === 0) return this.renderStatus(this.text.messages.t("empty"));
 
     switch (kind) {
       case "image": return this.renderImagePreview(file, token);
@@ -168,7 +175,7 @@ export class WorkspaceFileViewer extends LitElement {
     const downloadUrl = this.previewUrlBuilder(this.projectId, this.workspaceId, file.path, { ...previewOptions, download: true });
     return html`
       <div class="viewer-header">
-        <strong title=${file.path}>${file.path}</strong>
+        <strong dir="ltr" title=${file.path}>${file.path}</strong>
         <div class="viewer-actions">
           <small>${metadata}</small>
           ${this.selectionHasRawAndPreviewModes() ? this.renderModeControls(file, this.selectionToken) : null}
@@ -179,10 +186,10 @@ export class WorkspaceFileViewer extends LitElement {
               target="_blank"
               rel="noopener noreferrer"
               referrerpolicy="no-referrer"
-              title="Open in new window"
-            >Open ↗</a>
+              title=${this.text.messages.t("openTitle")}
+            >${this.text.messages.t("open")}</a>
           ` : null}
-          <a class="viewer-action" href=${downloadUrl} download=${name} title=${`Download ${name}`}>Download</a>
+          <a class="viewer-action" href=${downloadUrl} download=${name} title=${this.text.messages.t("downloadTitle", { name })}>${this.text.messages.t("download")}</a>
         </div>
       </div>
     `;
@@ -191,9 +198,9 @@ export class WorkspaceFileViewer extends LitElement {
   private renderModeControls(file: FileContentResponse, token: number): TemplateResult {
     const showingPreview = this.mode === "preview";
     return html`
-      <div class="viewer-mode" role="group" aria-label=${`View ${file.path}`}>
+      <div class="viewer-mode" role="group" aria-label=${this.text.messages.t("view", { path: file.path })}>
         ${this.rendererOptions.length === 0 ? html`
-          <button type="button" aria-pressed=${String(showingPreview)} @click=${() => { this.setMode("preview", token); }}>Preview</button>
+          <button type="button" aria-pressed=${String(showingPreview)} @click=${() => { this.setMode("preview", token); }}>${this.text.messages.t("preview")}</button>
         ` : this.rendererOptions.map(({ id, label }) => html`
           <button type="button" aria-pressed=${String(showingPreview && id === this.rendererId)} @click=${() => {
             if (token !== this.selectionToken) return;
@@ -206,15 +213,15 @@ export class WorkspaceFileViewer extends LitElement {
           type="button"
           aria-pressed=${showingPreview ? "false" : "true"}
           @click=${() => { this.setMode("raw", token); }}
-        >Raw</button>
+        >${this.text.messages.t("raw")}</button>
       </div>
     `;
   }
 
   private renderRawSource(file: FileContentResponse): TemplateResult {
-    if (file.size === 0) return this.renderStatus("This file is empty.");
+    if (file.size === 0) return this.renderStatus(this.text.messages.t("empty"));
     return html`
-      ${file.truncated ? html`<p class="preview-note" role="status">Raw source is truncated. Use Download for the complete file.</p>` : null}
+      ${file.truncated ? html`<p class="preview-note" role="status">${this.text.messages.t("rawTruncated")}</p>` : null}
       <pi-web-files-code-viewer .stylesheetIntegration=${this.stylesheetIntegration} .content=${file.content} .language=${file.language}></pi-web-files-code-viewer>
     `;
   }
@@ -224,14 +231,14 @@ export class WorkspaceFileViewer extends LitElement {
     try {
       const content = this.contentRendering?.renderMarkdown({
         machineId: this.machineId, text: file.content, truncated: file.truncated,
-        toSafeHtml: renderWorkspaceMarkdownHtml, allowManualPreview: this.preference === "preview",
-      }) ?? unsafeHTML(renderWorkspaceMarkdownHtml(file.content));
+        toSafeHtml: (text) => renderWorkspaceMarkdownHtml(text, this.content), allowManualPreview: this.preference === "preview",
+      }) ?? unsafeHTML(renderWorkspaceMarkdownHtml(file.content, this.content));
       return html`
-        ${file.truncated ? html`<p class="preview-note" role="status">Preview is rendered from truncated source. Use Download for the complete file.</p>` : null}
+        ${file.truncated ? html`<p class="preview-note" role="status">${this.text.messages.t("previewTruncated")}</p>` : null}
         <div class="formatted markdown-preview" dir="auto">${content}</div>
       `;
     } catch {
-      return this.renderStatus("Markdown preview failed. Use Raw or Download instead.", true);
+      return this.renderStatus(this.text.messages.t("markdownFailed"), true);
     }
   }
 
@@ -243,7 +250,7 @@ export class WorkspaceFileViewer extends LitElement {
       <div class="image-preview">
         <img
           src=${src}
-          alt=${`Preview of ${file.path}`}
+          alt=${this.text.messages.t("previewOf", { path: file.path })}
           decoding="async"
           referrerpolicy="no-referrer"
           @error=${() => { this.recordPreviewFailure(token); }}
@@ -258,14 +265,14 @@ export class WorkspaceFileViewer extends LitElement {
     const src = this.previewUrl(file);
 
     return html`
-      ${kind === "pdf" ? html`<p class="preview-note" role="status">Inline PDF support varies by browser. Use Open ↗ or Download above if the document does not appear.</p>` : null}
+      ${kind === "pdf" ? html`<p class="preview-note" role="status">${this.text.messages.t("pdfHelp")}</p>` : null}
       <iframe
         class="file-frame-preview"
         src=${src}
         sandbox=${ifDefined(framePreviewSandbox(kind))}
         allow=""
         referrerpolicy="no-referrer"
-        title=${`Preview of ${file.path}`}
+        title=${this.text.messages.t("previewOf", { path: file.path })}
         @error=${() => { this.recordPreviewFailure(token); }}
       ></iframe>
     `;
@@ -274,9 +281,9 @@ export class WorkspaceFileViewer extends LitElement {
   private renderPreviewFailure(file: FileContentResponse, token: number): TemplateResult {
     return html`
       <div class="preview-state" role="alert">
-        <strong>Preview failed for ${file.path}.</strong>
-        <span>Open it in a new window or use Download above.</span>
-        <button type="button" @click=${() => { this.retryPreview(token); }}>Retry preview</button>
+        <strong>${this.text.messages.t("previewFailed", { path: file.path })}</strong>
+        <span>${this.text.messages.t("previewFailedHelp")}</span>
+        <button type="button" @click=${() => { this.retryPreview(token); }}>${this.text.messages.t("retry")}</button>
       </div>
     `;
   }
@@ -290,14 +297,14 @@ export class WorkspaceFileViewer extends LitElement {
     });
     return html`
       <div class="preview-state">
-        <p>Preview isn't available for this file type.</p>
-        <a class="download-link" href=${href} download=${name}>Download ${name} · ${formatFileSize(file.size)}</a>
+        <p>${this.text.messages.t("unsupported")}</p>
+        <a class="download-link" href=${href} download=${name}>${this.text.messages.t("downloadSize", { name, size: formatFileSize(file.size, this.requireContent()) })}</a>
       </div>
     `;
   }
 
   private renderPreviewTooLarge(file: FileContentResponse): TemplateResult {
-    return this.renderStatus(`File too large to preview: ${formatFileSize(file.size)} · limit ${formatFileSize(this.maxInlinePreviewBytes)}. Use Download above.`);
+    return this.renderStatus(this.text.messages.t("tooLarge", { size: formatFileSize(file.size, this.requireContent()), limit: formatFileSize(this.maxInlinePreviewBytes, this.requireContent()) }));
   }
 
   private renderStatus(message: string, alert = false): TemplateResult {
@@ -351,11 +358,16 @@ export class WorkspaceFileViewer extends LitElement {
     return this.customPreview !== undefined || hasRawAndPreviewModes(file, workspaceFilePreviewKind(file));
   }
 
+  private requireContent(): FilesContent {
+    if (this.content === undefined) throw new Error("Files localization is unavailable");
+    return this.content;
+  }
+
   static override styles = [
     formattedTextStyles(),
     css`
       :host { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; overflow: auto; color: var(--pi-text); font: 14px var(--pi-font, system-ui, sans-serif); }
-      .viewer-header { position: sticky; top: 0; z-index: 1; flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 32px; padding: 0 0 0 10px; border-bottom: 1px solid var(--pi-border-muted); background: var(--pi-bg); }
+      .viewer-header { position: sticky; top: 0; z-index: 1; flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 32px; padding: 0; padding-inline-start: 10px; border-bottom: 1px solid var(--pi-border-muted); background: var(--pi-bg); }
       .viewer-header strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 500; }
       .viewer-actions { align-self: stretch; display: flex; align-items: center; gap: 0; flex: 0 1 auto; min-width: 0; max-width: 100%; }
       .viewer-actions > small { padding-inline: 8px; }
@@ -450,7 +462,7 @@ function isBrowserPreviewKind(kind: WorkspaceFilePreviewKind): kind is "image" |
   return kind === "image" || kind === "html" || kind === "pdf";
 }
 
-function metadataForFile(file: FileContentResponse, kind: WorkspaceFilePreviewKind): string {
+function metadataForFile(file: FileContentResponse, kind: WorkspaceFilePreviewKind, content: FilesContent): string {
   const format = kind === "code"
     ? file.language ?? "text"
     : kind === "download"
@@ -458,25 +470,11 @@ function metadataForFile(file: FileContentResponse, kind: WorkspaceFilePreviewKi
       : kind === "markdown"
         ? "markdown"
         : file.mimeType ?? kind;
-  return `${format} · ${formatFileSize(file.size)}${file.truncated ? " · truncated" : ""}`;
+  return content.messages.t("metadata", { format, size: formatFileSize(file.size, content), truncated: file.truncated ? "yes" : "no" });
 }
 
 function workspaceFileName(path: string): string {
   return path.split(/[\\/]/u).at(-1) ?? path;
-}
-
-function formatFileSize(size: number): string {
-  if (!Number.isFinite(size) || size < 0) return "0 B";
-  if (size < 1024) return `${String(size)} B`;
-  const kib = size / 1024;
-  if (kib < 1024) return `${formatScaledFileSize(kib)} KB`;
-  const mib = kib / 1024;
-  if (mib < 1024) return `${formatScaledFileSize(mib)} MB`;
-  return `${formatScaledFileSize(mib / 1024)} GB`;
-}
-
-function formatScaledFileSize(value: number): string {
-  return value >= 10 ? String(Math.round(value)) : value.toFixed(1);
 }
 
 function formattedTextStyles(): ReturnType<typeof css> {
@@ -485,12 +483,12 @@ function formattedTextStyles(): ReturnType<typeof css> {
   .formatted { white-space: normal; overflow-wrap: anywhere; line-height: 1.45; text-align: start; unicode-bidi: plaintext; }
   p, ul, ol, pre, blockquote, .table-scroll { margin: 0 0 10px; }
   :is(p, ul, ol, pre, blockquote, .table-scroll):last-child { margin-bottom: 0; }
-  ul, ol { padding-left: 22px; }
+  ul, ol { padding-inline-start: 22px; }
   li + li { margin-top: 3px; }
   code { border: 1px solid var(--pi-border); border-radius: 4px; background: var(--pi-bg); padding: 1px 4px; font: 13px var(--pi-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace); direction: ltr; text-align: left; unicode-bidi: isolate; }
   pre { border: 1px solid var(--pi-border); border-radius: 8px; background: var(--pi-bg); padding: 10px; overflow-x: auto; overflow-y: hidden; direction: ltr; text-align: left; unicode-bidi: isolate; }
   pre code { border: 0; padding: 0; background: transparent; }
-  blockquote { border-left: 3px solid var(--pi-border); padding-left: 10px; color: var(--pi-muted); }
+  blockquote { border-inline-start: 3px solid var(--pi-border); padding-inline-start: 10px; color: var(--pi-muted); }
   a { color: var(--pi-accent); }
   h1, h2, h3, h4 { margin: 14px 0 8px; line-height: 1.2; }
   h1:first-child, h2:first-child, h3:first-child, h4:first-child { margin-top: 0; }

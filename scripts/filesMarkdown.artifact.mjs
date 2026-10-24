@@ -2,7 +2,9 @@
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterEach, expect, it } from "vitest";
-import { html } from "lit";
+import { html, svg } from "lit";
+import { LocalizationService } from "../src/client/src/localization/service.ts";
+import { createPluginLocalization } from "../src/client/src/plugins/localization.ts";
 import { createContentRenderingCapability } from "../src/client/src/formatting/contentRendering.ts";
 import { ContentRenderingBoundary } from "../src/client/src/components/ContentRenderingBoundary.ts";
 import { ContentRendererHost } from "../src/client/src/components/ContentRendererHost.ts";
@@ -20,9 +22,15 @@ afterEach(() => {
 it("loads saved Markdown Preview through the bundled Files plugin without crossing Lit directive runtimes", async () => {
   const files = await import(pathToFileURL(resolve("dist/pi-web-plugins/files/browser/pi-web-plugin.js")).href);
   files.defineFilesCustomElements();
+  const lifetime = new AbortController();
+  const localization = createPluginLocalization(new LocalizationService(), "files", "files", lifetime.signal);
+  const activation = files.default.activate({ apiVersion: 4, pluginId: "files", runtimePluginId: "files", html, svg, localization, signal: lifetime.signal, lifetimeSignal: lifetime.signal });
+  const content = activation.contributions.workspacePanels[0].render({}).values.find((value) => value?.localization === localization);
+  expect(content).toBeDefined();
   const viewer = document.createElement("pi-web-files-viewer");
   const text = "# Notes\n\n> ```diagram\n> source\n> ```\n\n[Safe](https://example.test)\n\n<script>bad()</script>";
   Object.assign(viewer, {
+    content,
     machineId: "local",
     projectId: "project",
     workspaceId: "workspace",
@@ -54,4 +62,6 @@ it("loads saved Markdown Preview through the bundled Files plugin without crossi
   await settleDeferredContent(host);
   expect(host.shadowRoot.querySelector("b").textContent).toBe("source");
   expect([...viewer.shadowRoot.querySelectorAll("button")].map((button) => button.textContent.trim())).toEqual(["Preview", "Raw"]);
+  viewer.remove();
+  lifetime.abort();
 });

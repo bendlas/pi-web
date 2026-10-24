@@ -8,7 +8,9 @@ import type {
   WriteWorkspaceFileResponse,
 } from "@jmfederico/pi-web/plugin-api";
 import { describe, expect, it, vi } from "vitest";
-import { FilesRuntime } from "./FilesRuntime";
+import { LocalizationService } from "../../src/client/src/localization/service";
+import { createPluginLocalization } from "../../src/client/src/plugins/localization";
+import { FilesRuntime, workspaceUploadPath } from "./FilesRuntime";
 
 describe("FilesRuntime tree and selection", () => {
   it("refreshes root and expanded directories, then collapses locally", async () => {
@@ -325,6 +327,105 @@ describe("FilesRuntime uploads", () => {
     expect(runtime.startWorkspaceUpload(context, [new File(["a"], "a.txt")], { destinationFolder: "../outside" })).toBeUndefined();
     expect(uploadFile).not.toHaveBeenCalled();
     expect(runtime.snapshot(context).error).toContain("path traversal");
+  });
+});
+
+describe("FilesRuntime localization", () => {
+  function fixture() {
+    const service = new LocalizationService({ preferences: { language: "en", formatLocale: "en" }, diagnostic: () => undefined });
+    const lifetime = new AbortController();
+    const localization = createPluginLocalization(service, "files", "files", lifetime.signal);
+    service.registerCatalog({
+      id: "runtime-fr", namespace: "plugin:files:runtime", locale: "fr",
+      load: () => Promise.resolve({
+        filesCapability: "Capacité fichiers indisponible",
+        navigationCapability: "Navigation indisponible",
+        destinationTraversal: "Destination sans traversée de chemin",
+        uploadCancelled: "Envoi annulé",
+        uploadsFailed: "{count, plural, one {# échec} other {# échecs}}",
+      }),
+    });
+    const runtime = new FilesRuntime({ createUploadBatchId: () => "localized-batch" });
+    return { runtime, localization, service, lifetime };
+  }
+
+  it("keeps retained capability and validation strings live even when localization is attached later", async () => {
+    const { runtime, localization, service, lifetime } = fixture();
+    try {
+      const unavailable = runtime.snapshot(createContext({ workspaceId: "legacy", files: legacyFiles() }));
+      const noNavigation = runtime.snapshot(createContext({ workspaceId: "no-navigation", navigation: null }));
+      const context = createContext();
+      runtime.startWorkspaceUpload(context, [new File(["a"], "a.txt")], { destinationFolder: "../outside" });
+      const scope = runtime.snapshot(context);
+      expect(scope.error).toBe("upload destination must not contain path traversal");
+      runtime.setLocalization(localization);
+      runtime.setLocalization(localization); // Reusing an activation must not register its namespace twice.
+      await service.setPreferences({ language: "fr", formatLocale: "en" });
+      expect(unavailable.capabilityError).toBe("Capacité fichiers indisponible");
+      expect(noNavigation.capabilityError).toBe("Navigation indisponible");
+      expect(scope.error).toBe("Destination sans traversée de chemin");
+      await service.setPreferences({ language: "en", formatLocale: "en" });
+      expect(scope.error).toBe("upload destination must not contain path traversal");
+      await runtime.refreshFiles(context);
+      expect(scope.error).toBeUndefined();
+    } finally { lifetime.abort(); }
+  });
+
+  it("retranslates stored cancellation diagnostics without altering paths or completed state", async () => {
+    const { runtime, localization, service, lifetime } = fixture();
+    try {
+      runtime.setLocalization(localization);
+      const uploads = controllableUploads({ rejectOnCancel: true });
+      const context = createContext({ files: createFiles({ uploadFile: uploads.fn }) });
+      const run = runtime.startWorkspaceUpload(context, [new File(["a"], "a.txt"), new File(["b"], "b.txt")], { destinationFolder: "uploads" });
+      runtime.cancelWorkspaceUpload(context, "localized-batch");
+      await run?.done;
+      const batch = runtime.snapshot(context).uploadBatches["localized-batch"];
+      expect(batch?.error).toBe("Upload cancelled");
+      await service.setPreferences({ language: "fr", formatLocale: "en" });
+      expect(batch).toMatchObject({ status: "cancelled", error: "Envoi annulé", files: [
+        { status: "cancelled", error: "Envoi annulé", path: "uploads/a.txt" },
+        { status: "cancelled", error: "Envoi annulé", path: "uploads/b.txt" },
+      ] });
+    } finally { lifetime.abort(); }
+  });
+
+  it("localizes aggregate failures but preserves backend diagnostics verbatim, including text matching local messages", async () => {
+    const { runtime, localization, service, lifetime } = fixture();
+    try {
+      runtime.setLocalization(localization);
+      const backend = "Upload cancelled";
+      const context = createContext({ files: createFiles({
+        listFiles: () => Promise.reject(new Error(backend)),
+        readFile: () => Promise.reject(new Error(backend)),
+        uploadFile: () => { throw new Error(backend); },
+      }) });
+      await runtime.refreshFiles(context);
+      await runtime.selectFile(context, "user/<img>.txt");
+      const single = runtime.startWorkspaceUpload(context, [new File(["a"], "a.txt")], { destinationFolder: "uploads" });
+      await single?.done;
+      const singleBatch = runtime.snapshot(context).uploadBatches["localized-batch"];
+      runtime.clearWorkspaceUpload(context, "localized-batch");
+      const multiple = runtime.startWorkspaceUpload(context, [new File(["a"], "a.txt"), new File(["b"], "b.txt")], { destinationFolder: "uploads" });
+      await multiple?.done;
+      const scope = runtime.snapshot(context);
+      expect(scope.uploadBatches["localized-batch"]?.error).toBe("2 files failed to upload");
+      await service.setPreferences({ language: "fr", formatLocale: "en" });
+      expect(singleBatch?.error).toBe(backend);
+      expect(scope.error).toBe(backend);
+      expect(scope.selectedFileLoadError).toBe(backend);
+      expect(scope.selectedFilePath).toBe("user/<img>.txt");
+      expect(scope.uploadBatches["localized-batch"]).toMatchObject({ error: "2 échecs", files: [{ error: backend }, { error: backend }] });
+    } finally { lifetime.abort(); }
+  });
+
+  it.each([
+    ["/absolute", "a.txt", "upload destination must be workspace-relative"],
+    ["ok", "../outside", "upload file name must not contain path traversal"],
+    ["ok", "", "upload file name must not be empty"],
+    ["ok", "C:\\outside", "upload file name must be workspace-relative"],
+  ])("preserves validation and English errors for %s / %s", (folder, name, message) => {
+    expect(() => workspaceUploadPath(folder, name)).toThrow(message);
   });
 });
 

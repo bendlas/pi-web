@@ -1,6 +1,7 @@
 import type {
   FileContentResponse,
   FileTreeEntry,
+  PluginLocalization,
   WorkspaceFileUploadTask,
   WorkspaceFilesCapabilityV1,
   WorkspaceFilesContextValue,
@@ -9,6 +10,14 @@ import type {
   WorkspacePanelNavigationV1,
   WriteWorkspaceFileResponse,
 } from "@jmfederico/pi-web/plugin-api";
+
+import {
+  createFilesRuntimeMessages,
+  FilesRuntimeValidationError,
+  formatFilesRuntimeDiagnostic,
+  setFilesRuntimeDiagnostic,
+  type FilesRuntimeDiagnostic,
+} from "./filesRuntimeMessages";
 
 const MAX_RECENT_SCOPES = 8;
 
@@ -110,6 +119,8 @@ export class FilesRuntime {
   private readonly now: () => string;
   private uploadBatchSequence = 0;
   private useSequence = 0;
+  private messages: ReturnType<typeof createFilesRuntimeMessages> | undefined;
+  private readonly messageHandles = new WeakMap<PluginLocalization, ReturnType<typeof createFilesRuntimeMessages>>();
 
   constructor(dependencies: FilesRuntimeDependencies = {}) {
     this.createUploadBatchId = dependencies.createUploadBatchId ?? (() => {
@@ -117,6 +128,34 @@ export class FilesRuntime {
       return `files-upload-${String(this.uploadBatchSequence)}`;
     });
     this.now = dependencies.now ?? (() => new Date().toISOString());
+  }
+
+  /** Activation can attach localization after constructing the runtime. The UI owns locale subscriptions. */
+  setLocalization(localization: PluginLocalization | undefined): void {
+    if (localization === undefined) {
+      this.messages = undefined;
+      return;
+    }
+    let messages = this.messageHandles.get(localization);
+    if (messages === undefined) {
+      messages = createFilesRuntimeMessages(localization);
+      this.messageHandles.set(localization, messages);
+    }
+    this.messages = messages;
+  }
+
+  private setDiagnostic(target: object, key: string, diagnostic: FilesRuntimeDiagnostic): void {
+    setFilesRuntimeDiagnostic(target, key, () => formatFilesRuntimeDiagnostic(diagnostic, this.messages));
+  }
+
+  /** Upload review can resolve the same validation diagnostic without starting a batch. */
+  formatError(error: unknown): string {
+    return error instanceof FilesRuntimeValidationError ? formatFilesRuntimeDiagnostic(error.diagnostic, this.messages) : errorMessage(error);
+  }
+
+  private setError(target: object, key: string, error: unknown): void {
+    if (error instanceof FilesRuntimeValidationError) this.setDiagnostic(target, key, error.diagnostic);
+    else Object.defineProperty(target, key, { configurable: true, enumerable: true, writable: true, value: errorMessage(error) });
   }
 
   prepare(context: WorkspacePanelContext): FilesScopeState {
@@ -179,7 +218,7 @@ export class FilesRuntime {
     } catch (error) {
       if (!this.isCurrentTreeRequest(scope, generation, abort) || isAbortError(error)) return;
       abort.abort();
-      scope.error = errorMessage(error);
+      this.setError(scope, "error", error);
     } finally {
       if (this.isCurrentTreeRequest(scope, generation, abort)) {
         scope.treeAbort = undefined;
@@ -210,7 +249,7 @@ export class FilesRuntime {
       delete scope.error;
     } catch (error) {
       if (!this.isCurrentExpandedRequest(scope, path, abort) || isAbortError(error)) return;
-      scope.error = errorMessage(error);
+      this.setError(scope, "error", error);
     } finally {
       if (this.isCurrentExpandedRequest(scope, path, abort)) {
         scope.expandedAborts.delete(path);
@@ -256,7 +295,7 @@ export class FilesRuntime {
         this.now(),
       );
     } catch (error) {
-      scope.error = errorMessage(error);
+      this.setError(scope, "error", error);
       this.notify(scope);
       return undefined;
     }
@@ -273,7 +312,7 @@ export class FilesRuntime {
     if (batch?.status !== "uploading") return;
     scope.cancelledUploads.add(batchId);
     scope.uploadTasks.get(batchId)?.cancel();
-    cancelUploadBatch(batch, this.now());
+    cancelUploadBatch(batch, this.now(), () => formatFilesRuntimeDiagnostic({ key: "uploadCancelled" }, this.messages));
     this.notify(scope);
   }
 
@@ -284,7 +323,7 @@ export class FilesRuntime {
     if (batch?.status === "uploading" || task !== undefined) {
       scope.cancelledUploads.add(batchId);
       task?.cancel();
-      if (batch !== undefined) cancelUploadBatch(batch, this.now());
+      if (batch !== undefined) cancelUploadBatch(batch, this.now(), () => formatFilesRuntimeDiagnostic({ key: "uploadCancelled" }, this.messages));
     } else {
       scope.cancelledUploads.delete(batchId);
     }
@@ -350,14 +389,14 @@ export class FilesRuntime {
     scope.files = capability;
     const capabilityError = filesCapabilityError(context.files, context.navigation);
     if (capabilityError === undefined) delete scope.capabilityError;
-    else scope.capabilityError = capabilityError;
+    else this.setDiagnostic(scope, "capabilityError", capabilityError);
     this.evictInactiveScopes(scope.key);
     return scope;
   }
 
   private requireFiles(scope: ScopeRecord): WorkspaceFilesCapabilityV1 | undefined {
     if (scope.files !== undefined && scope.capabilityError === undefined) return scope.files;
-    scope.capabilityError ??= "Files requires workspace-files capability v1 and contribution navigation v1. Update the PI WEB host.";
+    if (scope.capabilityError === undefined) this.setDiagnostic(scope, "capabilityError", { key: "capabilities" });
     this.notify(scope);
     return undefined;
   }
@@ -413,7 +452,7 @@ export class FilesRuntime {
     } catch (error) {
       if (!this.isCurrentFileRequest(scope, generation, path) || isAbortError(error)) return;
       delete scope.selectedFileContent;
-      scope.selectedFileLoadError = errorMessage(error);
+      this.setError(scope, "selectedFileLoadError", error);
     } finally {
       if (this.isCurrentFileRequest(scope, generation, path)) scope.selectedAbort = undefined;
       this.notify(scope);
@@ -519,7 +558,7 @@ export class FilesRuntime {
           successful.push(response);
         } catch (error) {
           if (scope.cancelledUploads.has(batch.id) || isAbortError(error)) {
-            if (scope.uploadBatches[batch.id] === batch) cancelUploadBatch(batch, this.now());
+            if (scope.uploadBatches[batch.id] === batch) cancelUploadBatch(batch, this.now(), () => formatFilesRuntimeDiagnostic({ key: "uploadCancelled" }, this.messages));
             break;
           }
           this.failUploadFile(batch, fileState, error);
@@ -539,10 +578,12 @@ export class FilesRuntime {
       batch.status = failed.length === 0 ? "completed" : "error";
       batch.completedAt = this.now();
       if (failed.length === 0) delete batch.error;
-      else batch.error = failed.length === 1 ? failed[0]?.error ?? "Workspace upload failed" : `${String(failed.length)} files failed to upload`;
+      else if (failed.length === 1) {
+        setFilesRuntimeDiagnostic(batch, "error", () => failed[0]?.error ?? formatFilesRuntimeDiagnostic({ key: "uploadFailed" }, this.messages));
+      } else this.setDiagnostic(batch, "error", { key: "uploadsFailed", count: failed.length });
       for (const pending of batch.files.filter((file) => file.status === "pending" || file.status === "uploading")) {
         pending.status = "cancelled";
-        pending.error = "Not uploaded.";
+        this.setDiagnostic(pending, "error", { key: "notUploaded" });
       }
       this.recalculateUploadProgress(batch, true);
       this.notify(scope);
@@ -591,7 +632,7 @@ export class FilesRuntime {
     file.percent = 1;
     file.lengthComputable = true;
     file.status = "error";
-    file.error = errorMessage(error);
+    this.setError(file, "error", error);
   }
 
   private recalculateUploadProgress(batch: WorkspaceUploadBatchState, terminal = false): void {
@@ -632,14 +673,14 @@ export function workspaceFilesCapabilityV1(files: WorkspaceFilesContextValue): W
 }
 
 export function workspaceUploadPath(destinationFolder: string, fileName: string): string {
-  const folder = normalizeWorkspaceUploadPath(destinationFolder, "upload destination", { allowEmpty: true });
-  const name = normalizeWorkspaceUploadPath(fileName, "upload file name", { allowEmpty: false });
+  const folder = normalizeWorkspaceUploadPath(destinationFolder, "destination", { allowEmpty: true });
+  const name = normalizeWorkspaceUploadPath(fileName, "name", { allowEmpty: false });
   return folder === "" ? name : `${folder}/${name}`;
 }
 
-function filesCapabilityError(files: WorkspaceFilesContextValue, navigation: WorkspacePanelNavigationV1 | undefined): string | undefined {
-  if (files.capabilityVersion !== 1) return "Files requires workspace-files capability v1. Update the PI WEB host.";
-  if (navigation?.version !== 1) return "Files requires contribution navigation v1. Update the PI WEB host.";
+function filesCapabilityError(files: WorkspaceFilesContextValue, navigation: WorkspacePanelNavigationV1 | undefined): FilesRuntimeDiagnostic | undefined {
+  if (files.capabilityVersion !== 1) return { key: "filesCapability" };
+  if (navigation?.version !== 1) return { key: "navigationCapability" };
   return undefined;
 }
 
@@ -686,33 +727,33 @@ function createUploadBatch(
   };
 }
 
-function cancelUploadBatch(batch: WorkspaceUploadBatchState, completedAt: string): void {
+function cancelUploadBatch(batch: WorkspaceUploadBatchState, completedAt: string, display: () => string): void {
   batch.status = "cancelled";
   batch.completedAt = completedAt;
-  batch.error = "Upload cancelled";
+  setFilesRuntimeDiagnostic(batch, "error", display);
   for (const file of batch.files) {
     if (file.status === "completed" || file.status === "error") continue;
     file.status = "cancelled";
-    file.error = "Upload cancelled";
+    setFilesRuntimeDiagnostic(file, "error", display);
   }
   batch.loaded = batch.total;
   batch.percent = 1;
 }
 
-function normalizeWorkspaceUploadPath(value: string, label: string, options: { allowEmpty: boolean }): string {
+function normalizeWorkspaceUploadPath(value: string, label: "destination" | "name", options: { allowEmpty: boolean }): string {
   const trimmed = value.trim();
   if (trimmed === "") {
     if (options.allowEmpty) return "";
-    throw new Error(`${label} must not be empty`);
+    throw new FilesRuntimeValidationError({ key: `${label}Empty` });
   }
   const withForwardSlashes = trimmed.replace(/\\/gu, "/");
-  if (withForwardSlashes.startsWith("/") || /^[A-Za-z]:\//u.test(withForwardSlashes)) throw new Error(`${label} must be workspace-relative`);
+  if (withForwardSlashes.startsWith("/") || /^[A-Za-z]:\//u.test(withForwardSlashes)) throw new FilesRuntimeValidationError({ key: `${label}Relative` });
   const parts = withForwardSlashes.split("/").filter((part) => part !== "" && part !== ".");
   if (parts.length === 0) {
     if (options.allowEmpty) return "";
-    throw new Error(`${label} must not be empty`);
+    throw new FilesRuntimeValidationError({ key: `${label}Empty` });
   }
-  if (parts.some((part) => part === "..")) throw new Error(`${label} must not contain path traversal`);
+  if (parts.some((part) => part === "..")) throw new FilesRuntimeValidationError({ key: `${label}Traversal` });
   return parts.join("/");
 }
 

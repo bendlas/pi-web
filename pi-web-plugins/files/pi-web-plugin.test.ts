@@ -3,6 +3,7 @@
 import type { PluginActivationContext, PluginCapability, PluginRuntimeContext, WorkspacePanelContext } from "@jmfederico/pi-web/plugin-api";
 import { html, svg, type TemplateResult } from "lit";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { filesLocalizationFixture } from "./filesLocalization.testSupport";
 import { FilesRuntime } from "./FilesRuntime";
 import plugin, { FILES_CODE_VIEWER_ELEMENT, FILES_PANEL_ELEMENT, FILES_VIEWER_ELEMENT, activateFilesPlugin } from "./pi-web-plugin";
 
@@ -13,6 +14,20 @@ afterEach(() => {
 });
 
 describe("Files plugin activation", () => {
+  it("resolves contributed titles and action groups live in the activation namespace", async () => {
+    const { service, localization } = filesLocalizationFixture();
+    const result = activateFilesPlugin({ ...activationContext(), localization }, new FilesRuntime());
+    const panel = result.contributions.workspacePanels?.[0];
+    const action = result.contributions.actions?.[0];
+    expect(panel?.title).toBe("Files");
+    expect(action?.group).toBe("Navigation");
+    service.registerCatalog({ id: "files-test", namespace: "plugin:files:files", locale: "fr", load: () => Promise.resolve({ files: "Fichiers", goFiles: "Afficher les fichiers", navigation: "Parcourir" }) });
+    await service.setPreferences({ ...service.preferences, language: "fr" });
+    expect(panel?.title).toBe("Fichiers");
+    expect(action?.title).toBe("Afficher les fichiers");
+    expect(action?.group).toBe("Parcourir");
+  });
+
   it("requires stylesheet integration v1 and passes the start-resolved capability across the panel boundary", async () => {
     expect(plugin.requires.map(({ id, version }) => ({ id, version }))).toEqual([
       { id: "stylesheet-integration", version: 1 },
@@ -121,6 +136,7 @@ function activationContext(runtimePluginId = "files"): PluginActivationContext {
     apiVersion: 4,
     pluginId: "files",
     runtimePluginId,
+    localization: filesLocalizationFixture().localization,
     html,
     svg,
     signal: new AbortController().signal,
