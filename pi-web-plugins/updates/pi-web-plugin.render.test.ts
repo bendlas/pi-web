@@ -1,9 +1,12 @@
+/// <reference types="vite/client" />
 // @vitest-environment happy-dom
 
 import { html, render, svg } from "lit";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PiWebComponentStatus, PiWebStatusResponse, PluginRuntimeState, MaintenanceTerminalCommandRun, TerminalCommandRunHandle, ApplicationPanelContext, MaintenanceTerminal, WorkspacePanelTerminal } from "@jmfederico/pi-web/plugin-api";
 import plugin from "./pi-web-plugin.js";
+import { LocalizationService } from "../../src/client/src/localization/service.js";
+import { createPluginLocalization } from "../../src/client/src/plugins/localization.js";
 
 function component(overrides: Partial<PiWebComponentStatus> = {}): PiWebComponentStatus {
   return {
@@ -61,8 +64,9 @@ function panelContext(state: PluginRuntimeState, terminal?: MaintenanceTerminal)
   };
 }
 
-function renderPanel(value: PiWebStatusResponse, terminal?: MaintenanceTerminal, contextOverrides: Partial<ApplicationPanelContext> = {}): HTMLElement {
+function renderPanel(value: PiWebStatusResponse, terminal?: MaintenanceTerminal, contextOverrides: Partial<ApplicationPanelContext> = {}, service = new LocalizationService({ preferences: { language: "en", formatLocale: "en-US", timeZone: "UTC" } })): HTMLElement {
   const contributions = plugin.activate({
+    localization: createPluginLocalization(service, "updates", "updates", new AbortController().signal),
     apiVersion: 4,
     pluginId: "updates",
     runtimePluginId: "updates",
@@ -98,6 +102,29 @@ afterEach(() => {
 });
 
 describe("Updates plugin panel layout", () => {
+  it("pseudo-localizes known gateway notices and controls without translating commands or versions", async () => {
+    const service = new LocalizationService({ development: true, preferences: { language: "en-XA", formatLocale: "de-DE", timeZone: "UTC" } });
+    await service.ready;
+    const value = status({
+      commands: { update: "pi-web update --flag" },
+      release: { packageName: "@jmfederico/pi-web", updateAvailable: true, latestVersion: "9.8.7" },
+      messages: [{ id: "update-available", severity: "info", title: "DO NOT RENDER SERVER TITLE", body: "DO NOT RENDER SERVER BODY" }],
+    });
+    const container = renderPanel(value, undefined, {}, service);
+    expect(container.textContent).not.toContain("DO NOT RENDER");
+    expect(container.querySelector(".updates-message-title strong")?.textContent).not.toBe("PI WEB update available");
+    expect(container.querySelector(".updates-command button")?.textContent).not.toBe("Copy");
+    expect(commandTexts(container)).toEqual(["pi-web update --flag"]);
+    expect(container.textContent).toContain("9.8.7");
+    expect(container.textContent).toContain("1.202605.8");
+    expect(container.textContent).toContain(service.date(Date.parse(value.generatedAt), { dateStyle: "medium", timeStyle: "short" }));
+  });
+
+  it("preserves unknown gateway notice details for forward compatibility", () => {
+    const container = renderPanel(status({ messages: [{ id: "future", severity: "error", title: "Future gateway notice", body: "Keep this operational guidance" }] }));
+    expect(container.textContent).toContain("Future gateway notice");
+    expect(container.textContent).toContain("Keep this operational guidance");
+  });
   it("folds the update notice into one recommended action above the services and optional commands", () => {
     const update = "pi-web update";
     const container = renderPanel(status({
