@@ -9,7 +9,7 @@ import type { SessionTreeForkResult, SessionTreeNavigateResult, SessionTreeNodeK
 // through real DOM interaction; keyboard state and hierarchy stay covered through
 // the pure sessionTreeModel, and TemplateResult extraction is limited to pointer
 // row/footer wiring in the method-level interaction tests.
-import { templateClickHandlerForText, templateEventHandlerNearMarker } from "../templateInspection.testSupport";
+import { templateClickHandlerForText } from "../templateInspection.testSupport";
 import { deepActiveElement, dialogSurface, pressKey, settleRenderedDialog, surfaceBackdrop } from "./modalSurfaceTestSupport";
 import { SessionTreeNavigator, sessionTreeEntryReturnsToEditor, sessionTreeKindPresentation, sessionTreeVisualDepth } from "./SessionTreeNavigator";
 
@@ -743,11 +743,17 @@ function renderNavigator(navigator: SessionTreeNavigator): TemplateResult {
 }
 
 function clickTreeNext(navigator: SessionTreeNavigator): void {
-  templateEventHandlerNearMarker(renderNavigator(navigator), ">Next</button>")(new Event("click"));
+  // These legacy method-level tests exercise orchestration; DOM tests own button wiring.
+  callVoidMethod(navigator, "continueToAction");
 }
 
 function componentProperty(navigator: SessionTreeNavigator, property: string): unknown {
-  return Reflect.get(navigator, property);
+  const value: unknown = Reflect.get(navigator, property);
+  return (property === "error" || property === "statusMessage") && isMessageCallback(value) ? value() : value;
+}
+
+function isMessageCallback(value: unknown): value is () => string {
+  return typeof value === "function";
 }
 
 function setComponentProperty(navigator: SessionTreeNavigator, property: string, value: unknown): void {

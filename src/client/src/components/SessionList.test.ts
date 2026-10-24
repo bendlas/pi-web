@@ -1,19 +1,9 @@
 // @vitest-environment happy-dom
 
-import type { TemplateResult } from "lit";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SessionInfo, SessionStatus } from "../api";
 import { markCachedNewSessionInfo } from "../cachedNewSessions";
 import { isArchivableSessionInfo, isTransientNewSessionInfo } from "../sessionPersistence";
-// Legacy bulk-toolbar tests retain their narrow template inspection seam;
-// row actions use the DOM so keyed directives are exercised.
-import {
-  isTemplateEventHandler,
-  isTemplateResult,
-  templateStrings,
-  templateValues,
-  type TemplateEventHandler,
-} from "../templateInspection.testSupport";
 import { installPopoverFake } from "./anchoredPopup.testSupport";
 installPopoverFake();
 import { SessionList, sessionRowActivityKind, sessionRowsForCurrentTree, sessionRowUnread, unreadSessionCount } from "./SessionList";
@@ -176,25 +166,30 @@ describe("mark-as-read actions", () => {
     expect(list.shadowRoot?.querySelector('button[title="Mark session as read"]')).toBeNull();
   });
 
-  it("enables bulk Mark read only when a selected session is unread and forwards only the unread selection", () => {
+  it("enables bulk Mark read only when a selected session is unread and forwards only the unread selection", async () => {
     const unreadA = session("unread-a");
     const readB = session("read-b");
     const unreadC = session("unread-c");
     const list = sessionList([unreadA, readB, unreadC], new Set([unreadA.id, unreadC.id]));
     const onMarkReadMany = vi.fn<(sessions: SessionInfo[]) => void>();
     list.onMarkReadMany = onMarkReadMany;
-    setComponentState(list, "selectionScopes", new Set(["current"]));
-
-    setComponentState(list, "selectedSessionIds", new Set([readB.id]));
-    const disabledButton = markReadButton(renderList(list));
-    expect(disabledButton.disabled).toBe(true);
-    disabledButton.click(new Event("click"));
+    document.body.append(list);
+    await list.updateComplete;
+    list.shadowRoot?.querySelector<HTMLButtonElement>(".bulk-select-entry")?.click();
+    await list.updateComplete;
+    const boxes = [...(list.shadowRoot?.querySelectorAll<HTMLInputElement>(".session-checkbox") ?? [])];
+    boxes[1]?.click();
+    await list.updateComplete;
+    const markRead = [...(list.shadowRoot?.querySelectorAll<HTMLButtonElement>(".bulk-actions button") ?? [])].find((button) => button.textContent === "Mark read");
+    expect(markRead?.disabled).toBe(true);
+    markRead?.click();
     expect(onMarkReadMany).not.toHaveBeenCalled();
 
-    setComponentState(list, "selectedSessionIds", new Set([unreadA.id, readB.id, unreadC.id]));
-    const enabledButton = markReadButton(renderList(list));
-    expect(enabledButton.disabled).toBe(false);
-    enabledButton.click(new Event("click"));
+    boxes[0]?.click();
+    boxes[2]?.click();
+    await list.updateComplete;
+    expect(markRead?.disabled).toBe(false);
+    markRead?.click();
     expect(onMarkReadMany).toHaveBeenCalledWith([unreadA, unreadC]);
   });
 });
@@ -277,10 +272,6 @@ function sessionList(sessions: SessionInfo[], unreadSessionIds: ReadonlySet<stri
   return list;
 }
 
-function renderList(list: SessionList): TemplateResult {
-  return list.render();
-}
-
 async function openSessionMenu(list: SessionList, sessionId: string): Promise<void> {
   if (!list.isConnected) document.body.append(list);
   await list.updateComplete;
@@ -294,50 +285,6 @@ async function openSessionMenu(list: SessionList, sessionId: string): Promise<vo
 
 function componentState(list: SessionList, property: string): unknown {
   return Reflect.get(list, property);
-}
-
-function setComponentState(list: SessionList, property: string, value: unknown): void {
-  if (!Reflect.set(list, property, value)) throw new Error(`Could not set session list property ${property}`);
-}
-
-// Locates the bulk "Mark read" button inside the selection toolbar template,
-// anchored to the button's own static text so unrelated toolbar changes do not
-// break the lookup. The disabled binding sits immediately before its @click.
-function markReadButton(template: TemplateResult): { disabled: boolean; click: TemplateEventHandler } {
-  const host = findTemplateWithStaticText(template, ">Mark read</button>");
-  const strings = templateStrings(host);
-  const values = templateValues(host);
-  for (let index = 0; index < values.length; index += 1) {
-    if (strings[index + 1]?.includes(">Mark read</button>") !== true) continue;
-    const click = values[index];
-    const disabled = values[index - 1];
-    if (!isTemplateEventHandler(click) || typeof disabled !== "boolean") throw new Error("Mark read button wiring is unavailable");
-    return { disabled, click };
-  }
-  throw new Error("Expected a click handler before >Mark read</button>");
-}
-
-function findTemplateWithStaticText(value: unknown, text: string): TemplateResult {
-  const found = findOptionalTemplateWithStaticText(value, text);
-  if (found === undefined) throw new Error(`Expected template containing ${text}`);
-  return found;
-}
-
-function findOptionalTemplateWithStaticText(value: unknown, text: string): TemplateResult | undefined {
-  if (Array.isArray(value)) {
-    for (const item of value) {
-      const found = findOptionalTemplateWithStaticText(item, text);
-      if (found !== undefined) return found;
-    }
-    return undefined;
-  }
-  if (!isTemplateResult(value)) return undefined;
-  if (templateStrings(value).some((chunk) => chunk.includes(text))) return value;
-  for (const item of templateValues(value)) {
-    const found = findOptionalTemplateWithStaticText(item, text);
-    if (found !== undefined) return found;
-  }
-  return undefined;
 }
 
 
