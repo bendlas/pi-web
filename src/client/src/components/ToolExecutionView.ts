@@ -1,3 +1,4 @@
+import { localizedArgumentSummary } from "../localizedChatPresentation";
 import { LocalizationController, localization } from "../localization/browser";
 import { toolExecutionMessages as messages } from "../toolExecutionMessages";
 import { stylesheetIntegrationCapability } from "../plugins/styles";
@@ -13,6 +14,7 @@ const MAX_COLLAPSED_DIFF_LINES = 180;
 interface ToolTarget {
   kind: "command" | "file" | "input";
   text: string;
+  generated?: boolean;
 }
 
 @customElement("tool-execution-view")
@@ -79,7 +81,7 @@ export class ToolExecutionView extends LitElement {
 
   private renderHeaderTarget(target: ToolTarget | undefined) {
     if (target === undefined) return null;
-    const className = target.kind === "file" ? "path" : "summary";
+    const className = target.kind === "file" ? "path" : target.generated === true ? "summary generated-summary" : "summary";
     return html`<span class=${className} title=${target.text} aria-label=${messages.t("targetDescription", { kind: target.kind, text: target.text })}>${target.text}</span>`;
   }
 
@@ -88,7 +90,7 @@ export class ToolExecutionView extends LitElement {
     return html`
       <div class="detail-target">
         <span class="detail-label">${messages.t("targetLabel", { kind: target.kind })}</span>
-        <pre class="detail-target-value">${target.text}</pre>
+        <pre class=${target.generated === true ? "detail-target-value generated-summary" : "detail-target-value"}>${target.text}</pre>
       </div>
     `;
   }
@@ -173,6 +175,7 @@ export class ToolExecutionView extends LitElement {
     strong { flex: 0 0 auto; color: var(--pi-text); }
     .path, .summary { display: block; flex: 1 1 auto; min-width: 0; max-width: 100%; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; scrollbar-width: thin; white-space: pre; color: var(--pi-text); font: 13px var(--pi-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace); direction: ltr; text-align: left; unicode-bidi: isolate; }
     .summary { color: var(--pi-text-secondary); }
+    .summary.generated-summary, .detail-target-value.generated-summary { direction: inherit; text-align: start; white-space: pre-wrap; overflow-wrap: anywhere; }
     .tool-meta { flex: 0 1 auto; min-width: 0; overflow-wrap: anywhere; display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 8px; color: var(--pi-text-secondary); font-size: 12px; }
     .diff-stats { display: inline-flex; gap: 3px; direction: ltr; unicode-bidi: isolate; font-variant-numeric: tabular-nums; }
     .added, .diff .added { color: color-mix(in srgb, var(--pi-success) 65%, var(--pi-text) 35%); }
@@ -212,7 +215,8 @@ function toolTarget(execution: ToolExecutionPart, path: string | undefined): Too
   if (path !== undefined && path !== "") return { kind: "file", text: path };
   const command = getString(execution.args, "command");
   if (command !== undefined && command !== "") return { kind: "command", text: command };
-  if (execution.summary !== "") return { kind: "input", text: execution.summary };
+  const summary = execution.summaryPresentation === undefined ? execution.summary : localizedArgumentSummary(execution.summaryPresentation);
+  if (summary !== "") return { kind: "input", text: summary, ...(execution.summaryPresentation === undefined ? {} : { generated: true }) };
   return undefined;
 }
 

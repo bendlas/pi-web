@@ -106,6 +106,7 @@ export const chatStyles = css`
   formatted-text.part, .queued-message formatted-text { text-align: start; unicode-bidi: plaintext; }
   .part { max-width: 100%; min-width: 0; box-sizing: border-box; overflow: visible; overflow-wrap: anywhere; }
   .part + .part { margin-top: 10px; }
+  .generated-text { white-space: pre-wrap; overflow-wrap: anywhere; text-align: start; }
   .thinking { --ui-activity-tone: var(--pi-thinking, color-mix(in srgb, #4f83b3 70%, var(--pi-text) 30%)); }
   .thinking-icon { flex: 0 0 auto; width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.5; }
   .thinking > summary { font-weight: 600; }

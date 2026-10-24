@@ -1,6 +1,17 @@
 import { message } from "../localization/service";
 
 export default {
+  modelFailure: message<{ detail: string; detailed: string }>("{detailed, select, yes {Model response failed: {detail}} other {Model response failed: The model returned an error.}}", "Model failure notice. Detail is an untranslated provider diagnostic, rendered as plain text"),
+  imagePlaceholder: message("[image]", "Placeholder for malformed or unavailable inline image data"),
+  shellExcluded: message("excluded from context", "Shell execution omitted from the model context"),
+  shellExit: message<{ code: string }>("exit {code}", "Shell exit status; code is a raw process status, not a regional quantity"),
+  shellCancelled: message("cancelled", "Shell execution was cancelled"),
+  shellTruncated: message("output truncated", "Shell output is incomplete"),
+  shellFullOutput: message<{ path: string }>("full output: {path}", "Location of complete shell output; path is unchanged"),
+  argsReplacement: message("edit text replacement", "Summary of a text replacement tool call without a file path"),
+  argsEdits: message<{ count: number }>("{count, plural, one {# edit} other {# edits}}", "Number of edit operations in tool arguments"),
+  argsItems: message<{ count: number }>("{count, plural, one {# item} other {# items}}", "Size of an array in a compact tool argument summary"),
+  argsObject: message("object", "Compact summary of an object-valued tool argument"),
   role: message<{ role: string }>("{role, select, user {user} assistant {assistant} tool {tool} system {system} bash {shell} other {skill}}", "Message role heading; role is user, assistant, tool, system, bash or skill"),
   toolOutput: message<{ name: string; named: string }>("{named, select, yes {{name} output} other {tool output}}", "Tool-image output heading; name is a raw tool identifier"),
   toolImage: message<{ name: string; named: string; index: number; total: number }>("{named, select, yes {{name} output image {index, number} of {total, number}} other {Tool output image {index, number} of {total, number}}}", "Tool-image accessible description, including its position across all outputs"),

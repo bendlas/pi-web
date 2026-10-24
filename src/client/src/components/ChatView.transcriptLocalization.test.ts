@@ -11,6 +11,9 @@ import type { ImageGalleryDialog } from "./ImageGalleryDialog";
 import { imagePresentation, settleImage } from "./imagePresentation.testSupport";
 import { summarizeChatGroup } from "../chatGroups";
 import { localizedChatGroupSummary } from "./chat/transcriptLabels";
+import { normalizeMessages } from "../chatMessages";
+import { localizedChatText, localizedArgumentSummary } from "../localizedChatPresentation";
+import type { ToolExecutionView } from "./ToolExecutionView";
 import type { ChatLine } from "../chatTypes";
 
 let release: (() => void) | undefined;
@@ -80,6 +83,48 @@ it("updates metadata, role headings and part disclosures without replacing contr
   thinking.open = false; thinking.dispatchEvent(new Event("toggle")); await view.updateComplete;
   await language(view, "de");
   expect(thinking.open).toBe(false); expect(thinking.querySelector("formatted-text")).toBeNull();
+});
+
+it("resolves normalized generated prose live without translating source or replacing disclosure state", async () => {
+  const raw = "Model response failed: raw source <tag>";
+  const view = new ChatView();
+  view.behaviors = { ...view.behaviors, followTail: false, rememberPosition: false };
+  view.messages = normalizeMessages([
+    { role: "bashExecution", command: "echo '<raw>'", output: raw, exitCode: 1, cancelled: true, truncated: true, fullOutputPath: "/raw/path" },
+    { role: "assistant", stopReason: "error", errorMessage: "<img src=x> diagnostic" },
+    { role: "assistant", content: [{ type: "toolCall", name: "edit", id: "edit", arguments: { edits: [1, 2] } }] },
+    { role: "user", content: raw },
+  ]);
+  document.body.append(view); await view.updateComplete;
+  const root = required(view.shadowRoot);
+  for (const group of root.querySelectorAll<HTMLDetailsElement>(".event-group")) {
+    group.open = true; group.dispatchEvent(new Event("toggle"));
+  }
+  await view.updateComplete;
+  const shell = required(root.querySelector(".shell-output"));
+  const generated = required(root.querySelector(".generated-text"));
+  const tool = required(root.querySelector<ToolExecutionView>("tool-execution-view"));
+  await tool.updateComplete;
+  const details = required(tool.shadowRoot?.querySelector<HTMLDetailsElement>("details"));
+  details.open = true; details.dispatchEvent(new Event("toggle")); await tool.updateComplete;
+  const summary = required(details.querySelector<HTMLElement>("summary"));
+  summary.focus();
+  for (const locale of ["en-XA", "ar-XB", "en"]) {
+    await language(view, locale); await tool.updateComplete;
+    expect(root.querySelector(".shell-output")).toBe(shell);
+    expect(root.querySelector(".generated-text")).toBe(generated);
+    expect(root.querySelector("tool-execution-view")).toBe(tool);
+    expect(tool.shadowRoot?.activeElement).toBe(summary);
+    expect(details.open).toBe(true);
+    const shellPart = view.messages[0]?.parts[0];
+    const errorPart = view.messages[1]?.parts[0];
+    if (shellPart?.type !== "text" || shellPart.presentation === undefined || errorPart?.type !== "text" || errorPart.presentation === undefined) throw new Error("Missing generated provenance");
+    expect(shell.textContent).toBe(localizedChatText(shellPart.presentation));
+    expect(generated.textContent).toBe(localizedChatText(errorPart.presentation));
+    expect(generated.querySelector("img")).toBeNull();
+    expect(tool.shadowRoot?.querySelector(".generated-summary")?.textContent).toBe(localizedArgumentSummary({ kind: "arguments", args: { edits: [1, 2] } }));
+    expect(Array.from(root.querySelectorAll("formatted-text")).some((node) => "text" in node && node.text === raw)).toBe(true);
+  }
 });
 
 it("uses ICU counts and regional lists for every group-summary kind and role", async () => {

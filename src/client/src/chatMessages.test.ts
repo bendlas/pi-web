@@ -225,12 +225,12 @@ describe("chat message normalization", () => {
     { byteSize: -1 }, { byteSize: 1.5 }, { byteSize: Infinity }, { byteSize: "3" }, { byteSize: undefined },
   ])("fails closed for a malformed image reference: %j", (invalid) => {
     expect(normalizeMessage({ role: "user", content: [{ ...imageReference, ...invalid, data: "QUJD" }] }))
-      .toEqual([textMessage("user", "[image]")]);
+      .toEqual([{ role: "user", parts: [{ type: "text", text: "[image]", presentation: { kind: "imagePlaceholder" } }] }]);
   });
 
   it("also validates image references in already-shaped cached chat lines", () => {
     expect(normalizeMessage({ role: "user", entryId: "cached-image", parts: [{ ...imageReference, mediaId: "invalid", data: "QUJD" }] }))
-      .toEqual([{ role: "user", entryId: "cached-image", parts: [{ type: "text", text: "[image]" }] }]);
+      .toEqual([{ role: "user", entryId: "cached-image", parts: [{ type: "text", text: "[image]", presentation: { kind: "imagePlaceholder" } }] }]);
   });
 
   it("does not reinterpret non-image parts as media references", () => {
@@ -272,7 +272,7 @@ describe("chat message normalization", () => {
 
   it("falls back to a placeholder for image content without data", () => {
     expect(normalizeMessage({ role: "user", content: [{ type: "image", mimeType: "image/png" }] })).toEqual([
-      { role: "user", parts: [{ type: "text", text: "[image]" }] },
+      { role: "user", parts: [{ type: "text", text: "[image]", presentation: { kind: "imagePlaceholder" } }] },
     ]);
   });
 
@@ -284,14 +284,14 @@ describe("chat message normalization", () => {
 
   it("shows assistant model errors as system chat messages", () => {
     expect(normalizeMessage({ role: "assistant", content: [], stopReason: "error", errorMessage: "429 rate limit", timestamp: "2026-05-09T12:00:00.000Z", provider: "openai", model: "gpt-4.1" })).toEqual([
-      { role: "system", parts: [{ type: "text", text: "Model response failed: 429 rate limit" }], meta: { timestamp: "2026-05-09T12:00:00.000Z", model: { provider: "openai", id: "gpt-4.1" } } },
+      { role: "system", parts: [{ type: "text", text: "Model response failed: 429 rate limit", presentation: { kind: "modelError", detail: "429 rate limit" } }], meta: { timestamp: "2026-05-09T12:00:00.000Z", model: { provider: "openai", id: "gpt-4.1" } } },
     ]);
   });
 
   it("keeps partial assistant content and adds a visible error line", () => {
     expect(normalizeMessage({ role: "assistant", content: [{ type: "text", text: "partial answer" }], stopReason: "error", errorMessage: "connection lost" })).toEqual([
       textMessage("assistant", "partial answer"),
-      textMessage("system", "Model response failed: connection lost"),
+      { role: "system", parts: [{ type: "text", text: "Model response failed: connection lost", presentation: { kind: "modelError", detail: "connection lost" } }] },
     ]);
   });
 
@@ -340,7 +340,7 @@ describe("chat message normalization", () => {
       truncated: true,
       fullOutputPath: "/tmp/out.log",
     })).toEqual([
-      textMessage("bash", "excluded from context\n\n$ npm test\n\nok\n\nexit 0\n\noutput truncated\n\nfull output: /tmp/out.log"),
+      { role: "bash", parts: [{ type: "text", text: "excluded from context\n\n$ npm test\n\nok\n\nexit 0\n\noutput truncated\n\nfull output: /tmp/out.log", presentation: { kind: "bash", command: "npm test", output: "ok", excluded: true, cancelled: false, truncated: true, exitCode: "0", fullOutputPath: "/tmp/out.log" } }] },
     ]);
   });
 });

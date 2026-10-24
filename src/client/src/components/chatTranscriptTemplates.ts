@@ -1,4 +1,5 @@
 import { html, nothing } from "lit";
+import { localizedArgumentSummary, localizedChatText } from "../localizedChatPresentation";
 import { chatTranscriptMessages as messages } from "../chatTranscriptMessages";
 import { live } from "lit/directives/live.js";
 import { cache } from "lit/directives/cache.js";
@@ -200,7 +201,7 @@ function renderMessageMetadata(context: TranscriptRenderContext, message: ChatLi
 export function renderPart(context: TranscriptRenderContext, part: ChatPart, message: ChatLine, messageIndex: number, partIndex: number) {
     const intentKey = JSON.stringify([context.machineId, context.sessionId, message.entryId ?? messageIndex, partIndex]);
     if (part.type === "text" || part.type === "thinking") {
-      const text = part.displayText ?? part.text;
+      const text = part.type === "text" && part.presentation !== undefined ? localizedChatText(part.presentation) : part.displayText ?? part.text;
       if (text === "") return null;
       if (part.type === "thinking") {
         const disclosureKey = `thinking:${intentKey}`;
@@ -213,6 +214,7 @@ export function renderPart(context: TranscriptRenderContext, part: ChatPart, mes
           </details>
         `;
       }
+      if (part.presentation !== undefined && part.presentation.kind !== "bash") return html`<div class="part generated-text" dir="auto">${text}</div>`;
       if (message.role === "bash") return html`<pre class="part shell-output">${text}</pre>`;
       return html`<formatted-text .imagesEnabled=${context.behaviors.loadImages} .codeBlocks=${context.behaviors.codeBlocks} .intentKey=${intentKey} class="part" .contentRendering=${context.contentRendering} .machineId=${context.machineId} .workspaceContext=${context.workspaceContext} .text=${text}></formatted-text>`;
     }
@@ -256,7 +258,7 @@ export function renderPart(context: TranscriptRenderContext, part: ChatPart, mes
         .session=${context.session} .machineId=${context.machineId}
       ></pi-web-transcript-image>`;
     }
-    if (part.type === "toolCall") return html`<div class="part tool-line ui-transcript-surface ui-transcript-activity ui-transcript-tool"><div class="ui-transcript-heading"><span aria-hidden="true">▶</span> ${part.toolName}<span class="summary">${part.summary}</span></div></div>`;
+    if (part.type === "toolCall") return html`<div class="part tool-line ui-transcript-surface ui-transcript-activity ui-transcript-tool"><div class="ui-transcript-heading"><span aria-hidden="true">▶</span> ${part.toolName}<span class="summary">${part.summaryPresentation === undefined ? part.summary : localizedArgumentSummary(part.summaryPresentation)}</span></div></div>`;
     if (part.type === "toolExecution") return html`<tool-execution-view class="part" .execution=${part}></tool-execution-view>`;
     if (part.type === "toolResult") {
       const key = `tool-result:${intentKey}`;

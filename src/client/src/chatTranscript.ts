@@ -1,3 +1,4 @@
+import { argumentSummaryPresentation } from "./chatPresentation";
 import { appendText, appendThinking, askUserQuestionFromToolDetails, askUserRecordFromToolDetails, normalizeMessage, normalizeMessages, previewFromDetails, summarizeArgs, textMessage, withMessageMeta } from "./chatMessages";
 import type { ChatLine, ToolExecutionPart } from "./chatTypes";
 import { appendShellChunk, finalizeShellMessage, shellStartMessage } from "./shellMessages";
@@ -172,6 +173,9 @@ function appendToolExecutionStart(messages: ChatLine[], event: Extract<SessionUi
     ...(event.toolCallId === "" ? {} : { toolCallId: event.toolCallId }),
     toolName: event.toolName,
     summary: event.summary || summarizeArgs(event.args),
+    // Core tool.start summaries are generated from these arguments by the server.
+    // Keep supplied text only as compatibility data, not translation identity.
+    ...argumentSummaryPresentation(event.args),
     ...(event.args === undefined ? {} : { args: event.args }),
     status: "running",
   };
@@ -215,6 +219,7 @@ function finalizeToolExecution(messages: ChatLine[], result: ToolResultUpdate, c
       ...(toolCallId === undefined || toolCallId === "" ? {} : { toolCallId }),
       toolName,
       summary: summarizeArgs(content),
+      ...argumentSummaryPresentation(content),
       status: isError ? "error" : "success",
       resultText: text,
       ...(content === undefined ? {} : { content }),
