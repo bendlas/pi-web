@@ -42,7 +42,7 @@ export async function initializeLocalization(
 /** Add to every localized Lit host; disconnected hosts release their subscription. */
 export class LocalizationController implements ReactiveController {
   private unsubscribe: (() => void) | undefined;
-  constructor(private readonly host: ReactiveControllerHost, readonly service = localization) {
+  constructor(private readonly host: ReactiveControllerHost, readonly service: Pick<LocalizationService, "subscribe"> = localization) {
     host.addController(this);
   }
   hostConnected(): void {

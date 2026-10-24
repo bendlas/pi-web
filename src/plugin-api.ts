@@ -1,4 +1,18 @@
-import type { ReactiveControllerHost, TemplateResult } from "lit";
+import type { ReactiveController, ReactiveControllerHost, TemplateResult } from "lit";
+import type { LocalizationReader, LocalizedMessages, MessageDefinitions, TranslationContribution } from "./shared/localization.js";
+export type * from "./shared/localization.js";
+
+/** Localization registrations and observers are released when this activation ends. */
+export interface PluginLocalization extends LocalizationReader {
+  /** Define source descriptors without importing a runtime library. */
+  readonly message: typeof import("./shared/localization.js").message;
+  /** Sources use plugin:<package ID>:<local namespace>, shared across machines. */
+  registerMessages<Definitions extends MessageDefinitions>(namespace: string, definitions: Definitions): LocalizedMessages<Definitions>;
+  /** May target any full namespace, including core and other plugins. IDs are owner-scoped. */
+  registerCatalog(contribution: TranslationContribution): () => void;
+  /** Attach live language/catalog updates to a Lit host. */
+  controller(host: ReactiveControllerHost): ReactiveController;
+}
 import type { DeleteWorkspaceFileResponse, FileContentResponse, FileTreeResponse, MachineKind, PluginBackend, PluginPeer, MoveWorkspaceFileOptions, MoveWorkspaceFileResponse, PiWebStatusResponse, PluginCapability, PluginCapabilityProvision, MaintenanceTerminalCommandRun, TerminalCommandRunHandle, WorkspaceProviderMetadata, WorkspaceRemovalPresentation, WriteWorkspaceFileOptions, WriteWorkspaceFileResponse } from "./shared/pluginApiTypes.js";
 
 export type {
@@ -155,6 +169,8 @@ export interface LegacyPiWebPlugin {
 
 /** Host-owned frozen values supplied once during browser plugin activation. */
 export interface PluginActivationContext {
+  /** Available on localization-capable hosts; feature-detect for older installations. */
+  readonly localization?: PluginLocalization;
   readonly apiVersion: 4;
   /** Stable package/source identity, including on federated machines. */
   readonly pluginId: PluginId;

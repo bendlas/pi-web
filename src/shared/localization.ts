@@ -50,6 +50,20 @@ export interface TranslationContribution {
   load(): Promise<TranslationCatalog>;
 }
 
+/** Read-only formatting and updates shared by core and plugin consumers. */
+export interface LocalizationReader {
+  readonly preferences: Readonly<LocalizationPreferences>;
+  readonly language: string;
+  readonly direction: "ltr" | "rtl";
+  readonly ready: Promise<void>;
+  subscribe(listener: () => void | Promise<void>): () => void;
+  number(value: number | bigint, options?: Intl.NumberFormatOptions): string;
+  date(value: Date | number, options?: Intl.DateTimeFormatOptions): string;
+  time(value: Date | number, options?: Intl.DateTimeFormatOptions): string;
+  relativeTime(value: number, unit: Intl.RelativeTimeFormatUnit, options?: Intl.RelativeTimeFormatOptions): string;
+  list(values: Iterable<string>, options?: Intl.ListFormatOptions): string;
+}
+
 export interface LocalizationDiagnostic {
   code: "duplicate" | "invalid" | "missing" | "load" | "format";
   message: string;

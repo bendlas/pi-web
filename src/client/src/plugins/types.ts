@@ -47,6 +47,7 @@ export interface PiWebPlugin {
 }
 
 export interface PluginActivationContext {
+  readonly localization?: import("../../../plugin-api").PluginLocalization;
   readonly apiVersion: 4 | 5;
   /** Stable package/source identity, including on federated machines. */
   readonly pluginId: PluginId;

@@ -76,6 +76,7 @@ export class LocalizationService {
   private readonly diagnostic: (diagnostic: LocalizationDiagnostic) => void;
   private readonly sources = new Map<string, MessageDefinitions>();
   private readonly contributions = new Map<string, RegisteredCatalog>();
+  private readonly sourceOwners = new Map<string, { definitions: MessageDefinitions; count: number }>();
   private selected = new Map<string, Map<string, SelectedMessage>>();
   private readonly listeners = new Set<() => void>();
   private readonly formats = new Map<string, IntlMessageFormat>();
@@ -135,6 +136,43 @@ export class LocalizationService {
     if (errors.length) throw new Error(`Invalid source ${namespace}: ${errors.join("; ")}`);
     this.sources.set(namespace, definitions);
     void this.refresh();
+    return this.messageHandle<Definitions>(namespace);
+  }
+
+  /** Shared package sources survive until their last federated activation releases them. */
+  acquireMessages<Definitions extends MessageDefinitions>(namespace: string, definitions: Definitions): {
+    messages: LocalizedMessages<Definitions>; release(): void;
+  } {
+    let owner = this.sourceOwners.get(namespace);
+    if (owner === undefined) {
+      this.registerMessages(namespace, definitions);
+      owner = { definitions, count: 0 };
+      this.sourceOwners.set(namespace, owner);
+    } else {
+      const existing = owner.definitions;
+      const keys = Object.keys(definitions);
+      if (keys.length !== Object.keys(existing).length || keys.some((key) => {
+        const source = existing[key];
+        return source?.message !== definitions[key]?.message || source?.description !== definitions[key]?.description;
+      })) throw new Error(`Conflicting source messages: ${namespace}`);
+    }
+    const acquiredOwner = owner;
+    acquiredOwner.count++;
+    let released = false;
+    return {
+      messages: this.messageHandle<Definitions>(namespace),
+      release: () => {
+        if (released) return;
+        released = true;
+        if (--acquiredOwner.count !== 0) return;
+        this.sourceOwners.delete(namespace);
+        this.sources.delete(namespace);
+        void this.refresh();
+      },
+    };
+  }
+
+  private messageHandle<Definitions extends MessageDefinitions>(namespace: string): LocalizedMessages<Definitions> {
     return {
       t: <Key extends keyof Definitions & string>(key: Key, ...args: MessageArguments<Definitions[Key]>) => {
         const result = this.format(namespace, key, args[0]);

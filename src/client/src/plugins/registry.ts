@@ -1,4 +1,7 @@
 import { html, svg } from "lit";
+import { localization } from "../localization/browser";
+import type { LocalizationService } from "../localization/service";
+import { createPluginLocalization } from "./localization";
 import { createSyntaxHighlightingCapability, runSyntaxHighlighter, snapshotSyntaxHighlighter, syntaxHighlightingCapabilityToken, type RegisteredSyntaxHighlighter } from "../formatting/syntaxHighlighting";
 import { createPluginCatalog } from "./catalog";
 import { stylesheetIntegrationCapability, stylesheetIntegrationCapabilityToken } from "./styles";
@@ -29,6 +32,8 @@ const workspaceLabelScopes = new WeakMap<WorkspaceLabelContext, (binding: Worksp
 const sessionLabelScopes = new WeakMap<SessionLabelContext, (binding: WorkspacePluginBinding) => SessionLabelContext>();
 
 export interface PluginRegistryOptions {
+  /** Shared UI localization service; isolated services may be supplied by host tests. */
+  localization?: LocalizationService;
   /** Request a composer refresh after browser-memory chip staging changes. */
   onPromptChipsChanged?: () => void;
   /** Live public selection projection; standalone registries default to no selection. */
@@ -503,6 +508,7 @@ export class PluginRegistry {
           svg,
           signal,
           lifetimeSignal: lifetimeController.signal,
+          localization: createPluginLocalization(this.options.localization ?? localization, declaration.sourcePluginId, registration.id, lifetimeController.signal),
           selection: this.selection.forPlugin(registration.id, lifetimeController.signal),
         })),
       );

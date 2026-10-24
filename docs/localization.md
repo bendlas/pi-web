@@ -1,6 +1,6 @@
 # Localization development
 
-PI WEB's localization engine uses FormatJS ICU messages and the runtime's native `Intl` data. English is the source and fallback language. The engine and browser adapter are available; migration of core UI and bundled plugins is in progress. The browser plugin context does not yet expose this API.
+PI WEB's localization engine uses FormatJS ICU messages and the runtime's native `Intl` data. English is the source and fallback language. The engine, browser adapter, and activation-scoped plugin API are available; migration of core UI and bundled plugins is in progress.
 
 ## Define complete messages
 
@@ -54,7 +54,7 @@ The browser adapter persists preferences under `pi-web-localization` in browser 
 
 ## Contribute translations
 
-The engine accepts lazy translation contributions. Browser plugin lifecycle wiring is still pending; this example describes the engine contract, not an available plugin context property:
+The engine accepts lazy translation contributions. Core modules register directly with the service:
 
 ```ts
 const remove = localization.registerCatalog({
@@ -74,6 +74,43 @@ A catalog is a partial map from local message keys to ICU strings. Contributions
 Resolution is deterministic: less-specific locales apply first (`fr` before `fr-CA`); within one locale, contributions sort by stable ID using code-unit lexical order, with later IDs winning overlapping entries. Completion timing and registration order do not determine the winner. IDs must be globally unique. Duplicate *message entries* are allowed and logged only, without user-visible conflict warnings.
 
 Invalid entries are logged and ignored individually. Placeholder/tag names and value kinds must match the source; translated plurals can use different categories. Loader failures are logged and fall back to English or another valid contribution. Missing-message diagnostics are development-only. The exported `validateCatalog(source, catalog)` helper in `localization/catalog.js` supports catalog-author tests; runtime validation also protects dynamically loaded catalogs.
+
+## Plugin localization
+
+Browser plugins receive `context.localization` during activation. Feature-detect it when supporting older hosts. The public `@jmfederico/pi-web/plugin-api` entry remains type-only: do not import runtime functions from it. `localization.message` provides the descriptor helper without bundling a second engine.
+
+```ts
+activate({ localization }) {
+  if (!localization) throw new Error("This plugin requires a localization-capable PI WEB host");
+  const messages = localization.registerMessages("panel", {
+    cancel: localization.message("Cancel", "Cancel the current operation"),
+  });
+  // Full source namespace: plugin:<package ID>:panel
+  // Use messages.t("cancel") when rendering, not a snapshot taken during activation.
+  // For Lit components, call localization.controller(this) in the constructor.
+  return { contributions: {} };
+}
+```
+
+For source-only `*.messages.ts` files without runtime imports, use typed descriptors:
+
+```ts
+import type { MessageDefinition } from "@jmfederico/pi-web/plugin-api";
+
+const cancel: MessageDefinition<Record<string, never>> = {
+  message: "Cancel", description: "Cancel the current operation",
+};
+const greeting: MessageDefinition<{ name: string }> = {
+  message: "Hello {name}", description: "Greet the named user",
+};
+export default { cancel, greeting };
+```
+
+Pass the imported default definitions to `localization.registerMessages("panel", definitions)` during activation. Local namespace names start with a lowercase letter and contain lowercase letters, digits, dots, or hyphens. The host forms `plugin:<source package ID>:<local namespace>`, not a machine-specific name. Colon separators avoid collisions between dotted package and namespace names. Multiple activations of a package share identical source definitions; different definitions for the same namespace are rejected rather than silently changing another activation's UI. A namespace can be registered once per activation. Its sources are removed when the final activation ends.
+
+Plugins contribute lazy catalogs using `localization.registerCatalog({ id, namespace, locale, load })`. Supply a full target namespace, such as `core.files` or `plugin:files:panel`; language packs may target any namespace. The host scopes each catalog ID as the JSON tuple `[runtimePluginId, id]`. The normal lexical precedence rule applies to those full IDs, regardless of registration/load order. This permits identical local IDs from different installed plugins and deterministic overlaps between their catalogs. The returned function removes that catalog early; activation failure, failed start, and host shutdown automatically remove all owned catalogs, sources, and observers. Aborted activations cannot register new resources or use old message handles.
+
+Regional helpers, read-only preferences, `language`, `direction`, and `ready` are available on the same object. `subscribe(listener)` supports non-Lit hosts and returns early cleanup; otherwise observers live until activation shutdown. Plugins cannot change global preferences through this API. The host does not automatically localize static contribution titles or re-render non-Lit plugin surfaces: those surfaces must subscribe, and contribution-label migration is still pending.
 
 ## Safe rich messages
 
