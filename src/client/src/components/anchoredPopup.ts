@@ -169,7 +169,10 @@ export function anchoredPopupStyle(anchor: HTMLElement, options: AnchoredPopupOp
   const useAbove = preferAbove ? !(above < needed && below > above) : below < needed && above > below;
   style[useAbove ? "bottom" : "top"] = px(useAbove ? window.innerHeight - anchorTop + gap : anchorBottom + gap);
   style["max-height"] = px(Math.min(options.maxHeight ?? Infinity, useAbove ? above : below));
-  const start = options.placement === "below-start" || preferAbove;
+  // Start/end are logical edges; otherwise an RTL action anchor at the left
+  // edge constrains its menu to the trigger's width rather than the viewport.
+  const logicalStart = options.placement === "below-start" || preferAbove;
+  const start = getComputedStyle(anchor).direction === "rtl" ? !logicalStart : logicalStart;
   const width = options.width === "anchor" ? trigger.width : options.width;
   if (start) {
     const x = clamp(anchorLeft, left, width === undefined ? right : Math.max(left, right - width));

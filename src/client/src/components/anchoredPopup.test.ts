@@ -32,6 +32,19 @@ async function mount() {
 }
 
 describe("anchored transient popup", () => {
+  it("aligns start and end to RTL inline edges without squeezing a left-edge action menu", () => {
+    const anchor = document.createElement("button");
+    anchor.style.direction = "rtl";
+    document.body.append(anchor);
+    vi.spyOn(anchor, "getBoundingClientRect").mockReturnValue(new DOMRect(8, 20, 32, 32));
+    const end = anchoredPopupStyle(anchor, { minWidth: 120 });
+    expect(end["left"]).toBe("8px");
+    expect(end["min-width"]).toBe("120px");
+    const start = anchoredPopupStyle(anchor, { placement: "below-start", minWidth: 120 });
+    expect(start["right"]).toBe(`${String(window.innerWidth - 40)}px`);
+    expect(start["max-width"]).toBe("40px");
+  });
+
   it("keeps the native panel in its themed root and reconciles native dismissal once", async () => {
     const { host, panel } = await mount();
     expect(panel.getRootNode()).toBe(host.shadowRoot);
