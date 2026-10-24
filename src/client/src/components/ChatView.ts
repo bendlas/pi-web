@@ -226,8 +226,8 @@ export class ChatView extends LitElement {
   private readonly handleTouchEnd = () => { this.touchY = undefined; };
   private readonly handleJumpTop = () => { this.scrollFlows.jumpToTop(); };
   private readonly handleJumpEnd = () => { this.scrollFlows.jumpToEnd(); };
-  private readonly openImageZoom = (src: string, alt: string): void => {
-    if (this.behaviors.loadImages) this.imageGalleryDialog?.show([{ src, alt }]);
+  private readonly openImageZoom = (image: ImageOpenDetail): void => {
+    if (this.behaviors.loadImages) this.imageGalleryDialog?.show([image]);
   };
   private openToolImageGallery(images: readonly { part: ChatImagePart; description: string }[], selectedIndex: number): void {
     if (!this.behaviors.loadImages) return;
@@ -343,7 +343,7 @@ export class ChatView extends LitElement {
     return html`
       ${this.renderTopNotices()}
       <div class=${this.behaviors.visualEffects ? "chat-wrap" : "chat-wrap plain"}>
-        <div class="chat" @image-open=${(event: CustomEvent<ImageOpenDetail>) => { this.openImageZoom(event.detail.src, event.detail.alt); }}
+        <div class="chat" @image-open=${(event: CustomEvent<ImageOpenDetail>) => { this.openImageZoom(event.detail); }}
           @scroll=${this.behaviors.rememberPosition || this.behaviors.followTail || this.behaviors.automaticHistory ? this.handleScroll : undefined}
           @toggle=${this.behaviors.followTail ? this.handleDisclosureToggle : undefined}
           @content-layout-changed=${this.onContentLayoutChanged}
