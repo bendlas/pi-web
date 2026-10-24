@@ -1,4 +1,5 @@
 import type { PiWebPlugin, WorkspacePanelContext, PluginPeerChannel, PluginCapability, StylesheetIntegrationCapabilityV1 } from "@jmfederico/pi-web/plugin-api";
+import { createCaptainContent, captainText, captainValue, CaptainBrowserError, captainError, type CaptainStaticKey } from "./localization.js";
 import { isLogEntry, MAX_FINDINGS, type LogEntry } from "./protocol.js";
 import { renderCaptainPanel, selectedSourceSession } from "./panel.js";
 import { LOG_CHANNEL, isCaptainServerFrame, type CaptainClientFrame } from "./channelProtocol.js";
@@ -21,7 +22,8 @@ function isStylesheetIntegration(value: unknown): value is StylesheetIntegration
 }
 
 interface PanelState {
-  entries: LogEntry[]; selected?: LogEntry; status: string;
+  // Resolve diagnostics at render time; callbacks retain local origin and raw backend values.
+  entries: LogEntry[]; selected?: LogEntry; status: () => string;
   notice?: string;
   connecting: boolean; channel?: PluginPeerChannel; controller?: AbortController;
   pending?: string; revision: number; readRevision: number; updates: Map<string, LogEntry>;
@@ -30,7 +32,9 @@ const plugin: Extract<PiWebPlugin, { apiVersion: 4 }> = {
   apiVersion: 4,
   name: "Captain's Log",
   requires: [stylesheetIntegrationCapability],
-  activate({ html, runtimePluginId, lifetimeSignal }) {
+  activate({ html, runtimePluginId, lifetimeSignal, localization }) {
+    const content = localization ? createCaptainContent(localization) : undefined;
+    const t = (key: CaptainStaticKey) => captainText(content, key);
     let stylesheetIntegration: StylesheetIntegrationCapabilityV1 | undefined;
     if (!customElements.get("captains-log-lifetime")) {
       customElements.define("captains-log-lifetime", class extends HTMLElement {
@@ -70,6 +74,8 @@ const plugin: Extract<PiWebPlugin, { apiVersion: 4 }> = {
     }
     const states = new Map<string, PanelState>();
     let current: PanelState | undefined;
+    let renderCurrent: (() => void) | undefined;
+    const releaseLocalization = localization?.subscribe(() => { if (!lifetimeSignal.aborted) renderCurrent?.(); });
     function stop(state: PanelState) {
       state.revision++;
       state.controller?.abort();
@@ -77,7 +83,7 @@ const plugin: Extract<PiWebPlugin, { apiVersion: 4 }> = {
       delete state.channel;
       delete state.controller;
       state.connecting = false;
-      if (state.pending !== undefined) state.status = "Channel closed. Admission is uncertain; reconnect before retrying. Questions are never resent automatically.";
+      if (state.pending !== undefined) state.status = () => t("stopped");
     }
     const stopAll = () => { for (const state of states.values()) stop(state); };
     lifetimeSignal.addEventListener("abort", stopAll, { once: true });
@@ -85,7 +91,7 @@ const plugin: Extract<PiWebPlugin, { apiVersion: 4 }> = {
       const key = JSON.stringify([context.machine.id, context.workspace.projectId, context.workspace.id]);
       let state = states.get(key);
       if (!state) {
-        state = { entries: [], status: "Connecting to Captain's Log…", connecting: false, revision: 0, readRevision: 0, updates: new Map() };
+        state = { entries: [], status: () => t("connectingLog"), connecting: false, revision: 0, readRevision: 0, updates: new Map() };
         states.set(key, state);
       }
       if (current !== state) { if (current) stop(current); current = state; }
@@ -104,10 +110,10 @@ const plugin: Extract<PiWebPlugin, { apiVersion: 4 }> = {
       const readRevision = ++state.readRevision;
       const before = state.updates.get(id);
       try {
-        if (!context.peer?.request) throw new Error("Captain saved records unavailable");
+        if (!context.peer?.request) throw new CaptainBrowserError("recordsUnavailable");
         const entry: unknown = await context.peer.request("read", id, { signal: state.controller?.signal ?? lifetimeSignal });
         if (revision !== state.revision || readRevision !== state.readRevision || lifetimeSignal.aborted) return;
-        if (!isLogEntry(entry)) throw new Error("Invalid Captain record");
+        if (!isLogEntry(entry)) throw new CaptainBrowserError("invalidRecord");
         const record = state.updates.get(id) !== before ? state.updates.get(id) ?? entry : entry;
         state.selected = record;
         state.updates.set(id, record);
@@ -115,7 +121,7 @@ const plugin: Extract<PiWebPlugin, { apiVersion: 4 }> = {
         context.host.requestRender();
       } catch (error) {
         if (revision !== state.revision || readRevision !== state.readRevision || lifetimeSignal.aborted) return;
-        state.status = String(error); context.host.requestRender();
+        state.status = () => captainError(content, error); context.host.requestRender();
       }
     }
     async function connect(context: WorkspacePanelContext, state: PanelState) {
@@ -127,23 +133,29 @@ const plugin: Extract<PiWebPlugin, { apiVersion: 4 }> = {
       state.connecting = true;
       state.updates.clear();
       const live = () => revision === state.revision && !controller.signal.aborted && !lifetimeSignal.aborted;
-      state.status = "Connecting to Captain's Log…";
+      state.status = () => t("connectingLog");
       context.host.requestRender();
       try {
-        if (!context.peer?.openChannel || !context.peer.request) throw new Error("Captain backend channels unavailable on this machine");
+        if (!context.peer?.openChannel || !context.peer.request) throw new CaptainBrowserError("channelsUnavailable");
         const channel = await context.peer.openChannel(LOG_CHANNEL, null, {
           signal: controller.signal,
           onData(data) {
             if (!live()) return;
-            if (!isCaptainServerFrame(data)) { state.status = "Invalid Captain channel frame"; stop(state); context.host.requestRender(); return; }
+            if (!isCaptainServerFrame(data)) { stop(state); state.status = () => t("invalidFrame"); context.host.requestRender(); return; }
             if (data.type === "admitted" && data.requestId === state.pending) {
               delete state.pending;
-              state.status = `Backend admitted ${data.id}; admission is not completion.`;
+              state.status = () => captainText(content, "admitted", { id: captainValue(content, data.id) });
             } else if (data.type === "rejected" && data.requestId === state.pending) {
-              delete state.pending; state.status = data.message; state.notice = data.message;
+              delete state.pending; state.status = () => captainValue(content, data.message); state.notice = data.message;
             } else if (data.type === "entry") {
               upsert(state, data.entry);
-              state.status = data.saved && data.entry.status !== "running" ? `Backend saved ${data.entry.status} roundtrip.` : `Captain: ${data.entry.stages.at(-1) ?? data.entry.status}`;
+              state.status = () => {
+                const statusKeys = { running: "statusRunning", completed: "statusCompleted", failed: "statusFailed", interrupted: "statusInterrupted" } as const;
+                const savedKeys = { completed: "savedCompleted", failed: "savedFailed", interrupted: "savedInterrupted" } as const;
+                const stage = data.entry.stages.at(-1);
+                return data.saved && data.entry.status !== "running" ? t(savedKeys[data.entry.status])
+                  : captainText(content, "captainStage", { stage: stage !== undefined ? captainValue(content, stage) : t(statusKeys[data.entry.status]) });
+              };
             } else if (data.type === "text") {
               const entry = state.updates.get(data.id);
               if (entry) {
@@ -162,13 +174,13 @@ const plugin: Extract<PiWebPlugin, { apiVersion: 4 }> = {
         void channel.closed.then((closed) => {
           if (!live()) return;
           stop(state);
-          state.status = `${closed.error?.message ?? "Channel closed"}. Admission may be uncertain. Reconnect to restore saved state; translations are never resent automatically.`;
+          state.status = () => captainText(content, "closed", { error: closed.error?.message !== undefined ? captainValue(content, closed.error.message) : t("channelClosed") });
           context.host.requestRender();
         });
         // Subscribe first, then merge the snapshot without overwriting newer pushed entries.
         const result: unknown = await context.peer.request("list", null, { signal: controller.signal });
         if (!live()) return;
-        if (!Array.isArray(result) || !result.every(isLogEntry)) throw new Error("Invalid Captain snapshot");
+        if (!Array.isArray(result) || !result.every(isLogEntry)) throw new CaptainBrowserError("invalidSnapshot");
         state.entries = [...state.updates.values(), ...result.filter((entry) => entry.sourceSessionId !== undefined && !state.updates.has(entry.id))].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
         delete state.pending;
         const id = state.selected?.id ?? state.entries[0]?.id;
@@ -178,25 +190,25 @@ const plugin: Extract<PiWebPlugin, { apiVersion: 4 }> = {
           else await readEntry(context, state, id);
         } else delete state.selected;
         if (!live()) return;
-        state.status = "Connected. Live updates arrive from the backend.";
+        state.status = () => t("connected");
         delete state.notice;
         state.connecting = false;
         context.host.requestRender();
       } catch (error) {
         if (!live()) return;
-        stop(state); state.status = `${String(error)}. Reconnect explicitly; no translation was resent.`;
+        stop(state); state.status = () => captainText(content, "connectFailed", { error: captainError(content, error) });
         context.host.requestRender();
       }
     }
     function translate(context: WorkspacePanelContext, state: PanelState) {
-      const source = selectedSourceSession(context);
+      const source = selectedSourceSession(context, content);
       if (!source || !state.channel || state.connecting || state.pending !== undefined || lifetimeSignal.aborted || state.entries.some((entry) => entry.status === "running" || entry.sessionId === source.id)) return;
       state.pending = crypto.randomUUID();
       delete state.notice;
-      state.status = `Translation queued for source session ${source.id}; waiting for backend admission.`;
+      state.status = () => captainText(content, "queued", { id: captainValue(content, source.id) });
       const frame: CaptainClientFrame = { type: "translate", requestId: state.pending, sourceSessionId: source.id };
       try { state.channel.send(frame); }
-      catch (error) { stop(state); state.status = `${String(error)}. Admission is uncertain; reconnect before retrying.`; }
+      catch (error) { stop(state); state.status = () => captainText(content, "sendFailed", { error: captainError(content, error) }); }
       context.host.requestRender();
     }
     return {
@@ -205,18 +217,21 @@ const plugin: Extract<PiWebPlugin, { apiVersion: 4 }> = {
       },
       contributions: {
         actions: [{
-          id: "summon", title: "Open pirate translator", group: "Captain's Log",
+          id: "summon", get title() { return t("open"); }, get group() { return t("title"); },
           enabled: ({ state }) => Boolean(state.selectedWorkspace),
           run: ({ selectWorkspaceTool }) => { selectWorkspaceTool(`${runtimePluginId}:log`); },
         }],
         workspacePanels: [{
-          id: "log", title: "Captain's Log",
+          id: "log", get title() { return t("title"); },
           render(context) {
+            renderCurrent = () => { context.host.requestRender(); };
             const state = stateFor(context);
-            const source = selectedSourceSession(context);
+            const source = selectedSourceSession(context, content);
             return html`<captains-log-lifetime .stylesheetIntegration=${stylesheetIntegration} .mount=${() => { void connect(context, state); }} .unmount=${() => { stop(state); }} .scope=${state}>
               ${renderCaptainPanel(html, {
                 ...state,
+                ...(content ? { content } : {}),
+                status: state.status(),
                 connected: state.channel !== undefined && context.peer?.openChannel !== undefined,
                 pending: state.pending !== undefined,
                 machineName: context.machine.name,
@@ -233,6 +248,8 @@ const plugin: Extract<PiWebPlugin, { apiVersion: 4 }> = {
         }],
       },
       dispose() {
+        releaseLocalization?.();
+        renderCurrent = undefined;
         stopAll();
         lifetimeSignal.removeEventListener("abort", stopAll);
         states.clear();

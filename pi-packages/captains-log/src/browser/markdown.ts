@@ -1,5 +1,6 @@
 import type { PluginActivationContext } from "@jmfederico/pi-web/plugin-api";
 import { Lexer, type MarkedToken, type Token } from "marked";
+import { captainText, type CaptainContent } from "./localization.js";
 
 type Html = PluginActivationContext["html"];
 
@@ -19,7 +20,7 @@ function safeLink(href: string): string | undefined {
 }
 
 /** Render only known Markdown constructs. Text (including raw HTML) always stays in Lit text bindings. */
-export function renderCaptainMarkdown(html: Html, markdown: string): unknown {
+export function renderCaptainMarkdown(html: Html, markdown: string, content?: CaptainContent): unknown {
   const renderTokens = (tokens: Token[]): unknown[] => tokens.map(renderToken);
   function renderToken(input: Token): unknown {
     if (!isBuiltinToken(input)) return input.raw;
@@ -44,8 +45,8 @@ export function renderCaptainMarkdown(html: Html, markdown: string): unknown {
       case "strong": return html`<strong>${renderTokens(token.tokens)}</strong>`;
       case "em": return html`<em>${renderTokens(token.tokens)}</em>`;
       case "del": return html`<del>${renderTokens(token.tokens)}</del>`;
-      case "codespan": return html`<code>${token.text}</code>`;
-      case "code": return html`<pre><code>${token.text}</code></pre>`;
+      case "codespan": return html`<code dir="ltr">${token.text}</code>`;
+      case "code": return html`<pre dir="ltr"><code dir="ltr">${token.text}</code></pre>`;
       case "blockquote": return html`<blockquote>${renderTokens(token.tokens)}</blockquote>`;
       case "br": return html`<br>`;
       case "hr": return html`<hr>`;
@@ -53,7 +54,7 @@ export function renderCaptainMarkdown(html: Html, markdown: string): unknown {
         ? html`<ol start=${token.start}>${renderTokens(token.items)}</ol>`
         : html`<ul>${renderTokens(token.items)}</ul>`;
       case "list_item": return html`<li>${renderTokens(token.tokens)}</li>`;
-      case "checkbox": return html`<input type="checkbox" disabled ?checked=${token.checked} aria-label="Task completed">`;
+      case "checkbox": return html`<input type="checkbox" disabled ?checked=${token.checked} aria-label=${captainText(content, "taskCompleted")}>`;
       case "link": {
         const href = safeLink(token.href);
         const label = renderTokens(token.tokens);
