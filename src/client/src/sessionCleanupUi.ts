@@ -9,7 +9,7 @@ export interface SessionCleanupDraft {
 
 export type SessionCleanupDraftValidation =
   | { ok: true; request: SessionCleanupRequest }
-  | { ok: false; error: string };
+  | { ok: false; code: "disabled" | "archiveRequired" | "archiveInvalid" | "deleteRequired" | "deleteInvalid"; error: string };
 
 export const DEFAULT_SESSION_CLEANUP_DRAFT: SessionCleanupDraft = {
   archiveIdleEnabled: true,
@@ -19,7 +19,7 @@ export const DEFAULT_SESSION_CLEANUP_DRAFT: SessionCleanupDraft = {
 };
 
 export function validateSessionCleanupDraft(draft: SessionCleanupDraft): SessionCleanupDraftValidation {
-  if (!draft.archiveIdleEnabled && !draft.deleteArchivedEnabled) return { ok: false, error: "Enable at least one cleanup action." };
+  if (!draft.archiveIdleEnabled && !draft.deleteArchivedEnabled) return { ok: false, code: "disabled", error: "Enable at least one cleanup action." };
 
   const request: SessionCleanupRequest = {
     archiveIdleDays: null,
@@ -28,13 +28,13 @@ export function validateSessionCleanupDraft(draft: SessionCleanupDraft): Session
 
   if (draft.archiveIdleEnabled) {
     const archiveIdleDays = parseDayThreshold(draft.archiveIdleDays, "Archive idle sessions after");
-    if (typeof archiveIdleDays === "string") return { ok: false, error: archiveIdleDays };
+    if (typeof archiveIdleDays !== "number") return { ok: false, code: archiveIdleDays.code === "required" ? "archiveRequired" : "archiveInvalid", error: archiveIdleDays.error };
     request.archiveIdleDays = archiveIdleDays;
   }
 
   if (draft.deleteArchivedEnabled) {
     const deleteArchivedDays = parseDayThreshold(draft.deleteArchivedDays, "Delete archived sessions after");
-    if (typeof deleteArchivedDays === "string") return { ok: false, error: deleteArchivedDays };
+    if (typeof deleteArchivedDays !== "number") return { ok: false, code: deleteArchivedDays.code === "required" ? "deleteRequired" : "deleteInvalid", error: deleteArchivedDays.error };
     request.deleteArchivedDays = deleteArchivedDays;
   }
 
@@ -102,10 +102,10 @@ export function sessionCleanupConfirmationMessage(preview: Pick<SessionCleanupPr
   return `Run cleanup and ${action}?\n\nPermanent deletion only applies to archived sessions and cannot be undone.`;
 }
 
-function parseDayThreshold(value: string, label: string): number | string {
+function parseDayThreshold(value: string, label: string): number | { code: "required" | "invalid"; error: string } {
   const trimmed = value.trim();
-  if (trimmed === "") return `${label} must be set.`;
+  if (trimmed === "") return { code: "required", error: `${label} must be set.` };
   const parsed = Number(trimmed);
-  if (!Number.isInteger(parsed) || parsed < 0) return `${label} must be a non-negative whole number of days.`;
+  if (!Number.isInteger(parsed) || parsed < 0) return { code: "invalid", error: `${label} must be a non-negative whole number of days.` };
   return parsed;
 }

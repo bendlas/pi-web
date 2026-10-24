@@ -1,8 +1,10 @@
+import { LocalizationController, localization } from "../localization/browser";
+import { sessionCleanupMessages as messages } from "../sessionCleanupMessages";
 import { stylesheetIntegrationCapability } from "../plugins/styles";
 import { LitElement, css, html, type PropertyValues, type TemplateResult } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import type { SessionCleanupExecuteResponse, SessionCleanupPreviewResponse, SessionCleanupProjectSummary, SessionCleanupRequest } from "../api";
-import { canRunSessionCleanup, confirmSessionCleanup, DEFAULT_SESSION_CLEANUP_DRAFT, selectedSessionCleanupProjectCwds, sessionCleanupPreviewForSelectedProjects, sessionCleanupPreviewHasTargets, sessionCleanupRequestKey, validateSessionCleanupDraft, type SessionCleanupDraft } from "../sessionCleanupUi";
+import { canRunSessionCleanup, DEFAULT_SESSION_CLEANUP_DRAFT, selectedSessionCleanupProjectCwds, sessionCleanupPreviewForSelectedProjects, sessionCleanupPreviewHasTargets, sessionCleanupRequestKey, validateSessionCleanupDraft, type SessionCleanupDraft } from "../sessionCleanupUi";
 import "./ModalSurface";
 
 @customElement("session-cleanup-dialog")
@@ -10,6 +12,7 @@ export class SessionCleanupDialog extends LitElement {
   constructor() {
     super();
     stylesheetIntegrationCapability.createController(this);
+    new LocalizationController(this);
   }
 
   @property({ attribute: false }) preview?: SessionCleanupPreviewResponse;
@@ -18,12 +21,13 @@ export class SessionCleanupDialog extends LitElement {
   @property({ type: Boolean }) loading = false;
   @property({ type: Boolean }) running = false;
   @property({ type: String }) error = "";
+  @property({ attribute: false }) errorMessage?: () => string;
   @property({ attribute: false }) onPreview?: (request: SessionCleanupRequest) => void | Promise<void>;
   @property({ attribute: false }) onRun?: (request: SessionCleanupRequest) => void | Promise<void>;
   @property({ attribute: false }) onClose?: () => void;
 
   @state() private draft: SessionCleanupDraft = { ...DEFAULT_SESSION_CLEANUP_DRAFT };
-  @state() private formError = "";
+  @state() private formError: (() => string) | undefined;
   @state() private selectedProjectCwds: string[] | undefined;
 
   override willUpdate(changedProperties: PropertyValues<this>): void {
@@ -34,19 +38,19 @@ export class SessionCleanupDialog extends LitElement {
     const validation = validateSessionCleanupDraft(this.draft);
     const selectedPreview = this.selectedPreview();
     const runEnabled = canRunSessionCleanup({ draft: this.draft, preview: selectedPreview, previewRequest: this.previewRequest, loading: this.loading, running: this.running });
-    const runTitle = runEnabled ? "Run cleanup" : selectedPreview !== undefined && !sessionCleanupPreviewHasTargets(selectedPreview) ? "Select at least one project to run cleanup" : "Preview cleanup before running it";
+    const runTitle = runEnabled ? messages.t("run") : selectedPreview !== undefined && !sessionCleanupPreviewHasTargets(selectedPreview) ? messages.t("selectRequiredTitle") : messages.t("previewRequiredTitle");
     return html`
-      <modal-surface .onClose=${() => { this.onClose?.(); }} .label=${"Clean up sessions"}>
+      <modal-surface .onClose=${() => { this.onClose?.(); }} .label=${messages.t("title")}>
         <header>
           <div>
-            <span class="eyebrow">Sessions</span>
-            <h1>Clean up sessions</h1>
+            <span class="eyebrow">${messages.t("eyebrow")}</span>
+            <h1>${messages.t("title")}</h1>
           </div>
-          <button class="close-button" title="Close cleanup" aria-label="Close cleanup" @click=${() => { this.onClose?.(); }}>×</button>
+          <button class="close-button" title=${messages.t("closeCleanup")} aria-label=${messages.t("closeCleanup")} @click=${() => { this.onClose?.(); }}>×</button>
         </header>
         <div class="body">
-          <p class="intro">Preview manual cleanup for this machine before archiving idle sessions or permanently deleting old archived sessions.</p>
-          ${this.renderForm(validation.ok ? "" : validation.error)}
+          <p class="intro">${messages.t("intro")}</p>
+          ${this.renderForm(validation.ok ? "" : messages.t(validation.code))}
           ${this.renderMessage()}
           ${this.preview === undefined ? null : this.renderPreview(this.preview)}
         </div>
@@ -54,9 +58,9 @@ export class SessionCleanupDialog extends LitElement {
           ${this.result === undefined ? null : this.renderResult(this.result)}
         </div>
         <footer>
-          <button @click=${() => { this.onClose?.(); }}>${this.result === undefined ? "Cancel" : "Close"}</button>
-          <button ?disabled=${this.loading || this.running} @click=${() => { this.previewCleanup(); }}>${this.loading ? "Previewing…" : "Preview"}</button>
-          <button class="danger" ?disabled=${!runEnabled} title=${runTitle} @click=${() => { this.runCleanup(); }}>${this.running ? "Running…" : "Run cleanup"}</button>
+          <button @click=${() => { this.onClose?.(); }}>${messages.t(this.result === undefined ? "cancel" : "close")}</button>
+          <button ?disabled=${this.loading || this.running} @click=${() => { this.previewCleanup(); }}>${messages.t(this.loading ? "previewing" : "preview")}</button>
+          <button class="danger" ?disabled=${!runEnabled} title=${runTitle} @click=${() => { this.runCleanup(); }}>${messages.t(this.running ? "running" : "run")}</button>
         </footer>
       </modal-surface>
     `;
@@ -68,27 +72,25 @@ export class SessionCleanupDialog extends LitElement {
     const previewOutOfDate = this.preview !== undefined && validation.ok && sessionCleanupRequestKey(validation.request) !== sessionCleanupRequestKey(this.previewRequest) && sessionCleanupPreviewHasTargets(this.preview);
     return html`
       <fieldset ?disabled=${disabled}>
-        <label class="toggle-row">
-          <input type="checkbox" .checked=${this.draft.archiveIdleEnabled} @change=${(event: Event) => { this.updateDraft({ archiveIdleEnabled: checkedValue(event) }); }}>
-          <span>Archive non-archived sessions idle for more than</span>
-          <input class="days" type="number" min="0" step="1" inputmode="numeric" .value=${this.draft.archiveIdleDays} ?disabled=${disabled || !this.draft.archiveIdleEnabled} @input=${(event: Event) => { this.updateDraft({ archiveIdleDays: inputValue(event) }); }}>
-          <span>days</span>
-        </label>
-        <label class="toggle-row delete-row">
-          <input type="checkbox" .checked=${this.draft.deleteArchivedEnabled} @change=${(event: Event) => { this.updateDraft({ deleteArchivedEnabled: checkedValue(event) }); }}>
-          <span>Delete archived sessions archived for more than</span>
-          <input class="days" type="number" min="0" step="1" inputmode="numeric" .value=${this.draft.deleteArchivedDays} ?disabled=${disabled || !this.draft.deleteArchivedEnabled} @input=${(event: Event) => { this.updateDraft({ deleteArchivedDays: inputValue(event) }); }}>
-          <span>days</span>
-        </label>
+        <div class="toggle-row">
+          <input type="checkbox" aria-label=${messages.t("archiveEnabled")} .checked=${this.draft.archiveIdleEnabled} @change=${(event: Event) => { this.updateDraft({ archiveIdleEnabled: checkedValue(event) }); }}>
+          <label for="archive-days">${messages.t("archiveRule")}</label>
+          <input id="archive-days" class="days" aria-label=${messages.t("archiveThreshold")} type="number" min="0" step="1" inputmode="numeric" .value=${this.draft.archiveIdleDays} ?disabled=${disabled || !this.draft.archiveIdleEnabled} @input=${(event: Event) => { this.updateDraft({ archiveIdleDays: inputValue(event) }); }}>
+        </div>
+        <div class="toggle-row delete-row">
+          <input type="checkbox" aria-label=${messages.t("deleteEnabled")} .checked=${this.draft.deleteArchivedEnabled} @change=${(event: Event) => { this.updateDraft({ deleteArchivedEnabled: checkedValue(event) }); }}>
+          <label for="delete-days">${messages.t("deleteRule")}</label>
+          <input id="delete-days" class="days" aria-label=${messages.t("deleteThreshold")} type="number" min="0" step="1" inputmode="numeric" .value=${this.draft.deleteArchivedDays} ?disabled=${disabled || !this.draft.deleteArchivedEnabled} @input=${(event: Event) => { this.updateDraft({ deleteArchivedDays: inputValue(event) }); }}>
+        </div>
       </fieldset>
-      <p class="warning"><strong>Deletion is permanent.</strong> Cleanup only deletes sessions that are already archived.</p>
+      <p class="warning">${messages.rich("warning", { strong: (chunks) => html`<strong>${chunks}</strong>` })}</p>
       ${validationError === "" ? null : html`<div class="dialog-error" role="alert">${validationError}</div>`}
-      ${previewOutOfDate ? html`<div class="hint" role="status">Thresholds changed. Preview again before running cleanup.</div>` : null}
+      ${previewOutOfDate ? html`<div class="hint" role="status">${messages.t("stale")}</div>` : null}
     `;
   }
 
   private renderMessage(): TemplateResult | null {
-    const message = this.formError || this.error;
+    const message = this.formError?.() ?? this.errorMessage?.() ?? this.error;
     return message === "" ? null : html`<div class="dialog-error" role="alert">${message}</div>`;
   }
 
@@ -97,25 +99,25 @@ export class SessionCleanupDialog extends LitElement {
     const selected = new Set(selectedCwds);
     const selectedPreview = sessionCleanupPreviewForSelectedProjects(preview, selectedCwds);
     return html`
-      <section class="preview" aria-label="Cleanup preview">
-        <h2>Preview</h2>
-        ${preview.projects.length === 0 ? html`<p class="empty">No sessions match these thresholds.</p>` : html`
+      <section class="preview" aria-label=${messages.t("previewLabel")}>
+        <h2>${messages.t("preview")}</h2>
+        ${preview.projects.length === 0 ? html`<p class="empty">${messages.t("empty")}</p>` : html`
           ${this.renderSelectionControls(preview, selectedCwds)}
-          <div class="table-scroll" tabindex="0" aria-label="Cleanup projects table">
+          <div class="table-scroll" tabindex="0" aria-label=${messages.t("tableLabel")}>
             <table>
               <thead>
-                <tr><th>Clean up</th><th>Project/workspace path</th><th>Archive</th><th>Delete archived</th></tr>
+                <tr><th>${messages.t("cleanupColumn")}</th><th>${messages.t("pathColumn")}</th><th>${messages.t("archiveColumn")}</th><th>${messages.t("deleteColumn")}</th></tr>
               </thead>
               <tbody>
                 ${preview.projects.map((project) => this.renderProjectRow(project, selected.has(project.cwd)))}
               </tbody>
               <tfoot>
-                <tr><th colspan="2">Selected totals</th><td>${selectedPreview.totals.archiveCount}</td><td>${selectedPreview.totals.deleteCount}</td></tr>
+                <tr><th colspan="2">${messages.t("totals")}</th><td>${localization.number(selectedPreview.totals.archiveCount)}</td><td>${localization.number(selectedPreview.totals.deleteCount)}</td></tr>
               </tfoot>
             </table>
           </div>
         `}
-        ${preview.skippedBusySessionIds === undefined || preview.skippedBusySessionIds.length === 0 ? null : html`<p class="hint">${preview.skippedBusySessionIds.length} busy ${preview.skippedBusySessionIds.length === 1 ? "session was" : "sessions were"} skipped.</p>`}
+        ${preview.skippedBusySessionIds === undefined || preview.skippedBusySessionIds.length === 0 ? null : html`<p class="hint">${messages.t("skipped", { count: preview.skippedBusySessionIds.length })}</p>`}
       </section>
     `;
   }
@@ -123,38 +125,38 @@ export class SessionCleanupDialog extends LitElement {
   private renderSelectionControls(preview: SessionCleanupPreviewResponse, selectedCwds: readonly string[]): TemplateResult {
     const disabled = this.loading || this.running;
     return html`
-      <div class="selection-controls" role="group" aria-label="Project selection">
-        <span>${selectedCwds.length} of ${preview.projects.length} projects selected</span>
-        <button ?disabled=${disabled || selectedCwds.length === preview.projects.length} @click=${() => { this.selectAllProjects(); }}>Select all</button>
-        <button ?disabled=${disabled || selectedCwds.length === 0} @click=${() => { this.deselectAllProjects(); }}>Deselect all</button>
+      <div class="selection-controls" role="group" aria-label=${messages.t("selectionLabel")}>
+        <span>${messages.t("selection", { selected: selectedCwds.length, total: preview.projects.length })}</span>
+        <button ?disabled=${disabled || selectedCwds.length === preview.projects.length} @click=${() => { this.selectAllProjects(); }}>${messages.t("selectAll")}</button>
+        <button ?disabled=${disabled || selectedCwds.length === 0} @click=${() => { this.deselectAllProjects(); }}>${messages.t("deselectAll")}</button>
       </div>
-      ${selectedCwds.length === 0 ? html`<p class="hint" role="status">Select at least one project to run cleanup.</p>` : null}
+      ${selectedCwds.length === 0 ? html`<p class="hint" role="status">${messages.t("selectRequired")}</p>` : null}
     `;
   }
 
   private renderProjectRow(project: SessionCleanupProjectSummary, selected: boolean): TemplateResult {
     return html`
       <tr class=${selected ? "" : "unselected"}>
-        <td class="select-cell"><input type="checkbox" aria-label=${`Clean up ${project.cwd}`} .checked=${selected} ?disabled=${this.running} @change=${(event: Event) => { this.setProjectSelected(project.cwd, checkedValue(event)); }}></td>
+        <td class="select-cell"><input type="checkbox" aria-label=${messages.t("selectProject", { path: project.cwd })} .checked=${selected} ?disabled=${this.running} @change=${(event: Event) => { this.setProjectSelected(project.cwd, checkedValue(event)); }}></td>
         <th title=${project.cwd} dir="auto">${project.cwd}</th>
-        <td>${project.archiveCount}</td>
-        <td>${project.deleteCount}</td>
+        <td>${localization.number(project.archiveCount)}</td>
+        <td>${localization.number(project.deleteCount)}</td>
       </tr>
     `;
   }
 
   private renderResult(result: SessionCleanupExecuteResponse): TemplateResult {
     return html`
-      <section class="result" aria-label="Cleanup result">
-        <h2>Cleanup complete</h2>
-        <p>Archived ${result.archivedSessionIds.length} ${result.archivedSessionIds.length === 1 ? "session" : "sessions"}; permanently deleted ${result.deletedSessionIds.length} archived ${result.deletedSessionIds.length === 1 ? "session" : "sessions"}.</p>
+      <section class="result" aria-label=${messages.t("resultLabel")}>
+        <h2>${messages.t("complete")}</h2>
+        <p>${messages.t("result", { archived: result.archivedSessionIds.length, deleted: result.deletedSessionIds.length })}</p>
       </section>
     `;
   }
 
   private updateDraft(patch: Partial<SessionCleanupDraft>): void {
     this.draft = { ...this.draft, ...patch };
-    this.formError = "";
+    this.formError = undefined;
   }
 
   private selectedPreview(): SessionCleanupPreviewResponse | undefined {
@@ -167,12 +169,12 @@ export class SessionCleanupDialog extends LitElement {
 
   private selectAllProjects(): void {
     this.selectedProjectCwds = this.preview?.projects.map((project) => project.cwd) ?? [];
-    this.formError = "";
+    this.formError = undefined;
   }
 
   private deselectAllProjects(): void {
     this.selectedProjectCwds = [];
-    this.formError = "";
+    this.formError = undefined;
   }
 
   private setProjectSelected(cwd: string, selected: boolean): void {
@@ -182,33 +184,34 @@ export class SessionCleanupDialog extends LitElement {
     if (selected) selectedCwds.add(cwd);
     else selectedCwds.delete(cwd);
     this.selectedProjectCwds = preview.projects.map((project) => project.cwd).filter((projectCwd) => selectedCwds.has(projectCwd));
-    this.formError = "";
+    this.formError = undefined;
   }
 
   private previewCleanup(): void {
     const validation = validateSessionCleanupDraft(this.draft);
     if (!validation.ok) {
-      this.formError = validation.error;
+      this.formError = () => messages.t(validation.code);
       return;
     }
-    this.formError = "";
+    this.formError = undefined;
     void this.onPreview?.(validation.request);
   }
 
   private runCleanup(): void {
     const validation = validateSessionCleanupDraft(this.draft);
     if (!validation.ok) {
-      this.formError = validation.error;
+      this.formError = () => messages.t(validation.code);
       return;
     }
     const selectedPreview = this.selectedPreview();
     const selectedProjectCwds = this.selectedProjectCwdsForPreview();
     if (!canRunSessionCleanup({ draft: this.draft, preview: selectedPreview, previewRequest: this.previewRequest })) {
-      this.formError = selectedPreview !== undefined && !sessionCleanupPreviewHasTargets(selectedPreview) ? "Select at least one project to run cleanup." : "Preview cleanup before running it.";
+      const key = selectedPreview !== undefined && !sessionCleanupPreviewHasTargets(selectedPreview) ? "selectRequired" : "previewRequired";
+      this.formError = () => messages.t(key);
       return;
     }
-    if (selectedPreview === undefined || !confirmSessionCleanup(selectedPreview, (message) => confirm(message))) return;
-    this.formError = "";
+    if (selectedPreview === undefined || !confirm(messages.t("confirm", { archive: selectedPreview.totals.archiveCount, delete: selectedPreview.totals.deleteCount }))) return;
+    this.formError = undefined;
     void this.onRun?.({ ...validation.request, projectCwds: selectedProjectCwds });
   }
 
@@ -224,7 +227,7 @@ export class SessionCleanupDialog extends LitElement {
     h2 { font-size: 15px; }
     .intro, .hint, .empty { color: var(--pi-muted); }
     fieldset { margin: 0; padding: 0; border: 0; display: grid; gap: 10px; }
-    .toggle-row { display: grid; grid-template-columns: auto minmax(0, max-content) 88px auto; align-items: center; gap: 8px; color: var(--pi-text); }
+    .toggle-row { display: grid; grid-template-columns: auto minmax(0, 1fr) 88px; align-items: center; gap: 8px; color: var(--pi-text); }
     input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--pi-accent); }
     input.days { box-sizing: border-box; width: 88px; min-width: 0; border: 1px solid var(--pi-border); border-radius: 8px; background: var(--pi-bg); color: var(--pi-text); padding: 8px 9px; font: var(--pi-control-font-size, 16px) var(--pi-control-font-family, var(--pi-font, system-ui, sans-serif)); }
     input.days:disabled { opacity: .55; }
@@ -239,9 +242,9 @@ export class SessionCleanupDialog extends LitElement {
     .selection-controls button { padding: 5px 7px; font-size: 12px; }
     .table-scroll { max-width: 100%; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; scrollbar-width: thin; -webkit-overflow-scrolling: touch; border: 1px solid var(--pi-border); border-radius: 10px; }
     table { width: 100%; min-width: 620px; border-collapse: collapse; }
-    th, td { border-bottom: 1px solid var(--pi-border-muted); padding: 8px 10px; text-align: right; }
+    th, td { border-bottom: 1px solid var(--pi-border-muted); padding: 8px 10px; text-align: end; }
     thead th:first-child, td.select-cell { width: 72px; text-align: center; }
-    th:nth-child(2), td:nth-child(2) { text-align: left; }
+    th:nth-child(2), td:nth-child(2) { text-align: start; }
     tbody tr.unselected { opacity: .58; }
     tbody th { max-width: 380px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--pi-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace); font-weight: 500; }
     tfoot th, tfoot td { border-bottom: 0; font-weight: 700; }
@@ -256,7 +259,6 @@ export class SessionCleanupDialog extends LitElement {
       modal-surface { --modal-surface-backdrop-padding: 0; --modal-surface-place-items: stretch; --modal-surface-width: 100%; --modal-surface-max-height: none; --modal-surface-border: 0; --modal-surface-radius: 0; }
       .toggle-row { grid-template-columns: auto minmax(0, 1fr); }
       .toggle-row input.days { grid-column: 2; }
-      .toggle-row span:last-child { grid-column: 2; }
       table { min-width: 560px; }
       thead th:first-child, td.select-cell { width: 58px; }
     }
