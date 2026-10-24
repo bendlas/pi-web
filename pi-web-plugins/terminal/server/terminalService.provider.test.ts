@@ -18,6 +18,17 @@ const scope = { projectId: "p", workspaceId: "w", cwd: "/fake/project" };
 const command = { ...scope, origin: "test", title: "Command", command: "printf done" };
 
 describe("TerminalService with an injected PTY provider", () => {
+  it("exposes generated shell-name metadata without marking caller-provided names", () => {
+    const service = new TerminalService(fakeProvider().provider);
+    try {
+      const shell = service.create(scope);
+      expect(shell).toMatchObject({ name: "Shell 1", defaultShellNumber: 1 });
+      expect(service.list(scope)[0]?.defaultShellNumber).toBe(1);
+      expect(service.create({ ...scope, name: "Shell 999" }).defaultShellNumber).toBeUndefined();
+      expect(service.runCommand(command).title).toBe(command.title);
+      expect(service.list(scope).find((item) => item.name === command.title)?.defaultShellNumber).toBeUndefined();
+    } finally { service.dispose(); }
+  });
   it("replays output before exit, releases natural exits, and ignores stale callbacks after continue", () => {
     const fake = fakeProvider();
     const service = new TerminalService(fake.provider);

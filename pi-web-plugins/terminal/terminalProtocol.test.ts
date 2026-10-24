@@ -27,6 +27,7 @@ describe("Terminal peer protocol", () => {
   it("preserves terminal scope and workspace identity and rejects ambiguous maintenance identity", () => {
     const workspace = { ...terminal, scope: "workspace", projectId: "project-1", workspaceId: "workspace-1" };
     expect(parseTerminalInfo(workspace)).toEqual(workspace);
+    expect(parseTerminalInfo({ ...workspace, defaultShellNumber: 1234 }).defaultShellNumber).toBe(1234);
     expect(parseTerminalInfo({ ...terminal, scope: "maintenance" })).toEqual({ ...terminal, scope: "maintenance" });
     expect(() => parseTerminalInfo({ ...workspace, scope: "maintenance" })).toThrow("must not contain workspace identity");
     expect(() => parseTerminalInfo({ ...terminal, scope: "invalid" })).toThrow("Invalid Terminal info scope");

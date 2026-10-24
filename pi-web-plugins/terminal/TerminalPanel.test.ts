@@ -1,6 +1,9 @@
 // @vitest-environment happy-dom
 
 import type { JsonValue, PluginPeerChannelOptions, PluginPeer, StylesheetIntegrationCapabilityV1, WorkspacePanelContext, WorkspacePanelNavigationV1 } from "@jmfederico/pi-web/plugin-api";
+import { LocalizationService } from "../../src/client/src/localization/service";
+import { createPluginLocalization } from "../../src/client/src/plugins/localization";
+import { createTerminalContent } from "./terminalLocalization";
 import { Terminal } from "@xterm/xterm";
 import { installTerminalRendererFake as fakeTerminalBoundary } from "./terminalRenderer.testSupport";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -1052,7 +1055,7 @@ describe("Terminal panel lifecycle", () => {
     Reflect.set(panel, "visible", true);
     Reflect.set(panel, "selectedId", "terminal-1");
     Reflect.set(panel, "terminal", terminal);
-    Reflect.set(panel, "connectionError", "Terminal connection closed: offline");
+    Reflect.set(panel, "connectionError", { kind: "connectionClosed", detail: "offline" });
     Reflect.set(panel, "terminals", [terminalInfo("terminal-1")]);
 
     callPanelMethod(panel, "connectChannel", context, "terminal-1", terminal, undefined);
@@ -1254,6 +1257,7 @@ function createTerminalPanel(): TerminalPanel {
   if (customElements.get("test-terminal-panel") === undefined) customElements.define("test-terminal-panel", TerminalPanel);
   const element = document.createElement("test-terminal-panel");
   if (!(element instanceof TerminalPanel)) throw new Error("Expected TerminalPanel test element");
+  element.content = createTerminalContent(createPluginLocalization(new LocalizationService(), "pi-web.terminal", "pi-web.terminal", new AbortController().signal));
   return element;
 }
 

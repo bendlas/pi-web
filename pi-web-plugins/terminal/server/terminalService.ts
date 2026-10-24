@@ -39,6 +39,8 @@ export type TerminalInfo = TerminalIdentity & {
   id: string;
   cwd: string;
   name: string;
+  /** Present only for an automatically named shell; name remains the wire fallback. */
+  defaultShellNumber?: number;
   createdAt: string;
   exited: boolean;
   exitCode?: number;
@@ -352,11 +354,13 @@ export class TerminalService {
     const id = options.id ?? randomUUID();
     const createdAt = new Date().toISOString();
     const requestedName = options.name?.trim();
+    const defaultShellNumber = requestedName === undefined || requestedName === "" ? this.list(options).length + 1 : undefined;
     const record: TerminalRecord = {
       id,
       ...terminalIdentity(options),
       cwd: options.cwd,
-      name: requestedName !== undefined && requestedName !== "" ? requestedName : `Shell ${String(this.list(options).length + 1)}`,
+      name: defaultShellNumber === undefined ? requestedName ?? "" : `Shell ${String(defaultShellNumber)}`,
+      ...(defaultShellNumber === undefined ? {} : { defaultShellNumber }),
       createdAt,
       exited: false,
       generation: 0,
@@ -491,7 +495,7 @@ function toInfo(record: TerminalRecord): TerminalInfo {
     ...terminalIdentity(record),
     cwd: record.cwd,
     name: record.name,
-    createdAt: record.createdAt,
+    ...(record.defaultShellNumber === undefined ? {} : { defaultShellNumber: record.defaultShellNumber }),    createdAt: record.createdAt,
     exited: record.exited,
     ...(record.exitCode === undefined ? {} : { exitCode: record.exitCode }),
     ...(record.commandRunId === undefined ? {} : { commandRunId: record.commandRunId }),
