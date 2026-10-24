@@ -139,6 +139,7 @@ describe("General settings", () => {
     const panel = await mountPanel();
     edit(panel, gatewayHostInput, "gateway-draft.local");
     edit(panel, machineInput, "old-machine/uploads");
+    panel.targetId = "other-machine";
     panel.targetLabel = "Other machine";
     panel.machineConfigResponse = configResponse({ uploads: { defaultFolder: "other/uploads" } });
     await settle(panel);
