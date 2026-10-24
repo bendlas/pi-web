@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { PiWebComponentStatus, PiWebReleaseStatus, PiWebStatusResponse, PluginMachine, Workspace } from "@jmfederico/pi-web/plugin-api";
-import { componentDetails, componentHealth, diagnosticsSummary, formatVersion, installationLabel, machineKindLabel, piVersionDriftNote, releaseSummary, workspaceFlags } from "./infoInternals.js";
+import { componentHealth, createInfoContent } from "./infoInternals.js";
+import { LocalizationService } from "../../src/client/src/localization/service.js";
+
+const service = new LocalizationService({ preferences: { language: "en", formatLocale: "en-US", timeZone: "UTC" } });
+const { componentDetails, diagnosticsSummary, formatVersion, installationLabel, machineKindLabel, piVersionDriftNote, releaseSummary, workspaceFlags } = createInfoContent(service);
 
 describe("componentHealth", () => {
   it("reports current when the component is available and not stale", () => {
@@ -76,10 +80,10 @@ describe("diagnosticsSummary", () => {
       "Package: @jmfederico/pi-web",
       "Web/UI: running 1.0.0 · installed 1.0.1 · pi 0.84.1 · restart needed · global npm package · /usr/lib/node_modules",
       "Session daemon: running 1.0.0 · installed 1.0.0 · pi 0.84.1 · current · local checkout · /srv/dev/pi-web",
-      "Release: Update available: 1.1.0 (checked 2025-01-02T03:04:05Z)",
-      "Status generated: 2025-01-02T03:04:06Z",
+      `Release: Update available: 1.1.0 (checked ${service.date(new Date("2025-01-02T03:04:05Z"), { dateStyle: "medium", timeStyle: "medium" })})`,
+      `Status generated: ${service.date(new Date("2025-01-02T03:04:06Z"), { dateStyle: "medium", timeStyle: "medium" })}`,
       "Machine: devbox (local machine)",
-      "Workspace: pi-web — /srv/dev/pi-web (provider: git, main workspace)",
+      "Workspace: pi-web — /srv/dev/pi-web (provider: git and main workspace)",
     ].join("\n"));
   });
 

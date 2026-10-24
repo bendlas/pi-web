@@ -3,7 +3,8 @@ import { html as staticHtml, unsafeStatic } from "lit/static-html.js";
 import { ref } from "lit/directives/ref.js";
 import { unsafeHTML } from "lit/directives/unsafe-html.js";
 import { marked, type Tokens } from "marked";
-import type { ContentRenderingCapability, ContentRenderRequest, ContentMarkdownRenderRequest, ContentTextRenderRequest, PluginCapability } from "../../../plugin-api";
+import { snapshotDisplayMetadata } from "../plugins/displayMetadata";
+import type { ContentRendererOption, ContentRenderingCapability, ContentRenderRequest, ContentMarkdownRenderRequest, ContentTextRenderRequest, PluginCapability } from "../../../plugin-api";
 import type { ContentRendererChoice } from "../plugins/contentRenderers";
 import "../components/ContentRendererHost";
 import "../components/ContentRenderingBoundary";
@@ -111,9 +112,9 @@ export function createContentRenderingService(select: SelectRenderer, revision?:
   };
   const capability: ContentRenderingCapability = Object.freeze({
     listRenderers(request: ContentRenderRequest) {
-      return selection(request).map((choice) => ({ id: choice.id,
+      return selection(request).map((choice) => snapshotDisplayMetadata<ContentRendererOption>(choice.renderer, { id: choice.id,
         get label() { return choice.label; },
-        get title() { return choice.renderer.title; },
+        ...(choice.renderer.title === undefined ? {} : { title: choice.renderer.title }),
         renderMode: choice.renderer.renderMode ?? "manual",
       }));
     },

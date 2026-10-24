@@ -853,18 +853,18 @@ export class PluginRegistry {
       const scopedContext = pluginRuntimeContextFor(context, action.pluginId);
       const enabled = action.enabled?.(scopedContext);
       const disabledReason = enabled === false ? action.disabledReason?.(scopedContext) : undefined;
-      const qualified: QualifiedPluginAction = {
+      const qualified = snapshotDisplayMetadata<QualifiedPluginAction>(action, {
         id: action.id,
         pluginId: action.pluginId,
         localId: action.localId,
         ...(action.machineId === undefined ? {} : { machineId: action.machineId }),
         get title() { return action.title; },
-        get description() { return action.description; },
-        get group() { return action.group; },
+        ...(action.description === undefined ? {} : { description: action.description }),
+        ...(action.group === undefined ? {} : { group: action.group }),
         run: () => this.isContributionActive(action.pluginId, action.machineId, runtimeContextMachineId(context), action.sourcePluginId)
           ? action.run(pluginRuntimeContextFor(context, action.pluginId))
           : undefined,
-      };
+      });
       if (action.shortcut !== undefined) qualified.shortcut = action.shortcut;
       if (action.shortcutAliases !== undefined) qualified.shortcutAliases = [...action.shortcutAliases];
       if (enabled !== undefined) qualified.enabled = enabled;
