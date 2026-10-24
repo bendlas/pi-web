@@ -42,11 +42,17 @@ export async function initializeLocalization(
 /** Add to every localized Lit host; disconnected hosts release their subscription. */
 export class LocalizationController implements ReactiveController {
   private unsubscribe: (() => void) | undefined;
-  constructor(private readonly host: ReactiveControllerHost, readonly service: Pick<LocalizationService, "subscribe"> = localization) {
+  constructor(
+    private readonly host: ReactiveControllerHost,
+    readonly service: Pick<LocalizationService, "subscribe"> = localization,
+    private readonly invalidate?: () => void,
+  ) {
     host.addController(this);
   }
   hostConnected(): void {
-    this.unsubscribe ??= this.service.subscribe(() => { this.host.requestUpdate(); });
+    this.unsubscribe ??= this.service.subscribe(() => { this.invalidate?.(); this.host.requestUpdate(); });
+    // Guarded/cached surfaces also need invalidation after a disconnected locale change.
+    this.invalidate?.();
     this.host.requestUpdate();
   }
   hostDisconnected(): void {

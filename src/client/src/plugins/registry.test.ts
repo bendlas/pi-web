@@ -1,4 +1,6 @@
 import { html } from "lit";
+import { LocalizationService, message } from "../localization/service";
+import { applyActiveShortcutPreferences } from "../shortcutPreferences";
 import { describe, expect, it, vi } from "vitest";
 import type { DeleteWorkspaceFileResponse, FileContentResponse, FileTreeResponse, JsonValue, MoveWorkspaceFileResponse, SessionInfo, SessionStatus, WriteWorkspaceFileResponse, Workspace } from "../api";
 import { initialAppState, type AppState } from "../appState";
@@ -12,6 +14,53 @@ import { adaptPublicPlugin, publicPluginState } from "./publicContext";
 import type { PluginBackendRequestTarget } from "../api/pluginBackends";
 import type { PluginCapability as PublicPluginCapability, StylesheetIntegrationCapabilityV1 } from "../../../plugin-api";
 import { stylesheetIntegrationCapability, stylesheetIntegrationCapabilityToken } from "./styles";
+
+it("keeps display getters live through v5 services, qualification, shortcuts and retained renderer choices", async () => {
+  const service = new LocalizationService();
+  const registry = new PluginRegistry({ localization: service });
+  let order = 1;
+  let mode: "manual" | "automatic" = "manual";
+  await registry.register({ id: "labels", plugin: adaptPublicPlugin({
+    apiVersion: 5, name: "Labels", activate(context) {
+      const api = context.localization;
+      if (api === undefined) throw new Error("Expected localization");
+      const messages = api.registerMessages("ui", { title: message("Preview", "Contribution title") });
+      api.registerCatalog({ id: "fr", namespace: "plugin:labels:ui", locale: "fr", load: () => Promise.resolve({ title: "Aperçu" }) });
+      return { contributions: {
+        actions: [{ id: "display", get title() { return `${messages.t("title")} ${this.id}`; }, get description() { return messages.t("title"); }, get group() { return messages.t("title"); }, shortcut: "mod+k", run: () => undefined }],
+        applicationPanels: [{ id: "application", get title() { return messages.t("title"); }, get order() { return order; }, render: () => html`` }],
+        workspacePanels: [{ id: "workspace", get title() { return messages.t("title"); }, get order() { return order; }, render: () => html`` }],
+        contentRenderers: [{ id: "renderer", get title() { return messages.t("title"); }, languages: ["test"], get renderMode() { return mode; }, render: () => html`` }],
+        themes: [{ id: "light", get name() { return messages.t("title"); }, get description() { return messages.t("title"); }, colorScheme: "light" }, { id: "dark", name: "Dark", colorScheme: "dark" }],
+        themePairs: [{ id: "pair", get name() { return messages.t("title"); }, get description() { return messages.t("title"); }, light: "light", dark: "dark" }],
+      } };
+    },
+  }) });
+  const action = applyActiveShortcutPreferences(registry.getActions(createContext().context), { "labels:display": "mod+j" })[0];
+  const application = registry.getApplicationPanels()[0];
+  const workspace = registry.getWorkspacePanels()[0];
+  const theme = registry.getThemes().find(({ id }) => id === "labels:light");
+  const pair = registry.getThemePairs()[0];
+  const request = { machineId: "local", language: "test", text: "source" };
+  const choice = registry.matchContentRenderers(request)[0];
+  const rendering = registry.getChatContentRendering("local");
+  const listed = registry.contentRendering.listRenderers(request)[0];
+  if (!action || !application || !workspace || !theme || !pair || !choice || !listed) throw new Error("Expected all contributions");
+  expect(action.title).toBe("Preview display");
+  expect(choice.label).toBe("Preview");
+  order = 99;
+  mode = "automatic";
+  await service.setPreferences({ language: "fr", formatLocale: "en" });
+  expect([action.title, action.description, action.group]).toEqual(["Aperçu display", "Aperçu", "Aperçu"]);
+  expect([application.title, workspace.title, theme.name, theme.description, pair.name, pair.description]).toEqual(Array(6).fill("Aperçu"));
+  expect([choice.label, choice.renderer.title, listed.label, listed.title]).toEqual(Array(4).fill("Aperçu"));
+  expect([application.order, workspace.order]).toEqual([1, 1]);
+  expect(choice.renderer.renderMode).toBe("manual");
+  expect(registry.getChatContentRendering("local")).toBe(rendering);
+  expect(action.id).toBe("labels:display");
+  expect(action.shortcut).toBe("mod+j");
+  await registry.dispose();
+});
 
 it("resolves file-opening panels by availability, applicability, order and scoped context", async () => {
   let enabled = true;

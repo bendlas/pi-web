@@ -1,4 +1,5 @@
 import { queuedMessageRecallConfirmation, type QueuedMessageActionTarget } from "../queuedMessageActions";
+import { localization, LocalizationController } from "../localization/browser";
 import { LitElement, html, type TemplateResult } from "lit";
 import { customElement, property, query, state } from "lit/decorators.js";
 import { guard } from "lit/directives/guard.js";
@@ -155,6 +156,7 @@ interface SessionCleanupDialogState {
 export class PiWebApp extends LitElement {
   constructor() {
     super();
+    new LocalizationController(this, localization, () => { this.invalidateWorkspaceSurface(); });
     stylesheetIntegrationCapability.createController(this);
   }
 

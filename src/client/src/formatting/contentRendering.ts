@@ -111,8 +111,10 @@ export function createContentRenderingService(select: SelectRenderer, revision?:
   };
   const capability: ContentRenderingCapability = Object.freeze({
     listRenderers(request: ContentRenderRequest) {
-      return selection(request).map(({ id, label, renderer }) => ({ id, label, renderMode: renderer.renderMode ?? "manual",
-        ...(renderer.title === undefined ? {} : { title: renderer.title }),
+      return selection(request).map((choice) => ({ id: choice.id,
+        get label() { return choice.label; },
+        get title() { return choice.renderer.title; },
+        renderMode: choice.renderer.renderMode ?? "manual",
       }));
     },
     renderText(request: ContentTextRenderRequest): TemplateResult | undefined {

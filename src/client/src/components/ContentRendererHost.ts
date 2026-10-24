@@ -1,4 +1,5 @@
 import { stylesheetIntegrationCapability } from "../plugins/styles";
+import { LocalizationController } from "../localization/browser";
 import { LitElement, css, html, type PropertyValues, type TemplateResult } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import { repeat } from "lit/directives/repeat.js";
@@ -23,6 +24,7 @@ function isTemplateResult(value: unknown): value is TemplateResult {
 export class ContentRendererHost extends LitElement {
   constructor() {
     super();
+    new LocalizationController(this);
     stylesheetIntegrationCapability.createController(this);
   }
 

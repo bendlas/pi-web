@@ -1,4 +1,5 @@
 import { html, svg } from "lit";
+import { snapshotDisplayMetadata } from "./displayMetadata";
 import { localization } from "../localization/browser";
 import type { LocalizationService } from "../localization/service";
 import { createPluginLocalization } from "./localization";
@@ -211,7 +212,7 @@ export class PluginRegistry {
   private activeContentRendererChoices(machineId: string): readonly ContentRendererChoice[] {
     return this.contentRenderers.filter((renderer) => this.isContributionActive(renderer.pluginId, renderer.machineId, machineId, renderer.sourcePluginId))
       .sort((a, b) => this.compareDiscoveryOrder(a, b))
-      .map((renderer) => ({ id: renderer.id, label: renderer.label, renderer }));
+      .map((renderer) => ({ id: renderer.id, get label() { return renderer.label; }, renderer }));
   }
   private readonly messageActions: RegisteredMessageAction[] = [];
   private messageActionView: readonly RegisteredMessageAction[] = [];
@@ -551,12 +552,12 @@ export class PluginRegistry {
     const contentRenderers = (contributions.contentRenderers ?? []).map((renderer): RegisteredContentRenderer => {
       const snapshot = snapshotContentRenderer(renderer);
       const supports = snapshot.supports?.bind(snapshot);
-      return {
+      return snapshotDisplayMetadata<RegisteredContentRenderer>(snapshot, {
         ...snapshot,
         id: this.qualify(runtimePluginId, renderer.id, contributionIds),
         pluginId: runtimePluginId,
         localId: renderer.id,
-        label: snapshot.title ?? `${registration.sourcePluginId ?? runtimePluginId} / ${renderer.id}`,
+        get label() { return snapshot.title ?? `${registration.sourcePluginId ?? runtimePluginId} / ${snapshot.id}`; },
         ...(supports === undefined ? {} : { supports: (request: Readonly<ContentRenderRequest>) => !lifetimeSignal.aborted && supports(request) }),
         ...(registration.machineId === undefined ? {} : { machineId: registration.machineId }),
         ...(registration.sourcePluginId === undefined ? {} : { sourcePluginId: registration.sourcePluginId }),
@@ -564,7 +565,7 @@ export class PluginRegistry {
           const signal = AbortSignal.any([input.signal, lifetimeSignal]);
           return snapshot.render({ ...input, signal, fail: (error) => { if (!signal.aborted) input.fail(error); } });
         },
-      };
+      });
     });
     const syntaxHighlighters = (contributions.syntaxHighlighters ?? []).map((contribution): RegisteredSyntaxHighlighter => {
       const snapshot = snapshotSyntaxHighlighter(contribution);
@@ -857,15 +858,15 @@ export class PluginRegistry {
         pluginId: action.pluginId,
         localId: action.localId,
         ...(action.machineId === undefined ? {} : { machineId: action.machineId }),
-        title: action.title,
+        get title() { return action.title; },
+        get description() { return action.description; },
+        get group() { return action.group; },
         run: () => this.isContributionActive(action.pluginId, action.machineId, runtimeContextMachineId(context), action.sourcePluginId)
           ? action.run(pluginRuntimeContextFor(context, action.pluginId))
           : undefined,
       };
-      if (action.description !== undefined) qualified.description = action.description;
       if (action.shortcut !== undefined) qualified.shortcut = action.shortcut;
       if (action.shortcutAliases !== undefined) qualified.shortcutAliases = [...action.shortcutAliases];
-      if (action.group !== undefined) qualified.group = action.group;
       if (enabled !== undefined) qualified.enabled = enabled;
       if (disabledReason !== undefined && disabledReason !== "") qualified.disabledReason = disabledReason;
       return qualified;
@@ -996,7 +997,7 @@ export class PluginRegistry {
     const id = this.qualify(pluginId, action.id, contributionIds);
     const sourceId = `${sourcePluginId ?? pluginId}:${action.id}`;
     const shortcutAliases = this.parseShortcutAliases(id, action.shortcutAliases, sourceId);
-    return {
+    return snapshotDisplayMetadata<RegisteredPluginAction>(action, {
       ...action,
       id,
       pluginId,
@@ -1004,7 +1005,7 @@ export class PluginRegistry {
       ...(shortcutAliases.length === 0 ? {} : { shortcutAliases }),
       ...(machineId === undefined ? {} : { machineId }),
       ...(sourcePluginId === undefined ? {} : { sourcePluginId }),
-    };
+    });
   }
 
   private qualifyApplicationPanel(
@@ -1018,7 +1019,7 @@ export class PluginRegistry {
     this.rejectPanelAliases(panel, id);
     const sourceContributionId: QualifiedContributionId = `${sourcePluginId ?? pluginId}:${panel.id}`;
     const scopedContext = (context: ApplicationPanelContext) => applicationPanelScopes.get(context)?.(pluginId) ?? context;
-    return {
+    return snapshotDisplayMetadata<QualifiedApplicationPanelContribution>(panel, {
       ...panel, id, sourceContributionId, pluginId, localId: panel.id,
       ...(machineId === undefined ? {} : { machineId }),
       ...(sourcePluginId === undefined ? {} : { sourcePluginId }),
@@ -1030,7 +1031,7 @@ export class PluginRegistry {
         ? panel.onInvalidate?.(scopedContext(context)) : undefined }),
       render: (context) => this.isContributionActive(pluginId, machineId, context.machine.id, sourcePluginId)
         ? panel.render(scopedContext(context)) : html``,
-    };
+    });
   }
 
   private qualifyWorkspacePanel(
@@ -1053,7 +1054,7 @@ export class PluginRegistry {
     const sourceContributionId: QualifiedContributionId = `${sourcePluginId ?? pluginId}:${panel.id}`;
     const invalidationResources = this.parseInvalidationResources(id, panel.invalidationResources);
     const scopedContext = (context: WorkspacePanelContext) => workspacePanelContextFor(context, binding, id, sourceContributionId);
-    return {
+    return snapshotDisplayMetadata<QualifiedWorkspacePanelContribution>(panel, {
       ...panel,
       id,
       pluginId,
@@ -1073,7 +1074,7 @@ export class PluginRegistry {
       render: (context: WorkspacePanelContext) => this.isContributionActive(pluginId, machineId, context.machine.id, sourcePluginId)
         ? panel.render(scopedContext(context))
         : html``,
-    };
+    });
   }
 
   private qualifyWorkspaceLabelContribution(
@@ -1142,21 +1143,21 @@ export class PluginRegistry {
     const id = this.qualify(pluginId, theme.id, contributionIds);
     const stylesheetIds = new Set<QualifiedContributionId>();
     const stylesheets = theme.stylesheets?.map((style) => this.qualifyStylesheet(`${pluginId}:${theme.id}`, style, stylesheetIds));
-    return { ...theme, id, pluginId, localId: theme.id,
+    return snapshotDisplayMetadata<QualifiedThemeContribution>(theme, { ...theme, id, pluginId, localId: theme.id,
       ...(theme.tokens === undefined ? {} : { tokens: Object.freeze({ ...theme.tokens }) }),
-      ...(stylesheets === undefined ? {} : { stylesheets }) };
+      ...(stylesheets === undefined ? {} : { stylesheets }) });
   }
 
   private qualifyThemePair(pluginId: string, pair: ThemePairContribution, contributionIds: Set<QualifiedContributionId>): QualifiedThemePairContribution {
     const id = this.qualify(pluginId, pair.id, contributionIds);
-    return {
+    return snapshotDisplayMetadata<QualifiedThemePairContribution>(pair, {
       ...pair,
       id,
       pluginId,
       localId: pair.id,
       light: this.qualifyReference(pluginId, pair.light),
       dark: this.qualifyReference(pluginId, pair.dark),
-    };
+    });
   }
 
   private qualify(pluginId: string, localId: string, contributionIds: Set<QualifiedContributionId>): QualifiedContributionId {
@@ -1466,27 +1467,36 @@ function withV5Services(
     (context: Context, ...args: Args): Result => callback(services(context), ...args);
   return {
     ...contributions,
-    ...(contributions.actions === undefined ? {} : { actions: contributions.actions.map(({ enabled, disabledReason, run, ...action }) => ({
-      ...action,
-      ...(enabled === undefined ? {} : { enabled: wrap(enabled) }),
-      ...(disabledReason === undefined ? {} : { disabledReason: wrap(disabledReason) }),
-      run: wrap(run),
-    })) }),
-    ...(contributions.applicationPanels === undefined ? {} : { applicationPanels: contributions.applicationPanels.map(({ visible, badge, onInvalidate, render, ...panel }) => ({
-      ...panel,
-      ...(visible === undefined ? {} : { visible: wrap(visible) }),
-      ...(badge === undefined ? {} : { badge: wrap(badge) }),
-      ...(onInvalidate === undefined ? {} : { onInvalidate: wrap(onInvalidate) }),
-      render: wrap(render),
-    })) }),
-    ...(contributions.workspacePanels === undefined ? {} : { workspacePanels: contributions.workspacePanels.map(({ visible, fileOpenQuery, badge, onInvalidate, render, ...panel }) => ({
-      ...panel,
-      ...(visible === undefined ? {} : { visible: wrap(visible) }),
-      ...(fileOpenQuery === undefined ? {} : { fileOpenQuery: wrap(fileOpenQuery) }),
-      ...(badge === undefined ? {} : { badge: wrap(badge) }),
-      ...(onInvalidate === undefined ? {} : { onInvalidate: wrap(onInvalidate) }),
-      render: wrap(render),
-    })) }),
+    ...(contributions.actions === undefined ? {} : { actions: contributions.actions.map((action) => {
+      const { enabled, disabledReason, run } = action;
+      return snapshotDisplayMetadata<PluginAction>(action, {
+        ...action,
+        ...(enabled === undefined ? {} : { enabled: wrap(enabled) }),
+        ...(disabledReason === undefined ? {} : { disabledReason: wrap(disabledReason) }),
+        run: wrap(run),
+      });
+    }) }),
+    ...(contributions.applicationPanels === undefined ? {} : { applicationPanels: contributions.applicationPanels.map((panel) => {
+      const { visible, badge, onInvalidate, render } = panel;
+      return snapshotDisplayMetadata<ApplicationPanelContribution>(panel, {
+        ...panel,
+        ...(visible === undefined ? {} : { visible: wrap(visible) }),
+        ...(badge === undefined ? {} : { badge: wrap(badge) }),
+        ...(onInvalidate === undefined ? {} : { onInvalidate: wrap(onInvalidate) }),
+        render: wrap(render),
+      });
+    }) }),
+    ...(contributions.workspacePanels === undefined ? {} : { workspacePanels: contributions.workspacePanels.map((panel) => {
+      const { visible, fileOpenQuery, badge, onInvalidate, render } = panel;
+      return snapshotDisplayMetadata<WorkspacePanelContribution>(panel, {
+        ...panel,
+        ...(visible === undefined ? {} : { visible: wrap(visible) }),
+        ...(fileOpenQuery === undefined ? {} : { fileOpenQuery: wrap(fileOpenQuery) }),
+        ...(badge === undefined ? {} : { badge: wrap(badge) }),
+        ...(onInvalidate === undefined ? {} : { onInvalidate: wrap(onInvalidate) }),
+        render: wrap(render),
+      });
+    }) }),
     ...(contributions.workspaceLabels === undefined ? {} : { workspaceLabels: contributions.workspaceLabels.map(({ visible, items, ...label }) => ({
       ...label,
       ...(visible === undefined ? {} : { visible: wrap(visible) }),
