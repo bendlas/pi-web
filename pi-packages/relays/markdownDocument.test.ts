@@ -13,6 +13,15 @@ describe("isMarkdownDocumentPath", () => {
 });
 
 describe("renderRelayDocumentHtml", () => {
+  it("caches by translated table label and treats translations only as attribute text", () => {
+    const source = "| User |\n| --- |\n| `code` |";
+    for (const label of ["Table", "Tabelle", '"><img src=x onerror="bad()">']) {
+      const fragment = fragmentOf(renderRelayDocumentHtml(source, label));
+      expect(fragment.querySelector(".table-scroll")?.getAttribute("aria-label")).toBe(label);
+      expect(fragment.querySelector("img")).toBeNull();
+      expect(fragment.querySelector("code")?.textContent).toBe("code");
+    }
+  });
   it("renders GFM markdown: headings, emphasis, lists, and code fences", () => {
     const fragment = fragmentOf(renderRelayDocumentHtml([
       "# Status",
