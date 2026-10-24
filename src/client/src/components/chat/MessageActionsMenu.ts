@@ -1,3 +1,5 @@
+import { LocalizationController } from "../../localization/browser";
+import { chatTranscriptMessages as messages } from "../../chatTranscriptMessages";
 import { stylesheetIntegrationCapability } from "../../plugins/styles";
 import { css, html, LitElement } from "lit";
 import { AnchoredPopupController } from "../anchoredPopup";
@@ -10,6 +12,7 @@ export class MessageActionsMenu extends LitElement {
   constructor() {
     super();
     stylesheetIntegrationCapability.createController(this);
+    new LocalizationController(this);
   }
 
   @query("button") private trigger!: HTMLButtonElement;
@@ -43,7 +46,7 @@ export class MessageActionsMenu extends LitElement {
   override render() {
     return html`
       <button type="button" class="ui-button ui-button--small ui-button--icon"
-        aria-label="Message actions" aria-expanded=${String(this.expanded)} aria-controls="actions"
+        aria-label=${messages.t("actions")} aria-expanded=${String(this.expanded)} aria-controls="actions"
         @click=${() => { this.toggle(); }}><span aria-hidden="true">⋯</span></button>
       <div id="actions" popover="auto"><slot></slot></div>
     `;

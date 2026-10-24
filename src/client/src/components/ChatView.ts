@@ -1,3 +1,5 @@
+import { LocalizationController, localization } from "../localization/browser";
+import { chatTranscriptMessages } from "../chatTranscriptMessages";
 import { stylesheetIntegrationCapability } from "../plugins/styles";
 import { LitElement, html, nothing, type TemplateResult } from "lit";
 import { customElement, property, query, state } from "lit/decorators.js";
@@ -37,8 +39,6 @@ import type { MarkdownWorkspaceContext } from "../formatting/workspaceLinks";
 import "./ToolExecutionView";
 import { transcriptImageSource } from "./TranscriptImage";
 import type { ImageOpenDetail } from "./ImagePresentation";
-
-const messageTimestampFormatter = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "medium" });
 
 export type ChatImagePart = Extract<ChatPart, { type: "image" }>;
 
@@ -84,13 +84,13 @@ export function chatMessageMetadataLabel(message: ChatLine): string {
   const time = timestamp === undefined ? undefined : formatMessageTimestamp(timestamp);
   const model = chatMessageModelLabel(message);
   const parts = [time, model, message.meta?.thinkingLevel].filter((part): part is string => part !== undefined && part !== "");
-  return parts.length === 0 ? "No Pi message metadata available" : parts.join(" · ");
+  return parts.length === 0 ? chatTranscriptMessages.t("noMetadata") : localization.list(parts);
 }
 
 function formatMessageTimestamp(timestamp: string): string | undefined {
   const date = new Date(timestamp);
   if (!Number.isFinite(date.getTime())) return undefined;
-  return messageTimestampFormatter.format(date);
+  return localization.date(date, { dateStyle: "medium", timeStyle: "medium" });
 }
 
 function chatMessageModelLabel(message: ChatLine): string | undefined {
@@ -106,6 +106,9 @@ export class ChatView extends LitElement {
   constructor() {
     super();
     stylesheetIntegrationCapability.createController(this);
+    new LocalizationController(this, localization, () => {
+      this.messageMetaCache = new WeakMap();
+    });
   }
 
   @property({ attribute: false }) messages: ChatLine[] = [];
@@ -193,7 +196,7 @@ export class ChatView extends LitElement {
   private groupedMessagesInput?: ChatLine[];
   private groupedMessagesStart = 0;
   private groupedMessagesCache: ChatGroup[] = [];
-  private readonly messageMetaCache = new WeakMap<ChatLine, string>();
+  private messageMetaCache = new WeakMap<ChatLine, string>();
   private imageSession: SessionRef | undefined;
   private touchY: number | undefined;
   private loadMoreRequested = false;
@@ -229,11 +232,11 @@ export class ChatView extends LitElement {
   private readonly openImageZoom = (image: ImageOpenDetail): void => {
     if (this.behaviors.loadImages) this.imageGalleryDialog?.show([image]);
   };
-  private openToolImageGallery(images: readonly { part: ChatImagePart; description: string }[], selectedIndex: number): void {
+  private openToolImageGallery(images: readonly { part: ChatImagePart; description: () => string }[], selectedIndex: number): void {
     if (!this.behaviors.loadImages) return;
     const entries = images.flatMap((image, index) => {
       const source = transcriptImageSource(image.part, this.transcriptSession(), this.machineId);
-      return source === undefined ? [] : [{ src: source.src, alt: image.description, partIndex: index }];
+      return source === undefined ? [] : [{ src: source.src, get alt() { return image.description(); }, partIndex: index }];
     });
     const index = entries.findIndex((entry) => entry.partIndex === selectedIndex);
     if (index >= 0) this.imageGalleryDialog?.show(entries, index);

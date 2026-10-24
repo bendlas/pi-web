@@ -1,3 +1,4 @@
+import { localization } from "../localization/browser";
 import type { TemplateResult } from "lit";
 import { describe, expect, it, vi } from "vitest";
 import type { QueuedSessionMessage, SessionStatus, SessionWarning } from "../api";
@@ -169,7 +170,7 @@ describe("chatMessageMetadataLabel", () => {
       role: "assistant",
       parts: [],
       meta: { timestamp, model: { provider: "provider", id: "model" } },
-    })).toBe(`${formattedTimestamp} · provider/model`);
+    })).toBe(localization.list([formattedTimestamp, "provider/model"]));
   });
 
   it("appends the thinking level after the model when present", () => {
@@ -180,7 +181,7 @@ describe("chatMessageMetadataLabel", () => {
       role: "assistant",
       parts: [],
       meta: { timestamp, model: { provider: "provider", id: "model" }, thinkingLevel: "high" },
-    })).toBe(`${formattedTimestamp} · provider/model · high`);
+    })).toBe(localization.list([formattedTimestamp, "provider/model", "high"]));
   });
 });
 

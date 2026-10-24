@@ -47,7 +47,7 @@ export const chatStyles = css`
   .msg.event-group { --ui-activity-tone: var(--pi-border); --ui-transcript-bg: var(--pi-bg); --ui-transcript-heading-bg: var(--pi-bg); padding: 0; color: var(--pi-text); }
   .msg.event-group > summary { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 8px; padding-inline: 13px; }
   .msg.event-group > summary:hover { background: var(--pi-surface-hover); }
-  .msg.event-group > summary .label { flex: 0 0 auto; margin: 0; color: inherit; font-weight: 600; }
+  .msg.event-group > summary .label { flex: 0 1 auto; margin: 0; color: inherit; font-weight: 600; }
   .msg.event-group > summary > span { min-width: 0; overflow-wrap: anywhere; }
   .group-body { --ui-activity-edge-width: 0px; padding: 0; }
   .group-msg + .group-msg { border-block-start: 1px solid var(--pi-muted); }
@@ -112,14 +112,17 @@ export const chatStyles = css`
   .tool-line > .ui-transcript-heading { font: 13px/20px var(--pi-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace); overflow-wrap: anywhere; }
   .tool-result.error { --ui-activity-tone: var(--pi-danger); }
   .tool-result.error > summary { color: color-mix(in srgb, var(--pi-danger) 65%, var(--pi-text) 35%); }
-  .summary { color: var(--pi-text-secondary); margin-left: 6px; }
+  .summary { color: var(--pi-text-secondary); margin-inline-start: 6px; }
   .part:is(details):not(.ui-transcript-activity) { padding-top: 4px; }
   .part:is(details) > formatted-text { padding: 8px 12px 0; box-sizing: border-box; }
   .part.ui-transcript-activity > formatted-text { padding: 8px 12px 12px; }
   .part > formatted-text { display: block; max-width: 100%; min-width: 0; overflow: visible; }
   .skill-invocation, .skill-read { padding: 8px 0; }
   .skill-invocation > summary, .skill-read > strong { color: var(--pi-purple); }
+  .skill-invocation > summary > b { flex: 0 0 auto; }
+  .skill-invocation > summary > bdi { min-width: 0; overflow-wrap: anywhere; }
   .skill-invocation > small, .skill-read > small { display: block; max-width: 100%; margin: 6px 0 0; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; scrollbar-width: thin; white-space: nowrap; color: var(--pi-muted); direction: ltr; text-align: left; unicode-bidi: isolate; }
+  .skill-read > small { direction: inherit; text-align: start; unicode-bidi: plaintext; white-space: normal; overflow-wrap: anywhere; }
   summary { cursor: pointer; color: var(--pi-muted); }
   pre { margin: 6px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; direction: ltr; text-align: left; unicode-bidi: isolate; }
   .shell-output { color: var(--pi-text); font: 13px var(--pi-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace); line-height: 1.45; direction: ltr; text-align: left; unicode-bidi: isolate; }

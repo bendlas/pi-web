@@ -182,7 +182,7 @@ describe("ChatView tool-image gallery", () => {
     ];
     for (const [index, image] of thumbnails.entries()) {
       expect(image).toHaveProperty("thumbnail", true);
-      expect(image).toHaveProperty("description", descriptions[index]);
+      expect(typeof image.description === "function" ? image.description() : image.description).toBe(descriptions[index]);
     }
 
     imageTrigger(thumbnails[1]).click();
