@@ -2,7 +2,7 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PiPackagesResponse } from "../../api";
-import { SettingsPackagesPanel } from "./SettingsPackagesPanel";
+import { SettingsPackagesPanel, packagesMessages } from "./SettingsPackagesPanel";
 
 afterEach(() => {
   document.body.replaceChildren();
@@ -25,7 +25,7 @@ describe("settings-packages-panel installable known packages", () => {
 
     const section = panel.shadowRoot?.querySelector(".known-package-section");
     expect(section?.textContent).toContain("Relays");
-    expect(section?.textContent).toContain("Relay method prompts and skill.");
+    expect(section?.textContent).toContain(packagesMessages.t("relayDescription"));
 
     const installButton = knownPackageInstallButton(panel, "Relays");
     installButton.click();
