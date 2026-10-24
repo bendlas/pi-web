@@ -100,6 +100,7 @@ import "./appShell/AppMobileMainTabs";
 import type { AppMobileMainTab } from "./appShell/AppMobileMainTabs";
 import { shouldShowMachinesSection, type AppNavigationPanel, type NavigationFocusTarget } from "./appShell/AppNavigationPanel";
 import "./appShell/AppPanelEdgeControl";
+import { appShellMessages as appShellText } from "../appShellMessages";
 import { renderPanelToggleButton } from "./appShell/panelToggleButton";
 import "./appShell/AppRefreshControl";
 import { errorBanner } from "./errorBanner";
@@ -1917,7 +1918,6 @@ export class PiWebApp extends LitElement {
       <app-panel-edge-control
         side="navigation"
         controls="navigation-panel"
-        resizeLabel="Resize navigation panel"
         .resizable=${!this.appShell.isMobileNavigationLayout}
         .panelWidth=${this.panelResize.panelWidth("navigation")}
         .minWidth=${constraints.minWidth}
@@ -1936,7 +1936,6 @@ export class PiWebApp extends LitElement {
       <app-panel-edge-control
         side="workspace"
         controls="workspace-panel"
-        resizeLabel="Resize workspace panel"
         .resizable=${!this.appShell.isMobileNavigationLayout}
         .panelWidth=${this.panelResize.panelWidth("workspace")}
         .minWidth=${constraints.minWidth}
@@ -2434,36 +2433,36 @@ export class PiWebApp extends LitElement {
     const project = this.state.selectedProject;
     if (this.state.isLoadingProjects) {
       return {
-        title: "Loading projects…",
-        body: "Looking for projects you have added to PI WEB.",
+        title: appShellText.t("loadingProjects"),
+        body: appShellText.t("lookingForProjects"),
       };
     }
     if (project === undefined) {
       return this.state.projects.length === 0
         ? {
-            title: "No projects yet",
-            body: "Use Actions → Add Project to add a folder. Workspace tools will appear here after you choose a workspace.",
+            title: appShellText.t("noProjects"),
+            body: appShellText.t("addProjectHint"),
           }
         : {
-            title: "Select a project",
-            body: "Choose a project from the sidebar, then select a workspace to use its tools.",
+            title: appShellText.t("selectProject"),
+            body: appShellText.t("chooseProject"),
           };
     }
     if (this.state.isLoadingWorkspaces) {
       return {
-        title: "Loading workspaces…",
-        body: `Preparing workspace tools for ${project.name}.`,
+        title: appShellText.t("loadingWorkspaces"),
+        body: appShellText.t("preparingTools", { project: project.name }),
       };
     }
     if (this.state.workspaces.length === 0) {
       return {
-        title: "No workspaces found",
-        body: `${project.name} does not have any available workspaces. Try selecting the project again or re-adding it.`,
+        title: appShellText.t("noWorkspaces"),
+        body: appShellText.t("noWorkspacesHint", { project: project.name }),
       };
     }
     return {
-      title: "Select a workspace",
-      body: `Choose a workspace in ${project.name} to use its tools.`,
+      title: appShellText.t("selectWorkspace"),
+      body: appShellText.t("chooseProjectWorkspace", { project: project.name }),
     };
   }
 
@@ -2493,7 +2492,7 @@ export class PiWebApp extends LitElement {
     if ((requested !== undefined || panel !== undefined) && this.availableWorkspacePanelId(panel) === undefined) {
       return this.pluginLoadErrors.get(selectedMachineId(this.state))
         ?? this.requiredPluginFailureByMachine.get(selectedMachineId(this.state))
-        ?? `Workspace panel unavailable: ${requested ?? panel ?? "unknown"}`;
+        ?? appShellText.t("unavailablePanel", { id: requested ?? panel ?? "unknown" });
     }
     return "";
   }
@@ -3927,7 +3926,7 @@ export class PiWebApp extends LitElement {
         && restored !== this.ownerDocument.documentElement && focusElement(restored)) return;
       // Collapse/resize may replace the original trigger while the dialog is open.
       for (const host of this.renderRoot.querySelectorAll("app-context-bar, app-mobile-main-tabs, workspace-panel")) {
-        const button = host.shadowRoot?.querySelector<HTMLButtonElement>('button[aria-label="Navigation"]');
+        const button = host.shadowRoot?.querySelector<HTMLButtonElement>('button[data-navigation-trigger]');
         if (button !== null && button !== undefined && focusElement(button)) return;
       }
     });
@@ -4004,12 +4003,12 @@ export class PiWebApp extends LitElement {
     return [
       {
         id: "navigation",
-        label: "Sessions",
+        label: appShellText.t("sessions"),
         icon: "navigation",
         className: "navigation-tab",
-        ...(unreadCount === 0 ? {} : { badge: unreadCount, badgeLabel: `${String(unreadCount)} unread`, badgeTone: "unread" }),
+        ...(unreadCount === 0 ? {} : { badge: unreadCount, badgeLabel: appShellText.t("unread", { count: unreadCount }), badgeTone: "unread" }),
       },
-      { id: "chat", label: "Chat", icon: "chat" },
+      { id: "chat", label: appShellText.t("chat"), icon: "chat" },
       ...panels.map((panel): AppMobileMainTab => {
         const icon = panel.icon;
         return {

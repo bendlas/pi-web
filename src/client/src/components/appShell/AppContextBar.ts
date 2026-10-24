@@ -1,3 +1,6 @@
+import { LocalizationController, localization } from "../../localization/browser";
+import { horizontalScrollEdges } from "./scrollEdges";
+import { appShellMessages as m } from "../../appShellMessages";
 import { stylesheetIntegrationCapability } from "../../plugins/styles";
 import { LitElement, css, html } from "lit";
 import { customElement, property, query, state } from "lit/decorators.js";
@@ -11,6 +14,7 @@ import type { NavigationSection } from "../../appShell/navigationState";
 export class AppContextBar extends LitElement {
   constructor() {
     super();
+    new LocalizationController(this);
     stylesheetIntegrationCapability.createController(this);
   }
 
@@ -58,12 +62,12 @@ export class AppContextBar extends LitElement {
     const workspaceLabel = workspaceContextLabel(this.workspace);
     const sessionLabel = sessionContextLabel(this.session);
     return html`
-      <nav class=${this.contextBarClass()} aria-label="Current location">
-        <span class="context-bar-label">Location</span>
+      <nav class=${this.contextBarClass()} aria-label=${m.t("currentLocation")}>
+        <span class="context-bar-label">${m.t("location")}</span>
         <ol class="context-items" @scroll=${this.onContextScroll}>
           <li class="context-item">
               ${machineChoice ? html`
-                <button type="button" class=${machineChipClass} title=${machineContextTitle(machine)} aria-label=${`Machine: ${machineContextLabel(machine)}. Open machine selection.`} @click=${() => { this.onOpenSection?.("machines"); }}>
+                <button type="button" class=${machineChipClass} title=${machineContextTitle(machine)} aria-label=${m.t("machineSelection", { label: machineContextLabel(machine) })} @click=${() => { this.onOpenSection?.("machines"); }}>
                   ${this.renderMachineChipContent(machine, this.locationIndicator)}
                 </button>
               ` : html`
@@ -74,25 +78,25 @@ export class AppContextBar extends LitElement {
               `}
           </li>
           <li class="context-item">
-            <button type="button" class=${this.project === undefined ? "context-chip empty" : "context-chip"} title=${projectContextTitle(this.project)} aria-label=${`Project: ${projectLabel}. Open project selection.`} @click=${() => { this.onOpenSection?.("projects"); }}>
-              <span class="context-kind">Project</span>
+            <button type="button" class=${this.project === undefined ? "context-chip empty" : "context-chip"} title=${projectContextTitle(this.project)} aria-label=${m.t("projectSelection", { label: projectLabel })} @click=${() => { this.onOpenSection?.("projects"); }}>
+              <span class="context-kind">${m.t("project")}</span>
               <span class="context-value">${projectLabel}</span>
             </button>
           </li>
           ${this.workspaceSelectionVisible ? html`<li class="context-item">
-            <button type="button" class=${this.workspace === undefined ? "context-chip empty" : "context-chip"} title=${workspaceContextTitle(this.workspace)} aria-label=${`Workspace: ${workspaceLabel}. Open workspace selection.`} @click=${() => { this.onOpenSection?.("workspaces"); }}>
-              <span class="context-kind">Workspace</span>
+            <button type="button" class=${this.workspace === undefined ? "context-chip empty" : "context-chip"} title=${workspaceContextTitle(this.workspace)} aria-label=${m.t("workspaceSelection", { label: workspaceLabel })} @click=${() => { this.onOpenSection?.("workspaces"); }}>
+              <span class="context-kind">${m.t("workspace")}</span>
               <span class="context-value">${workspaceLabel}</span>
             </button>
           </li>` : null}
           <li class="context-item">
-            <button type="button" class=${this.session === undefined ? "context-chip empty" : "context-chip"} title=${sessionContextTitle(this.session)} aria-label=${`Session: ${sessionLabel}. Open session selection.`} @click=${() => { this.onOpenSection?.("sessions"); }}>
-              <span class="context-kind">Session</span>
+            <button type="button" class=${this.session === undefined ? "context-chip empty" : "context-chip"} title=${sessionContextTitle(this.session)} aria-label=${m.t("sessionSelection", { label: sessionLabel })} @click=${() => { this.onOpenSection?.("sessions"); }}>
+              <span class="context-kind">${m.t("session")}</span>
               <span class="context-value">${sessionLabel}</span>
             </button>
           </li>
         </ol>
-        ${this.hasContextActions() ? html`<div class="context-actions">${this.onShowNavigation === undefined ? null : html`<button type="button" class=${`context-action-button${this.hiddenActiveDestination ? " selected" : ""}`} title="Navigation" aria-label="Navigation" aria-haspopup="dialog" @click=${this.onShowNavigation}>${renderNavigationMenuIcon()}</button>`}${this.renderActionsButton()}${this.refreshControl}</div>` : null}
+        ${this.hasContextActions() ? html`<div class="context-actions">${this.onShowNavigation === undefined ? null : html`<button type="button" class=${`context-action-button${this.hiddenActiveDestination ? " selected" : ""}`} data-navigation-trigger title=${m.t("navigation")} aria-label=${m.t("navigation")} aria-haspopup="dialog" @click=${this.onShowNavigation}>${renderNavigationMenuIcon()}</button>`}${this.renderActionsButton()}${this.refreshControl}</div>` : null}
       </nav>
     `;
   }
@@ -115,7 +119,7 @@ export class AppContextBar extends LitElement {
   private renderActionsButton() {
     if (this.onShowActions === undefined) return null;
     return html`
-      <button type="button" class="context-action-button" title="Show Actions" aria-label="Show Actions" @click=${(event: MouseEvent) => { event.stopPropagation(); this.onShowActions?.(); }}>
+      <button type="button" class="context-action-button" title=${m.t("showActions")} aria-label=${m.t("showActions")} @click=${(event: MouseEvent) => { event.stopPropagation(); this.onShowActions?.(); }}>
         <svg class="context-action-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
           <path d="M13 2 4 14h7l-1 8 10-13h-7V2Z"></path>
         </svg>
@@ -150,8 +154,9 @@ export class AppContextBar extends LitElement {
   private updateScrollState(): void {
     const contextItems = this.contextItemsElement();
     const maxScrollLeft = contextItems === undefined ? 0 : Math.max(0, contextItems.scrollWidth - contextItems.clientWidth);
-    const canScrollLeft = contextItems !== undefined && contextItems.scrollLeft > 1;
-    const canScrollRight = contextItems !== undefined && maxScrollLeft - contextItems.scrollLeft > 1;
+    const edges = horizontalScrollEdges(contextItems?.scrollLeft ?? 0, maxScrollLeft, localization.direction);
+    const canScrollLeft = contextItems !== undefined && edges.left;
+    const canScrollRight = contextItems !== undefined && edges.right;
     if (this.canScrollLeft !== canScrollLeft) this.canScrollLeft = canScrollLeft;
     if (this.canScrollRight !== canScrollRight) this.canScrollRight = canScrollRight;
   }
@@ -184,7 +189,7 @@ export class AppContextBar extends LitElement {
     .context-action-button:hover { background: var(--pi-surface-hover); }
     .context-action-button:focus-visible, button.context-chip:focus-visible { outline: 2px solid var(--pi-accent); outline-offset: -2px; }
     .context-action-icon { width: 18px; height: 18px; fill: currentColor; pointer-events: none; }
-    .context-chip { box-sizing: border-box; flex: 0 0 auto; min-width: 44px; min-height: 44px; display: inline-flex; align-items: center; gap: 5px; border: 0; border-radius: 0; background: transparent; color: var(--pi-text); padding: 0 12px; font: inherit; text-align: left; }
+    .context-chip { box-sizing: border-box; flex: 0 0 auto; min-width: 44px; min-height: 44px; display: inline-flex; align-items: center; gap: 5px; border: 0; border-radius: 0; background: transparent; color: var(--pi-text); padding: 0 12px; font: inherit; text-align: start; }
     .context-chip-icon { flex: 0 0 auto; width: 14px; height: 14px; }
     .context-detail { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--pi-muted); font-size: 11px; }
     button.context-chip:hover { background: var(--pi-surface-hover); }
@@ -209,7 +214,7 @@ function machineContextLabel(machine: Machine | undefined): string {
 
 /** The plain picker label used in browser mode, where the chip carries no location identity. */
 function machineSelectionLabel(machine: Machine): string {
-  return `${machine.name}${machine.kind === "remote" ? " · remote" : ""}`;
+  return machine.kind === "remote" ? m.t("remoteMachine", { name: machine.name }) : machine.name;
 }
 
 /**
@@ -230,27 +235,27 @@ function machineContextTitle(machine: Machine | undefined): string {
 }
 
 function projectContextLabel(project: Project | undefined): string {
-  return project?.name ?? "No project";
+  return project?.name ?? m.t("noProject");
 }
 
 function projectContextTitle(project: Project | undefined): string {
-  return project === undefined ? "No project selected" : `${project.name} — ${project.path}`;
+  return project === undefined ? m.t("noProjectSelected") : m.t("projectDetail", { name: project.name, path: project.path });
 }
 
 function workspaceContextLabel(workspace: Workspace | undefined): string {
-  return workspace === undefined ? "No workspace" : `${workspace.label}${workspace.isMain ? " · main" : ""} · ${workspace.path}`;
+  return workspace === undefined ? m.t("noWorkspace") : m.t("workspaceLabel", { label: workspace.label, main: workspace.isMain ? "yes" : "no", path: workspace.path });
 }
 
 function workspaceContextTitle(workspace: Workspace | undefined): string {
-  return workspace === undefined ? "No workspace selected" : `${workspace.label}${workspace.isMain ? " · main" : ""} — ${workspace.path}`;
+  return workspace === undefined ? m.t("noWorkspaceSelected") : m.t("workspaceDetail", { label: workspace.label, main: workspace.isMain ? "yes" : "no", path: workspace.path });
 }
 
 function sessionContextLabel(session: SessionInfo | undefined): string {
   const name = session?.name?.trim();
   const firstMessage = session?.firstMessage.trim();
-  return name !== undefined && name !== "" ? name : firstMessage !== undefined && firstMessage !== "" ? firstMessage : session === undefined ? "No session" : shortSessionId(session.id);
+  return name !== undefined && name !== "" ? name : firstMessage !== undefined && firstMessage !== "" ? firstMessage : session === undefined ? m.t("noSession") : shortSessionId(session.id);
 }
 
 function sessionContextTitle(session: SessionInfo | undefined): string {
-  return session === undefined ? "No session selected" : session.path;
+  return session === undefined ? m.t("noSessionSelected") : session.path;
 }

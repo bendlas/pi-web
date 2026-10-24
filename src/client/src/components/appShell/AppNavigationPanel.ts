@@ -1,3 +1,5 @@
+import { LocalizationController } from "../../localization/browser";
+import { appShellMessages as m } from "../../appShellMessages";
 import { stylesheetIntegrationCapability } from "../../plugins/styles";
 import { LitElement, css, html } from "lit";
 import { styleMap } from "lit/directives/style-map.js";
@@ -27,6 +29,7 @@ export type NavigationFocusTarget = NavigationSection | "chat";
 export class AppNavigationPanel extends LitElement {
   constructor() {
     super();
+    new LocalizationController(this);
     stylesheetIntegrationCapability.createController(this);
   }
 
@@ -215,11 +218,11 @@ export class AppNavigationPanel extends LitElement {
         ></machine-switcher>
         <div class="header-actions">
           ${this.refreshControl}
-          <button type="button" class="ui-button actions-button" title="Show Actions" aria-label="Show Actions" @click=${() => { this.onShowActions?.(); }}>
+          <button type="button" class="ui-button actions-button" title=${m.t("showActions")} aria-label=${m.t("showActions")} @click=${() => { this.onShowActions?.(); }}>
             <svg class="actions-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
               <path d="M13 2 4 14h7l-1 8 10-13h-7V2Z"></path>
             </svg>
-            <span class="actions-label">Actions</span>
+            <span class="actions-label">${m.t("actions")}</span>
           </button>
         </div>
       </header>
@@ -328,7 +331,7 @@ export class AppNavigationPanel extends LitElement {
   private renderSectionResizeHandle(section: ResizableNavigationSection) {
     if (this.compact) return null;
     return html`<navigation-section-resize-handle
-      .sectionLabel=${section === "projects" ? "Projects" : "Workspaces"}
+      .sectionLabel=${m.t(section === "projects" ? "projects" : "workspaces")}
       .controls=${`navigation-${section}`}
       .measurement=${this.sectionMeasurements[section]}
       .onResize=${(height: number) => { this.sectionSizes.resize(section, height); }}
