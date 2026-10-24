@@ -1,3 +1,5 @@
+import { LocalizationController, localization } from "../localization/browser";
+import { projectWorkspaceMessages as messages } from "../projectWorkspaceMessages";
 import { stylesheetIntegrationCapability } from "../plugins/styles";
 import { LitElement, html, type PropertyValues } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
@@ -16,6 +18,7 @@ export class ProjectList extends LitElement implements KeyboardNavigableSection 
   constructor() {
     super();
     stylesheetIntegrationCapability.createController(this);
+    new LocalizationController(this);
   }
 
   @property({ attribute: false }) projects: Project[] = [];
@@ -81,18 +84,18 @@ export class ProjectList extends LitElement implements KeyboardNavigableSection 
                 @keydown=${(event: KeyboardEvent) => { this.handleProjectKeydown(event, project); }}
               >
                 <div class="action-main">
-                  <span class="workspace-primary"><span class="workspace-primary-label">${project.name}</span></span><small>${project.path}</small>
+                  <span class="workspace-primary"><span class="workspace-primary-label"><bdi>${project.name}</bdi></span></span><small><bdi dir="ltr">${project.path}</bdi></small>
                   ${this.renderActivity(project)}
                 </div>
                 <div class="action-menu">
-                  <button class="ui-button ui-button--icon action-menu-toggle" title="Project actions" aria-label=${`Actions for ${project.name}`} @click=${(event: MouseEvent) => { event.stopPropagation(); this.toggleMenu(project.id); }}>⋯</button>
+                  <button class="ui-button ui-button--icon action-menu-toggle" title=${messages.t("projectActions")} aria-label=${messages.t("actionsFor", { name: project.name })} @click=${(event: MouseEvent) => { event.stopPropagation(); this.toggleMenu(project.id); }}>⋯</button>
                   ${this.openMenuProjectId === project.id ? html`
                     <div popover="auto" class="action-menu-panel ui-menu" @click=${(event: MouseEvent) => { event.stopPropagation(); }}>
                       ${this.onMove === undefined ? null : html`
-                        <button class="ui-button ui-menu-item" data-move ?disabled=${index === 0} @click=${() => { this.onMove?.(project, -1); }}>Move up</button>
-                        <button class="ui-button ui-menu-item" data-move ?disabled=${index === this.projects.length - 1} @click=${() => { this.onMove?.(project, 1); }}>Move down</button>
+                        <button class="ui-button ui-menu-item" data-move ?disabled=${index === 0} @click=${() => { this.onMove?.(project, -1); }}>${messages.t("moveUp")}</button>
+                        <button class="ui-button ui-menu-item" data-move ?disabled=${index === this.projects.length - 1} @click=${() => { this.onMove?.(project, 1); }}>${messages.t("moveDown")}</button>
                       `}
-                      <button class="ui-button ui-menu-item" title="Close project" @click=${() => { this.close(project); }}>Close</button>
+                      <button class="ui-button ui-menu-item" title=${messages.t("closeProject")} @click=${() => { this.close(project); }}>${messages.t("close")}</button>
                     </div>
                   ` : null}
                 </div>
@@ -114,17 +117,17 @@ export class ProjectList extends LitElement implements KeyboardNavigableSection 
   }
 
   private renderHeading() {
-    if (!this.collapsible) return html`<span>Projects</span>`;
-    const selectedSummary = this.selected?.name ?? "No project selected";
+    if (!this.collapsible) return html`<span>${messages.t("projects")}</span>`;
+    const selectedSummary = this.selected?.name ?? messages.t("noProject");
     const selectedTitle = this.selected?.path ?? selectedSummary;
-    return html`<button class="ui-button ui-toolbar-title section-toggle" aria-expanded=${String(!this.collapsed)} @click=${() => { this.onToggleCollapsed?.(); }}><span class="section-title"><span class="section-name">${this.collapsed ? "▸" : "▾"} Projects</span>${this.collapsed ? html`<small class="section-selected" title=${selectedTitle}>${selectedSummary}</small>` : null}</span><small class="section-count">${this.projects.length}</small></button>`;
+    return html`<button class="ui-button ui-toolbar-title section-toggle" aria-expanded=${String(!this.collapsed)} @click=${() => { this.onToggleCollapsed?.(); }}><span class="section-title"><span class="section-name">${this.collapsed ? "▸" : "▾"} ${messages.t("projects")}</span>${this.collapsed ? html`<small class="section-selected" title=${selectedTitle}>${selectedSummary}</small>` : null}</span><small class="section-count">${localization.number(this.projects.length)}</small></button>`;
   }
 
   private renderActivity(project: Project) {
     const flags = this.statusSnapshot?.projects[project.id];
     const kind = statusActivityKind(flags);
-    const unreadLabel = hasStatusUnread(flags) ? "Unread sessions in this project" : undefined;
-    return renderActionActivityIndicator(kind, kind === "terminal" ? "Project terminal active" : "Project active", unreadLabel);
+    const unreadLabel = hasStatusUnread(flags) ? messages.t("projectUnread") : undefined;
+    return renderActionActivityIndicator(kind, kind === "terminal" ? messages.t("projectTerminal") : messages.t("projectActive"), unreadLabel);
   }
 
   private toggleMenu(projectId: string) {
@@ -137,7 +140,7 @@ export class ProjectList extends LitElement implements KeyboardNavigableSection 
 
   private close(project: Project) {
     this.openMenuProjectId = undefined;
-    if (confirm(`Close ${project.name}?\n\nThis only removes it from PI WEB; it will not change the project folder.`)) this.onClose?.(project);
+    if (confirm(messages.t("confirmClose", { name: project.name }))) this.onClose?.(project);
   }
 
   static override styles = [listStyles, sidebarListStyles];
