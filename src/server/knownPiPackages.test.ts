@@ -26,6 +26,28 @@ describe("optional shipped Pi packages", () => {
     expect(KNOWN_AUTO_INSTALLABLE_PI_PACKAGES.some((entry) => entry.id === packageId)).toBe(false);
   });
 
+  it.each(["user", "project"] as const)("removes a missing relative package from %s settings without removing other entries", async (scope) => {
+    const root = await mkdtemp(join(tmpdir(), "pi-web-stale-package-"));
+    tempDirs.push(root);
+    const agentDir = join(root, "profile");
+    const cwd = join(root, "project");
+    const projectDir = join(cwd, ".pi");
+    await mkdir(agentDir);
+    await mkdir(projectDir, { recursive: true });
+    const settingsPath = join(scope === "user" ? agentDir : projectDir, "settings.json");
+    const source = "../missing-package";
+    const other = { source: "../other-package", extensions: [] };
+    await writeFile(settingsPath, JSON.stringify({ packages: [source, other], theme: "dark" }));
+    const service = createDefaultPiPackageService(cwd, agentDir);
+
+    const removed = await service.remove(source, scope);
+
+    expect(removed.removed).toBe(true);
+    expect(removed.packages).toEqual([{ source: other.source, scope, filtered: true }]);
+    expect(JSON.parse(await readFile(settingsPath, "utf8"))).toMatchObject({ packages: [other], theme: "dark" });
+    await expect(createDefaultPiPackageService(cwd, agentDir).list()).resolves.toEqual({ packages: removed.packages });
+  });
+
   it("installs only on request and allows removing a stale package entry after its shipped directory disappears", async () => {
     const root = await mkdtemp(join(tmpdir(), "pi-web-optional-package-"));
     tempDirs.push(root);
