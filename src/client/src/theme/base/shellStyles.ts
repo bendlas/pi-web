@@ -268,9 +268,8 @@ export const promptEditorLayoutStyles = css`
   .select-thinking .prompt-thinking-gauge .gauge-bar-active { opacity: 1; }
   .editor-chat-navigation { position: absolute; inset-inline-end: 0; top: 0; z-index: 2; box-sizing: border-box; width: 58px; border: 1px solid var(--pi-border-muted); }
   .editor-chat-navigation .chat-jumps button + button { border-inline-start: 1px solid var(--pi-border-muted); }
-  .editor-input:has(.editor-chat-navigation) .editor-attach { box-sizing: border-box; width: 28px; height: 28px; min-width: 28px; min-height: 28px; padding: 0; border: 1px solid var(--pi-border-muted); }
-  .editor-input:has(.editor-chat-navigation) .editor-attach .prompt-action-icon { width: 14px; height: 14px; }
-  .editor-attach { position: absolute; inset-inline-end: 0; bottom: 0; z-index: 2; border-inline-start: 1px solid var(--pi-border-muted); }
+  .editor-attach { position: absolute; inset-inline-end: 0; bottom: 0; z-index: 2; box-sizing: border-box; width: 28px; height: 28px; min-width: 28px; min-height: 28px; padding: 0; border: 1px solid var(--pi-border-muted); }
+  .editor-attach .prompt-action-icon { width: 14px; height: 14px; }
   .attach-source-panel .attach-source-label { display: inline-flex; align-items: center; min-width: 0; }
   .attach-source-panel .attach-source-icon { display: inline-grid; place-items: center; flex: 0 0 auto; width: 16px; height: 16px; margin-inline-end: 9px; color: var(--pi-muted); }
   .attach-source-panel .attach-source-icon .prompt-action-icon { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
