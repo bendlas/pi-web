@@ -1,3 +1,4 @@
+import type { RuntimeActivityPresentation } from "./sessionActivityPresentation.js";
 import type { MachineStatusUiEvent } from "./machineStatus.js";
 import type { TerminalPluginMode } from "./requiredTerminalPlugin.js";
 import type { ThinkingLevel } from "./thinkingLevels.js";
@@ -729,6 +730,8 @@ export interface SessionCleanupExecuteResponse extends SessionCleanupPreviewResp
 }
 
 export interface SessionActivity {
+  /** Optional runtime-owned presentation; label/detail stay compatible raw fallbacks. */
+  runtimePresentation?: RuntimeActivityPresentation;
   sessionId: string;
   phase: "active" | "idle" | "error";
   label: string;

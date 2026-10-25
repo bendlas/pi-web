@@ -10,6 +10,7 @@ import { requireDefaultThemePreference } from "../../../shared/themePreference";
 import { requireDefaultStreamingBehavior } from "../../../shared/streamingBehavior";
 import { isKnownThinkingLevel } from "../../../shared/thinkingLevels";
 import { requireInstallationName } from "../../../shared/installationName";
+import { parseRuntimeActivityPresentation } from "../../../shared/sessionActivityPresentation";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -644,7 +645,16 @@ function parseSessionActivity(value: unknown): SessionActivity {
     ...optionalField("detail", optionalString(record, "detail")),
     at: requireNonEmptyString(record, "at"),
     ...optionalField("startup", optionalActivityStartupMarker(record)),
+    ...optionalField("startupPresentation", parseStartupPresentation(record["startupPresentation"])),
+    ...optionalField("runtimePresentation", parseRuntimeActivityPresentation(record["runtimePresentation"])),
   };
+}
+
+function parseStartupPresentation(value: unknown): SessionActivity["startupPresentation"] {
+  if (!isRecord(value)) return undefined;
+  const { intent, stage, catalogRefreshing } = value;
+  if ((intent !== "create" && intent !== "open") || (stage !== "runtime" && stage !== "extensions") || typeof catalogRefreshing !== "boolean") return undefined;
+  return { intent, stage, catalogRefreshing };
 }
 
 /**

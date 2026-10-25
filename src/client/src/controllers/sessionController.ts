@@ -2554,6 +2554,7 @@ function pendingStartActivity(activity: SessionActivity, sessionId: string): Ses
     label: activity.label,
     ...(activity.detail === undefined ? {} : { detail: activity.detail }),
     ...(activity.startupPresentation === undefined ? {} : { startupPresentation: activity.startupPresentation }),
+    ...(activity.runtimePresentation === undefined ? {} : { runtimePresentation: activity.runtimePresentation }),
     at: activity.at,
   };
 }

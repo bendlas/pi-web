@@ -566,6 +566,22 @@ describe("API parsers", () => {
     });
   });
 
+  it("preserves known presentation metadata across startup, session and global wire boundaries", () => {
+    const base = { sessionId: "test", phase: "active", label: "raw fallback", detail: "raw detail", at: "now" };
+    const startup = { ...base, startupPresentation: { intent: "create", stage: "extensions", catalogRefreshing: true } };
+    expect(parseSessionStartupProgressEvent({ type: "session.startup", activity: startup })).toEqual({ type: "session.startup", activity: startup });
+    for (const runtimePresentation of [{ kind: "runningTool" }, { kind: "model", value: "raw-model" }, { kind: "compactionFailed", detailKind: "compactionFailed" }]) {
+      const activity = { ...base, runtimePresentation };
+      const event = { type: "activity.update", activity };
+      expect(parseSessionStreamEvent(event)).toEqual(event);
+      expect(parseRealtimeStreamEvent(event)).toEqual(event);
+    }
+    for (const runtimePresentation of [null, "invalid", { kind: "future" }, { kind: "model", value: 3 }, { kind: "runningTool", detailKind: "future" }]) {
+      expect(parseSessionStreamEvent({ type: "activity.update", activity: { ...base, runtimePresentation } })).toEqual({ type: "activity.update", activity: base });
+    }
+    expect(parseSessionStartupProgressEvent({ type: "session.startup", activity: { ...base, startupPresentation: { intent: "create", stage: "future", catalogRefreshing: true } } })).toEqual({ type: "session.startup", activity: base });
+  });
+
   it("carries the startup marker so an opening session is not mistaken for a working one", () => {
     const activity = { sessionId: "session-1", phase: "active", label: "Opening session", detail: "Starting the Pi session", at: "2026-07-20T00:00:01.000Z", startup: true };
 
