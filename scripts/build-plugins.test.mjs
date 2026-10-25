@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { build as viteBuild } from "vite";
 import { buildDirectory, buildPiPackages, filesBrowserBuildConfig, findWatchDirs } from "./build-plugins.mjs";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -98,6 +99,38 @@ describe("buildDirectory", () => {
 });
 
 describe("Files browser build configuration", () => {
+  it("uses the source checkout tsconfig for legacy decorators and prototype accessors", async () => {
+    const source = join(tempDir, "source");
+    const target = join(tempDir, "built-plugin");
+    await mkdir(source, { recursive: true });
+    await writeFile(join(source, "tsconfig.json"), JSON.stringify({
+      compilerOptions: { experimentalDecorators: true, useDefineForClassFields: false },
+      include: ["*.ts"],
+    }));
+    await writeFile(join(source, "pi-web-plugin.ts"), `
+      function query(target: object, key: string) {
+        Object.defineProperty(target, key, { get() { return "from prototype"; } });
+      }
+      function state(target: object, key: string) {
+        Object.defineProperty(target, key, {
+          get() { return this._value; },
+          set(value: string) { this._value = value; },
+        });
+      }
+      export class Panel {
+        @query readonly element!: string;
+        @state value = "initial";
+      }
+    `);
+
+    await viteBuild(filesBrowserBuildConfig(source, target));
+    const { Panel } = await import(pathToFileURL(join(target, "browser/pi-web-plugin.js")).href);
+    const panel = new Panel();
+    expect(panel.element).toBe("from prototype");
+    expect(panel.value).toBe("initial");
+    expect(Object.hasOwn(panel, "value")).toBe(false);
+  });
+
   it("uses a fixed relative ES bundle layout without source maps", () => {
     const source = resolve("pi-web-plugins/files");
     const target = join(tempDir, "files");

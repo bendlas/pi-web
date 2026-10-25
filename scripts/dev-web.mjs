@@ -7,8 +7,11 @@ const require = createRequire(import.meta.url);
 
 export function runDevelopmentWeb({ env = process.env, launch = startDevelopmentProcess, signals = process, stop } = {}) {
   const childEnv = { ...env };
+  const buildCwd = env.PI_WEB_DOCKER_MODE === "dev" ? "/build/pi-web" : undefined;
+  // Only the builder changes cwd. Runtime imports and package registrations
+  // stay anchored to the production-compatible installation path.
   return superviseDevelopmentProcesses((add, stopped) => {
-    const builder = add(launch(resolve("scripts/build-plugins.mjs"), ["--watch"], childEnv, true));
+    const builder = add(launch(resolve("scripts/build-plugins.mjs"), ["--watch"], childEnv, { ipc: true, ...(buildCwd === undefined ? {} : { cwd: buildCwd }) }));
     let apiStarted = false;
     builder.on("message", (message) => {
       if (stopped() || apiStarted || message?.type !== "plugin-build-ready") return;

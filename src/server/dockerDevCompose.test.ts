@@ -23,6 +23,7 @@ const hostProfiles = ["linux-native-docker", "mac-docker-desktop"];
 const devScenarios = hostProfiles.flatMap((profile) => [
   { profile, checkout: "absolute host path with spaces" },
   { profile, checkout: "/workspace" },
+  { profile, checkout: "/build/pi-web" },
   { profile, checkout: packageDir },
 ]);
 
@@ -66,7 +67,7 @@ describe.skipIf(!composeAvailable)("Docker Compose mount ownership (requires POS
   it.each(devScenarios)("preserves dev mounts after host override ($profile, $checkout)", async ({ profile, checkout }) => {
     const hostCheckout = checkout === "absolute host path with spaces" ? checkoutDir : checkout;
     const config = await effectiveComposeConfig("compose.dev.yml", profile, hostCheckout);
-    const checkoutTargets = [...new Set([packageDir, hostCheckout])];
+    const checkoutTargets = [...new Set([packageDir, "/build/pi-web", hostCheckout])];
     const dependencyTargets = checkoutTargets.map((target) => `${target}/node_modules`);
 
     // Compose config reports logical volume keys, not the project-prefixed engine volume name.
@@ -94,6 +95,10 @@ describe.skipIf(!composeAvailable)("Docker Compose mount ownership (requires POS
       expect(config).toHaveProperty(`services.${serviceName}.environment.HOSTEXEC_MODE`, profile === "linux-native-docker" ? "nsenter" : "disabled");
     }
 
+    expect(config).toHaveProperty("services.web.command", [
+      "bash", "-c", expect.stringContaining("(cd /build/pi-web && pi-web-service node_modules/vite/bin/vite.js"),
+    ]);
+
     const initMounts = serviceMounts(config, "data-init");
     expectUniqueTargets(initMounts, "data-init");
     // Exact targets exclude broad host mounts and the host-path checkout/dependency aliases.
@@ -116,7 +121,7 @@ describe.skipIf(!composeAvailable)("Docker Compose mount ownership (requires POS
       expectUniqueTargets(mounts, serviceName);
       expect(mounts.filter((mount) => mount.type === "volume")).toEqual([]);
       const targets = mounts.map((mount) => mount.target);
-      for (const target of ["/workspace", "/workspace/node_modules", packageDir, `${packageDir}/node_modules`, checkoutDir, join(checkoutDir, "node_modules")]) {
+      for (const target of ["/workspace", "/workspace/node_modules", "/build/pi-web", "/build/pi-web/node_modules", packageDir, `${packageDir}/node_modules`, checkoutDir, join(checkoutDir, "node_modules")]) {
         expect(targets).not.toContain(target);
       }
       expect(mounts).toEqual(expect.arrayContaining([

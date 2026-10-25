@@ -41,7 +41,7 @@ export async function runDevelopmentSessiond({ env = process.env, watch = false,
     // Track the actual long-lived daemon so shutdown waits for its cleanup.
     add(watch
       ? launch(require.resolve("tsx/cli"), ["watch", "src/server/sessiond.ts"], env)
-      : launch("src/server/sessiond.ts", [], env, false, ["--import", require.resolve("tsx")]));
+      : launch("src/server/sessiond.ts", [], env, { execArgv: ["--import", require.resolve("tsx")] }));
   }, { signals, ...(stop === undefined ? {} : { stop }) });
 }
 
