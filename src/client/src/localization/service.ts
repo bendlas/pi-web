@@ -82,6 +82,7 @@ export class LocalizationService {
   private readonly formats = new Map<string, IntlMessageFormat>();
   private readonly reported = new Set<string>();
   private generation = 0;
+  private preferencesRevision = 0;
   private pending: Promise<void> = Promise.resolve();
   private resolvedLanguage = "en";
 
@@ -93,6 +94,8 @@ export class LocalizationService {
   }
 
   get preferences(): Readonly<LocalizationPreferences> { return { ...this.current }; }
+  /** Distinguishes explicit preference requests (even identical values) from catalog refreshes. */
+  get preferenceRevision(): number { return this.preferencesRevision; }
   /** Actual UI language after catalog fallback, suitable for document.lang. */
   get language(): string { return this.isPseudo ? this.current.language : this.resolvedLanguage; }
   get direction(): "ltr" | "rtl" { return localeDirection(this.language); }
@@ -131,6 +134,7 @@ export class LocalizationService {
     const normalized = normalizePreferences(preferences);
     this.assertLanguage(normalized.language);
     this.current = normalized;
+    this.preferencesRevision++;
     return this.refresh();
   }
 

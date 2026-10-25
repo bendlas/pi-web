@@ -83,6 +83,18 @@ Process restarts depend on the key:
 - `shortcuts` / `defaultStreamingBehavior` / `quietMode`: saved settings apply in the browser after config refresh/save; no service restart.
 - `defaultTheme`: applies after settings save or browser config refresh when the browser has no local theme override; no service restart.
 
+### Localization defaults
+
+Set `defaultLocalization` in the gateway's global config to supply browser defaults:
+
+```json
+{ "defaultLocalization": { "language": "en", "formatLocale": "de-DE", "timeZone": "Europe/Berlin", "hourCycle": "h23" } }
+```
+
+All fields are optional and independent. `language` requests installed translations, with English fallback. `formatLocale` is a standard locale tag. `timeZone` is validated by native `Intl`; omitted zones use the device zone. `hourCycle` accepts `h11`, `h12`, `h23`, or `h24`; omission uses regional conventions. Omitted language/format locale use the browser language. No currency or zone is inferred from language. Development pseudo locales cannot be configured here.
+
+Saved browser preferences override the whole default snapshot. Settings → General → Language and region saves device choices, not this server setting. Remove the browser's `pi-web-localization` storage key and reload to resume inheritance. Reload the tab after changing config defaults; no service restart is needed. This key is gateway-only, not selected-machine or project-local. `{}` clears all configured fields.
+
 ### Streaming send default
 
 In **Settings → Keyboard shortcuts → Send while agent is running**, choose **Steer** (the default) to deliver input before the next model call, or **Follow-up** to queue it until the current response finishes. This changes only the keyboard shortcut, not the chat buttons. During compaction, messages queue as follow-ups.
@@ -203,6 +215,7 @@ Rows with JSON key `—` are runtime-only environment variables, not config-file
 | Git worktree discovery hooks | `plugins.git.settings.workspaceDiscoveryHooks` | — | Global + project | Project boolean overrides global; default `true` | Manually restart session daemon; browser reload alone does not apply changes |
 | Server-plugin safe start | `serverPlugins.safeStart` | — | Global/offline recovery | Not supported locally; manage with `pi-web plugins safe-start ...` | Applied before discovery/import on next sessiond start |
 | Default browser theme | `defaultTheme.themeId`, `defaultTheme.auto` | — | Gateway global | Not supported locally; device choices take precedence | Settings save / browser config refresh; no restart |
+| Browser localization defaults | `defaultLocalization.language`, `.formatLocale`, `.timeZone`, `.hourCycle` | — | Gateway global | Not supported locally; saved device preferences take precedence | Reload tab; no service restart |
 | Streaming send default | `defaultStreamingBehavior` | — | Global gateway | Not supported locally | Applies after settings save/config refresh; defaults to `steer` |
 | Quiet mode | `quietMode` | — | Global gateway | Not supported locally | Applies after settings save/config refresh; defaults to off |
 | Keyboard shortcuts | `shortcuts.<actionId>` | — | Global | Not supported locally | Applies after settings save/config refresh |

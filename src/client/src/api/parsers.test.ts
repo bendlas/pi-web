@@ -105,6 +105,16 @@ describe("API parsers", () => {
     expect(parsePiWebConfigResponse(response)).toMatchObject({ config: { sessionArchive }, effectiveConfig: { sessionArchive } });
   });
 
+  it("preserves and validates gateway localization defaults in both response fields", () => {
+    const defaultLocalization = { language: "fr", formatLocale: "de-DE", timeZone: "UTC", hourCycle: "h23" };
+    const response = { path: "/tmp/config.json", exists: true, config: {}, effectiveConfig: {},
+      envOverrides: { host: false, port: false, allowedHosts: false, spawnSessions: false, subsessions: false, askUser: false } };
+    for (const field of ["config", "effectiveConfig"] as const) {
+      expect(parsePiWebConfigResponse({ ...response, [field]: { defaultLocalization } })[field]).toEqual({ defaultLocalization });
+      expect(() => parsePiWebConfigResponse({ ...response, [field]: { defaultLocalization: { timeZone: "Invalid/Zone" } } })).toThrow("PI WEB config defaultLocalization");
+    }
+  });
+
   it("preserves theme defaults and rejects malformed theme data", () => {
     const defaultTheme = { themeId: "themes:pi-web-light", auto: false };
     const response = {

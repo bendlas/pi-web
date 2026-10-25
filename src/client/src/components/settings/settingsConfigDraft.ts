@@ -90,6 +90,7 @@ function preservedGatewayConfigRemainder(baseConfig: PiWebConfigValues): PiWebCo
     ...(baseConfig.installationName === undefined ? {} : { installationName: baseConfig.installationName }),
     ...(baseConfig.shortcuts === undefined ? {} : { shortcuts: baseConfig.shortcuts }),
     ...(baseConfig.defaultTheme === undefined ? {} : { defaultTheme: baseConfig.defaultTheme }),
+    ...(baseConfig.defaultLocalization === undefined ? {} : { defaultLocalization: baseConfig.defaultLocalization }),
     ...(baseConfig.defaultStreamingBehavior === undefined ? {} : { defaultStreamingBehavior: baseConfig.defaultStreamingBehavior }),
     ...(baseConfig.quietMode === undefined ? {} : { quietMode: baseConfig.quietMode }),
     ...(baseConfig.plugins === undefined ? {} : { plugins: baseConfig.plugins }),

@@ -247,6 +247,13 @@
 <td>Settings save / browser config refresh; no restart</td>
 </tr>
 <tr>
+<th scope="row"><span id="localization-defaults" class="reference-anchor"></span>Localization defaults<br><code>defaultLocalization</code></th>
+<td>Gateway global; saved device choices take precedence</td>
+<td>Browser language/region, device time zone</td>
+<td>Optional independent <code>language</code>, <code>formatLocale</code>, <code>timeZone</code>, and <code>hourCycle</code> (<code>h11</code>, <code>h12</code>, <code>h23</code>, <code>h24</code>). Native Intl validates locale and zone identifiers. Language requests installed translations with English fallback; it never implies zone or currency. Pseudo locales are development-only. Settings → General → Language and region saves a complete browser-local snapshot, not these defaults. Remove the browser storage key <code>pi-web-localization</code> and reload to resume inheritance. Not project-local or selected-machine configuration; <code>{}</code> clears all configured fields.</td>
+<td>Reload tab; no service restart</td>
+</tr>
+<tr>
 <th scope="row">Streaming send default<br><code>defaultStreamingBehavior</code></th>
 <td>Global gateway; not project-local</td>
 <td><code>steer</code></td>
