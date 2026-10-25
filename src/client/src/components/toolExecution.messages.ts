@@ -8,6 +8,7 @@ export default {
   mismatch: message("Applied diff differs from the preview.", "Notice when the applied tool diff differs from its proposed preview"),
   details: message("Details", "Expand tool command/input and result text"),
   result: message("Result", "Label of raw tool result text"),
+  previewComputed: message("Edit preview computed.", "Transient PI WEB edit-tool progress notice when no diff preview is available; raw tool diagnostics are separate"),
   previewDiff: message("Preview diff", "Proposed diff disclosure and accessible name"),
   appliedDiff: message("Applied diff", "Applied diff disclosure and accessible name"),
   lines: message<{ count: number }>("{count, plural, one {# line} other {# lines}}", "Total number of lines in a tool diff"),

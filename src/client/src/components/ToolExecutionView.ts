@@ -53,7 +53,7 @@ export class ToolExecutionView extends LitElement {
     const diffStats = this.diffStats;
     const previewMismatch = actualDiff !== undefined && preview?.diff !== undefined && actualDiff !== preview.diff;
     const errorText = execution.status === "error" ? execution.resultText : preview?.error;
-    const bodyText = visibleDiff === undefined ? execution.resultText : undefined;
+    const bodyText = visibleDiff === undefined ? localizedResultText(execution) : undefined;
     const target = toolTarget(execution, path);
     const edits = editCount(execution);
 
@@ -209,6 +209,15 @@ export class ToolExecutionView extends LitElement {
     .diff .removed { background: color-mix(in srgb, var(--pi-danger) 12%, transparent); }
     .show-more { justify-self: start; margin-inline: 12px; }
   `];
+}
+
+function localizedResultText(execution: ToolExecutionPart): string | undefined {
+  // Only the owned transient update is presentation; final and legacy tool output stays verbatim.
+  const presentation = getProperty(execution.details, "presentation");
+  if (execution.toolName === "edit" && execution.status === "running" && getString(presentation, "kind") === "editPreviewComputed") {
+    return messages.t("previewComputed");
+  }
+  return execution.resultText;
 }
 
 function toolTarget(execution: ToolExecutionPart, path: string | undefined): ToolTarget | undefined {

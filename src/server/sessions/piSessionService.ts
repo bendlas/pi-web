@@ -1082,7 +1082,7 @@ function createDefaultRuntimeFactory(
   };
 }
 
-type PiWebEditToolDetails = EditToolDetails | { preview: EditPreviewResult } | undefined;
+type PiWebEditToolDetails = EditToolDetails | { preview: EditPreviewResult; presentation: { kind: "editPreviewComputed" } } | undefined;
 
 function createPiWebEditToolDefinition(cwd: string) {
   const editTool = createEditToolDefinition(cwd);
@@ -1099,7 +1099,7 @@ function createPiWebEditToolDefinition(cwd: string) {
     async execute(toolCallId, params, signal, onUpdate, ctx) {
       const preview = await computeEditPreview(params.path, params.edits, cwd);
       if (signal?.aborted !== true) {
-        onUpdate?.({ content: [{ type: "text", text: "Edit preview computed." }], details: { preview } });
+        onUpdate?.({ content: [{ type: "text", text: "Edit preview computed." }], details: { preview, presentation: { kind: "editPreviewComputed" } } });
       }
       return editTool.execute(toolCallId, params, signal, onUpdate, ctx);
     },
