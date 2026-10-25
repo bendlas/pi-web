@@ -28,7 +28,8 @@ import { SessionController } from "../controllers/sessionController";
 import { SessionWorkTransitions } from "../controllers/sessionWorkTransitions";
 import { completeRefreshBatch } from "../controllers/refreshBatch";
 import { SessionNotificationController } from "../controllers/sessionNotificationController";
-import { WorkspaceController } from "../controllers/workspaceController";
+import { WorkspaceController, type WorkspaceSelectionError } from "../controllers/workspaceController";
+import { routeFeedbackMessages as routeFeedback } from "../routeFeedbackMessages";
 import { emptyMachineNavigationSnapshot, machineNavigationSnapshotFromState, routeFromMachineNavigationSnapshot, SessionStorageMachineNavigationMemory, type MachineNavigationSnapshot, type WorkspaceRouteSurface } from "../controllers/machineNavigationMemory";
 import { SessionStorageSessionSelectionMemory } from "../controllers/sessionSelection";
 import { SessionStorageWorkspaceSelectionMemory, shouldShowWorkspaceSelection } from "../controllers/workspaceSelection";
@@ -930,10 +931,12 @@ export class PiWebApp extends LitElement {
         this.workspaces.clearSelection({ updateUrl: false });
         if (error !== "") this.setState({ error });
         const machineId = parsedRoute.machineId ?? "local";
-        this.setContentError(parsedRoute, `Machine not found: ${machineId}`);
+        const missingMachine = () => routeFeedback.t("machineNotFound", { id: machineId });
+        this.setContentError(parsedRoute, missingMachine);
         const scope = machineBrowserErrorScope(machineId);
         if (this.state.browserErrors[browserErrorScopeKey(scope)] === undefined) {
-          this.browserErrors.report(scope, error || `Machine not found: ${machineId}`);
+          if (error !== "") this.browserErrors.report(scope, error);
+          else this.browserErrors.reportLocalized(scope, missingMachine);
         }
         return;
       }
@@ -999,10 +1002,12 @@ export class PiWebApp extends LitElement {
         const error = this.state.error;
         this.workspaces.clearSelection({ updateUrl: false });
         if (error !== "") this.setState({ error });
-        this.setContentError(parsedRoute, this.projects.loadErrors.get(selectedMachineId(this.state)) ?? `Project not found: ${route.projectId}`);
+        const projectId = route.projectId;
+        const missingProject = () => routeFeedback.t("projectNotFound", { id: projectId });
+        this.setContentError(parsedRoute, this.projects.loadErrors.get(selectedMachineId(this.state)) ?? missingProject);
         const scope = machineBrowserErrorScope(selectedMachineId(this.state));
         if (this.state.browserErrors[browserErrorScopeKey(scope)] === undefined) {
-          this.browserErrors.report(scope, `Project not found: ${route.projectId}`);
+          this.browserErrors.reportLocalized(scope, missingProject);
         }
         return;
       }
@@ -1020,7 +1025,7 @@ export class PiWebApp extends LitElement {
       // Re-enter at the deepest loaded parent instead of blanking and relisting its
       // unchanged ancestors. Current-URL restores still validate through their
       // normal workspace and session listing requests.
-      let loadError: string | undefined;
+      let loadError: WorkspaceSelectionError | undefined;
       if (loadedSession !== undefined) {
         await this.sessions.selectSession(loadedSession, { deferChatLoading: route.sessionId === undefined, updateUrl: false, navigation: selectionNavigation });
       } else if (loadedWorkspace !== undefined) {
@@ -1238,16 +1243,25 @@ export class PiWebApp extends LitElement {
     this.schedulePendingRemoteRouteRestore();
   }
 
+  // Track provenance by retained banner identity, never by matching translated text.
+  private readonly remoteRouteRestoreDetails = new WeakMap<BrowserError, { detail: string | undefined }>();
+
   private setRemoteRouteRestoreMessage(route: ParsedAppRoute, options: { exhausted?: boolean } = {}): void {
     const machineId = route.machineId ?? "local";
-    const machineName = this.state.machines.find((machine) => machine.id === machineId)?.name ?? this.state.selectedMachine?.name ?? "Remote machine";
-    const health = this.state.machineStatuses[machineId];
-    const existing = this.state.browserErrors[browserErrorScopeKey(machineBrowserErrorScope(machineId))]?.message;
-    const detail = health?.error ?? (existing !== undefined && !existing.startsWith(`${machineName} is unavailable`) && !existing.startsWith(`${machineName} is still unavailable`) ? existing : undefined);
-    const prefix = options.exhausted === true
-      ? `${machineName} is still unavailable.`
-      : `${machineName} is unavailable; reconnecting…`;
-    this.browserErrors.report(machineBrowserErrorScope(machineId), `${prefix}${detail === undefined ? "" : ` ${detail}`}`);
+    const machineName = this.state.machines.find((machine) => machine.id === machineId)?.name ?? this.state.selectedMachine?.name;
+    const scope = machineBrowserErrorScope(machineId);
+    const key = browserErrorScopeKey(scope);
+    const existing = this.state.browserErrors[key];
+    const previous = existing === undefined ? undefined : this.remoteRouteRestoreDetails.get(existing);
+    const detail = this.state.machineStatuses[machineId]?.error ?? (previous === undefined ? existing?.message : previous.detail);
+    const messageKey = options.exhausted === true ? "exhausted" : "reconnecting";
+    this.browserErrors.reportLocalized(scope, () => routeFeedback.t(messageKey, {
+      machine: machineName ?? routeFeedback.t("remoteMachine"),
+      detail: detail ?? "",
+      hasDetail: detail === undefined ? "no" : "yes",
+    }));
+    const reported = this.state.browserErrors[key];
+    if (reported !== undefined) this.remoteRouteRestoreDetails.set(reported, { detail });
   }
 
   private pendingRemoteRouteRestoreStillCurrent(route: ParsedAppRoute): boolean {
@@ -2468,19 +2482,21 @@ export class PiWebApp extends LitElement {
     };
   }
 
-  private contentLoadOutcome: { destination: string; error: string } | undefined;
+  private contentLoadOutcome: { destination: string; error: WorkspaceSelectionError } | undefined;
 
   private contentDestination(route: ParsedAppRoute): string {
     return JSON.stringify([route.machineId ?? "local", route.projectId, route.workspaceId, route.sessionId]);
   }
 
-  private setContentError(route: ParsedAppRoute, error: string): void {
+  private setContentError(route: ParsedAppRoute, error: WorkspaceSelectionError): void {
     this.contentLoadOutcome = { destination: this.contentDestination(route), error };
     this.requestUpdate();
   }
 
   private contentError(): string {
-    return this.contentLoadOutcome?.destination === this.contentDestination(readRoute()) ? this.contentLoadOutcome.error : "";
+    if (this.contentLoadOutcome?.destination !== this.contentDestination(readRoute())) return "";
+    const error = this.contentLoadOutcome.error;
+    return typeof error === "function" ? error() : error;
   }
 
   private readonly pluginLoadErrors = new Map<string, string>();
@@ -2502,11 +2518,11 @@ export class PiWebApp extends LitElement {
   private sessionEmptyMessage(): string {
     const error = this.contentError();
     if (error !== "") return error;
-    if (this.state.isLoadingProjects) return "Loading projects…";
-    if (this.state.selectedWorkspace !== undefined) return "Select or start a session.";
-    if (this.state.selectedProject !== undefined) return "Select a workspace to start a session.";
-    if (this.state.projects.length === 0) return "Add a project to start a session.";
-    return "Select a project and workspace to start a session.";
+    if (this.state.isLoadingProjects) return routeFeedback.t("loadingProjects");
+    if (this.state.selectedWorkspace !== undefined) return routeFeedback.t("selectSession");
+    if (this.state.selectedProject !== undefined) return routeFeedback.t("selectWorkspace");
+    if (this.state.projects.length === 0) return routeFeedback.t("addProject");
+    return routeFeedback.t("selectProject");
   }
 
   private workspaceLabelItems(workspace: Workspace): WorkspaceLabelItem[] {
@@ -4081,7 +4097,7 @@ export class PiWebApp extends LitElement {
         <main class=${mainViewClass(mainView)}>
           ${this.renderContextBar()}
           ${guard([...this.workspaceSurfaceInputs(), state.sessions, this.unreadSessionIds, this.panelCollapse.navigationPanelCollapsed, this.panelCollapse.workspacePanelCollapsed], () => this.renderMobileMainTabs())}
-          ${this.unknownRouteView() === undefined ? null : html`<div class="error warning" role="alert"><span class="error-text">Unknown view: ${this.unknownRouteView()}</span></div>`}
+          ${this.unknownRouteView() === undefined ? null : html`<div class="error warning" role="alert"><span class="error-text">${routeFeedback.t("unknownView", { view: this.unknownRouteView() ?? "" })}</span></div>`}
           ${this.renderServerNoticeBanners()}
           ${errorBanner(this.displayedError(), () => { this.dismissDisplayedError(); })}
           ${this.renderBrowserErrorBanners(state)}

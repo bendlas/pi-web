@@ -11,6 +11,7 @@ import type { QualifiedContributionId, WorkspaceFilesCapabilityV1, WorkspacePane
 import type { Machine, Project, SessionInfo, TerminalCommandRun, Workspace, WorkspaceProviderResolution } from "../api";
 import { machineScopedBundledPluginId, machineScopedPluginId } from "../../../shared/machinePluginIds";
 import { initialAppState } from "../appState";
+import { localization } from "../localization/browser";
 import { AppShellController } from "../appShell/appShellController";
 import { loadCachedNewSessions, markCachedNewSessionInfo, rememberCachedNewSession } from "../cachedNewSessions";
 import { loadDraft, saveDraft } from "../promptDraftStorage";
@@ -80,10 +81,33 @@ afterEach(async () => {
     vi.unstubAllGlobals();
     window.localStorage.clear();
     window.sessionStorage.clear();
+    await localization.setPreferences({ language: "en", formatLocale: "en" });
   }
 });
 
 describe("PiWebApp plugin host", () => {
+  it("updates every empty session guidance state in both pseudo modes", async () => {
+    installBrowserWindow("http://localhost/app");
+    const app = createDetachedApp();
+    const states = [
+      { isLoadingProjects: true },
+      { selectedProject: project, selectedWorkspace: workspace },
+      { selectedProject: project },
+      {},
+      { projects: [project] },
+    ];
+    const english = ["Loading projects…", "Select or start a session.", "Select a workspace to start a session.", "Add a project to start a session.", "Select a project and workspace to start a session."];
+    for (const [index, state] of states.entries()) {
+      setAppState(app, { ...initialAppState(), ...state });
+      await localization.setPreferences({ language: "en", formatLocale: "ar" });
+      expect(callAppMethod(app, "sessionEmptyMessage")).toBe(english[index]);
+      for (const language of ["en-XA", "ar-XB"]) {
+        await localization.setPreferences({ language, formatLocale: "en" });
+        expect(callAppMethod(app, "sessionEmptyMessage")).not.toBe(english[index]);
+      }
+    }
+  });
+
   it.each(["", "Requested plugin failed to load"])("keeps tool tabs usable without substituting content when a selected tool fails: %s", async (error) => {
     const app = createApp();
     setAppState(app, { ...initialAppState(), selectedProject: project, selectedWorkspace: workspace });
@@ -136,6 +160,15 @@ describe("PiWebApp plugin host", () => {
     expect(host.textContent).not.toContain("Workspace panel unavailable");
     if (query.includes("view=missing")) {
       expect(host.querySelector('.error.warning[role="alert"]')?.textContent).toContain("Unknown view: missing");
+      for (const language of ["en-XA", "ar-XB"]) {
+        await localization.setPreferences({ language, formatLocale: "en" });
+        render(app.render(), host);
+        const warning = host.querySelector('.error.warning[role="alert"]')?.textContent;
+        expect(warning).not.toContain("Unknown view: missing");
+        expect(warning).toContain("missing");
+      }
+      await localization.setPreferences({ language: "en", formatLocale: "en" });
+      render(app.render(), host);
     } else {
       expect(host.querySelector('.error.warning[role="alert"]')).toBeNull();
     }
@@ -1211,6 +1244,15 @@ describe("PiWebApp plugin host", () => {
     expect(callAppMethod(app, "visibleBrowserErrorsForCurrentRoute", appState(app))).toEqual([
       expect.objectContaining({ message: "Project not found: missing-project" }),
     ]);
+    for (const language of ["en-XA", "ar-XB"]) {
+      await localization.setPreferences({ language, formatLocale: "en" });
+      const display = callAppMethod(app, "sessionEmptyMessage");
+      expect(display).not.toBe("Project not found: missing-project");
+      expect(display).toContain("missing-project");
+      if (typeof display !== "string") throw new Error("Expected route feedback");
+      await expectWorkspaceContentError(app, display);
+      expect(Object.values(appState(app).browserErrors)[0]?.displayMessage?.()).toBe(display);
+    }
   });
 
   it("preserves a missing session route while retaining its workspace", async () => {
@@ -1280,6 +1322,17 @@ describe("PiWebApp plugin host", () => {
     ]);
     expect(callAppMethod(app, "sessionEmptyMessage")).toContain(message);
     if (appState(app).selectedWorkspace === undefined) await expectWorkspaceContentError(app, message);
+    const english = callAppMethod(app, "sessionEmptyMessage");
+    for (const language of ["en-XA", "ar-XB"]) {
+      await localization.setPreferences({ language, formatLocale: "en" });
+      const display = callAppMethod(app, "sessionEmptyMessage");
+      if (scenario.endsWith("failure")) expect(display).toBe(english);
+      else {
+        expect(display).not.toBe(english);
+        expect(display).toContain(scenario === "missing workspace" ? workspace.id : "requested-session");
+      }
+      expect(browser.url.href).toBe(destination);
+    }
   });
 
   it.each([

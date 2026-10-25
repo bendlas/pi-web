@@ -8,6 +8,8 @@ import { ServerNoticesController } from "../serverNotices";
 import type { Machine, Workspace } from "../api";
 import type { ParsedAppRoute } from "../route";
 import { PiWebApp } from "./PiWebApp";
+import { localization } from "../localization/browser";
+import { BrowserErrorReporter } from "../browserErrors";
 
 const workspace: Workspace = {
   id: "workspace-1",
@@ -78,9 +80,12 @@ function isAppState(value: unknown): value is AppState {
   return typeof value === "object" && value !== null && "browserErrors" in value;
 }
 
-afterEach(() => {
+afterEach(async () => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  await localization.setPreferences({ language: "en", formatLocale: "en" });
+  document.body.replaceChildren();
+  localStorage.clear();
 });
 
 describe("PiWebApp browser error boundaries", () => {
@@ -99,6 +104,33 @@ describe("PiWebApp browser error boundaries", () => {
 
     expect(appState(app).error).toBe("A legacy failure");
     expect(appState(app).browserErrors[browserErrorScopeKey(machineBrowserErrorScope(remote.id))]?.message).toBe("Remote is unavailable; reconnecting…");
+  });
+
+  it("retains live reconnect feedback without nesting banners or recognizing English diagnostic prefixes", async () => {
+    const app = createApp();
+    const remote: Machine = { id: "remote-1", name: "Remote/日本語", kind: "remote", createdAt: "now", updatedAt: "now" };
+    setState(app, { machines: [remote], selectedMachine: remote });
+    const scope = machineBrowserErrorScope(remote.id);
+    // This is a raw diagnostic, even though it starts like the old generated banner.
+    const detail = `${remote.name} is unavailable: raw connection failure`;
+    new BrowserErrorReporter(() => appState(app), (patch) => { setState(app, patch); }).report(scope, detail);
+    const route: ParsedAppRoute = { machineId: remote.id, projectId: undefined, workspaceId: undefined, sessionId: undefined, tool: undefined, view: undefined };
+    const report = setRemoteRouteRestoreMessage(app);
+    report(route);
+    const first = appState(app).browserErrors[browserErrorScopeKey(scope)];
+    expect(first?.message).toBe(`${remote.name} is unavailable; reconnecting… ${detail}`);
+    for (const language of ["en-XA", "ar-XB"]) {
+      await localization.setPreferences({ language, formatLocale: "en" });
+      expect(first?.displayMessage?.()).not.toBe(first?.message);
+      expect(first?.displayMessage?.()).toContain(detail);
+      expect(first?.displayMessage?.()).toContain(remote.name);
+      report(route, { exhausted: true });
+      const retry = appState(app).browserErrors[browserErrorScopeKey(scope)];
+      expect(retry?.displayMessage?.()).toContain(detail);
+      expect(retry?.displayMessage?.().split(detail)).toHaveLength(2);
+    }
+    await localization.setPreferences({ language: "en", formatLocale: "ar" });
+    expect(appState(app).browserErrors[browserErrorScopeKey(scope)]?.displayMessage?.()).toBe(`${remote.name} is still unavailable. ${detail}`);
   });
 
   it("keeps unexpected action failures on the global browser surface", async () => {

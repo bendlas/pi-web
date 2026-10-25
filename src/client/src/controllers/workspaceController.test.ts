@@ -127,7 +127,7 @@ describe("WorkspaceController localized feedback", () => {
       : await test.controller.selectWorkspace(main, { sessionId: id });
     const notice = Object.values(test.state().browserErrors)[0];
     if (notice === undefined) throw new Error("Expected missing target banner");
-    expect(result).toBe(`${kind === "workspace" ? "Workspace" : "Session"} not found: ${id}`);
+    expect(typeof result === "function" ? result() : result).toBe(`${kind === "workspace" ? "Workspace" : "Session"} not found: ${id}`);
     expect(notice.scope.kind).toBe(kind === "workspace" ? "project" : "workspace");
     const identity = notice.message;
     for (const language of ["en-XA", "ar-XB"]) {
@@ -135,6 +135,8 @@ describe("WorkspaceController localized feedback", () => {
       expect(notice.message).toBe(identity);
       expect(notice.displayMessage?.()).not.toBe(identity);
       expect(notice.displayMessage?.()).toContain(id);
+      expect(typeof result).toBe("function");
+      expect(typeof result === "function" ? result() : result).toBe(notice.displayMessage?.());
     }
   });
 
@@ -148,7 +150,8 @@ describe("WorkspaceController localized feedback", () => {
         diagnostics: hasDetail ? [{ code: "list-failed", tier: "primary", pluginId: "git", message: diagnostic }] : [],
       }),
     });
-    expect(await test.controller.selectProject(repo)).toBe(`Error: ${diagnostic}`);
+    const result = await test.controller.selectProject(repo);
+    expect(typeof result === "function" ? result() : result).toBe(`Error: ${diagnostic}`);
     const notice = Object.values(test.state().browserErrors)[0];
     if (notice === undefined) throw new Error("Expected provider failure banner");
     for (const language of ["en-XA", "ar-XB"]) {
@@ -156,7 +159,10 @@ describe("WorkspaceController localized feedback", () => {
       if (hasDetail) {
         expect(notice.displayMessage).toBeUndefined();
         expect(notice.message).toBe(`Error: ${diagnostic}`);
-      } else expect(notice.displayMessage?.()).not.toBe(notice.message);
+      } else {
+        expect(notice.displayMessage?.()).not.toBe(notice.message);
+        expect(typeof result === "function" ? result() : result).toBe(notice.displayMessage?.());
+      }
     }
   });
 
