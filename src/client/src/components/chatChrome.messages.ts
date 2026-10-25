@@ -1,6 +1,7 @@
 import { message } from "../localization/service";
 
 export default {
+  anthropicSubscriptionAuth: message<{ usageUrl: string }>("Anthropic subscription auth is active. Third-party harness usage draws from extra usage and is billed per token, not your Claude plan limits. Manage extra usage at {usageUrl}.", "Billing notice for Anthropic subscription credentials; Claude is a product name, usageUrl is the unchanged billing settings URL"),
   navigation: message("Chat navigation", "Accessible name for transcript jump controls"),
   jumpTop: message("Jump to top", "Scroll to the beginning of loaded chat history"),
   jumpEnd: message("Jump to end", "Scroll to the end of chat history"),

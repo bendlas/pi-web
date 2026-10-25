@@ -140,6 +140,7 @@ describe("anthropicSubscriptionWarning", () => {
     )).toEqual({
       severity: "warning",
       message: ANTHROPIC_SUBSCRIPTION_AUTH_WARNING,
+      presentation: { kind: "anthropicSubscriptionAuth" },
       source: "anthropic",
       dismiss: { id: "anthropicExtraUsage" },
     } satisfies SessionWarning);

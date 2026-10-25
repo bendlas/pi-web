@@ -662,7 +662,8 @@ export function collectRuntimeWarnings(runtime: RuntimeWarningSources): SessionW
 /**
  * Verbatim TUI wording for the Anthropic subscription-auth billing notice. Kept
  * character-for-character in sync with `ANTHROPIC_SUBSCRIPTION_AUTH_WARNING` in
- * the SDK's interactive mode so the browser shows the same message the TUI does.
+ * the SDK's interactive mode as the wire fallback. Browser presentation metadata
+ * allows translation without matching this English string.
  */
 const ANTHROPIC_SUBSCRIPTION_AUTH_WARNING =
   "Anthropic subscription auth is active. Third-party harness usage draws from extra usage and is billed per token, not your Claude plan limits. Manage extra usage at https://claude.ai/settings/usage.";
@@ -706,6 +707,7 @@ export function anthropicSubscriptionWarning(
   return {
     severity: "warning",
     message: ANTHROPIC_SUBSCRIPTION_AUTH_WARNING,
+    presentation: { kind: "anthropicSubscriptionAuth" },
     source: "anthropic",
     dismiss: { id: ANTHROPIC_EXTRA_USAGE_DISMISS_ID },
   };

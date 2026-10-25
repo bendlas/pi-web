@@ -888,6 +888,16 @@ describe("API parsers", () => {
     ]);
   });
 
+  it("keeps known warning provenance and ignores malformed or future cosmetic metadata", () => {
+    const warning = { severity: "warning", message: "English fallback", dismiss: { id: "opaque-id" } };
+    const presentations = [{ kind: "anthropicSubscriptionAuth" }, { kind: "future" }, null, [], "invalid", { kind: 1 }];
+    const parsed = parseSessionStatus({ ...statusWire(), warnings: presentations.map((presentation) => ({ ...warning, presentation })) });
+    expect(parsed.warnings).toEqual([
+      { ...warning, presentation: { kind: "anthropicSubscriptionAuth" } },
+      ...presentations.slice(1).map(() => warning),
+    ]);
+  });
+
   it("omits warnings entirely when the field is absent", () => {
     const parsed = parseSessionStatus({
       sessionId: "s1",

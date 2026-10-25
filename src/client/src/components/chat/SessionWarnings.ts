@@ -16,7 +16,9 @@ export function chatSessionWarningRows(status: SessionStatus | undefined): ChatS
   return (status?.warnings ?? []).map((warning) => ({
     severity: warning.severity,
     severityClass: `session-warning ${warning.severity}`,
-    message: warning.message,
+    message: warning.presentation?.kind === "anthropicSubscriptionAuth"
+      ? messages.t("anthropicSubscriptionAuth", { usageUrl: "https://claude.ai/settings/usage" })
+      : warning.message,
     ...(warning.source === undefined ? {} : { source: warning.source }),
     ...(warning.path === undefined ? {} : { path: warning.path }),
     ...(warning.dismiss === undefined ? {} : { dismissId: warning.dismiss.id }),

@@ -1210,6 +1210,8 @@ export type SessionWarningSeverity = "info" | "warning" | "error";
 export interface SessionWarning {
   severity: SessionWarningSeverity;
   message: string;
+  /** Cosmetic provenance for PI WEB-owned notices; message remains the English fallback. */
+  presentation?: { kind: "anthropicSubscriptionAuth" };
   source?: string;
   path?: string;
   dismiss?: { id: string };

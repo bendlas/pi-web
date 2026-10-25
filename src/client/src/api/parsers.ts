@@ -328,6 +328,8 @@ function parseSessionWarning(value: unknown): SessionWarning {
   return {
     severity: parseSessionWarningSeverity(record["severity"]),
     message: requireString(record, "message"),
+    ...(isRecord(record["presentation"]) && record["presentation"]["kind"] === "anthropicSubscriptionAuth"
+      ? { presentation: { kind: "anthropicSubscriptionAuth" as const } } : {}),
     ...optionalField("source", optionalString(record, "source")),
     ...optionalField("path", optionalString(record, "path")),
     ...(dismiss === undefined ? {} : { dismiss }),
