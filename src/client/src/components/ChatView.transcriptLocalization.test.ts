@@ -13,6 +13,7 @@ import { summarizeChatGroup } from "../chatGroups";
 import { localizedChatGroupSummary } from "./chat/transcriptLabels";
 import { normalizeMessages } from "../chatMessages";
 import { applyTranscriptEvent } from "../chatTranscript";
+import { localizedCommandResult } from "../commandResultMessages";
 import { localizedChatText, localizedArgumentSummary } from "../localizedChatPresentation";
 import type { ToolExecutionView } from "./ToolExecutionView";
 import type { ChatLine } from "../chatTypes";
@@ -160,6 +161,33 @@ it("localizes retained generated command feedback while identical extension text
     expect(view.messages).toBe(lines);
     expect(lines[0]?.parts[0]).toMatchObject({ text: auth });
     expect(lines[1]?.parts[0]).toMatchObject({ text: naming });
+  }
+});
+
+it("renders retained HTTP command results as safe live text while raw command text remains unchanged", async () => {
+  const presentation = { kind: "commandResult", feedback: { code: "reloadFailed", detail: "<img src=x> diagnostic" } } as const;
+  const raw = "Reload failed: <img src=x> diagnostic";
+  const lines: ChatLine[] = [
+    { role: "system", parts: [{ type: "text", text: raw, presentation }] },
+    { role: "system", parts: [{ type: "text", text: raw }] },
+  ];
+  const view = new ChatView();
+  view.behaviors = { ...view.behaviors, followTail: false, rememberPosition: false };
+  view.messages = lines;
+  document.body.append(view); await view.updateComplete;
+  const root = required(view.shadowRoot);
+  for (const group of root.querySelectorAll<HTMLDetailsElement>(".event-group")) {
+    group.open = true; group.dispatchEvent(new Event("toggle"));
+  }
+  await view.updateComplete;
+  const generated = required(root.querySelector(".generated-text"));
+  for (const locale of ["en", "en-XA", "ar-XB"]) {
+    await language(view, locale);
+    expect(root.querySelector(".generated-text")).toBe(generated);
+    expect(generated.textContent).toBe(localizedCommandResult(presentation));
+    expect(root.querySelector("img")).toBeNull();
+    expect(Array.from(root.querySelectorAll("formatted-text")).some((node) => "text" in node && node.text === raw)).toBe(true);
+    expect(view.messages).toBe(lines);
   }
 });
 

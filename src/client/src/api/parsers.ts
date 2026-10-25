@@ -2,6 +2,7 @@ import { PI_WEB_PLUGIN_LIFECYCLE_VERSION, ASK_USER_COMMENT_MAX_LENGTH, ASK_USER_
 import { parseMachineStatusSnapshot, type MachineStatusSnapshot, type MachineStatusUiEvent } from "../../../shared/machineStatus";
 import type { JsonValue, PiPackageInfo, PiPackageInstallableSuggestion, PiPackageMutationAction, PiPackageMutationResponse, PiPackageScope, PiPackagesResponse, SessionActivity, SessionStartupProgressEvent, SessionTreeForkResult, SessionTreeNavigateResult, SessionTreeNode, SessionTreeNodeKind, SessionTreeSnapshot, WorkspaceProviderDiagnostic, WorkspaceProviderDiagnosticCode, WorkspaceProviderResolution, WorkspaceProviderResolutionStatus, WorkspaceProviderTier } from "../../../shared/apiTypes";
 
+import { parseCommandResultPresentation } from "../../../shared/commandResultPresentation";
 import { parseCommandOutputPresentation } from "../../../shared/commandOutputPresentation";
 import { parseSessionNotificationPresentation } from "../../../shared/sessionNotificationPresentation";
 import { parseKnownPiWebCapabilities } from "../../../shared/capabilities";
@@ -1978,10 +1979,10 @@ function parsePiWebStatusSeverity(value: unknown): PiWebStatusSeverity {
 export function parseCommandResult(value: unknown): CommandResult {
   const record = requireRecord(value);
   const type = requireString(record, "type");
-  if (type === "unsupported") return { type, message: requireString(record, "message") };
-  if (type === "select") return { type, requestId: requireString(record, "requestId"), title: requireString(record, "title"), options: arrayOf(parseCommandOption)(record["options"]) };
+  if (type === "unsupported") return { type, ...optionalField("presentation", parseCommandResultPresentation(record["presentation"])), message: requireString(record, "message") };
+  if (type === "select") return { type, ...optionalField("presentation", parseCommandResultPresentation(record["presentation"])), requestId: requireString(record, "requestId"), title: requireString(record, "title"), options: arrayOf(parseCommandOption)(record["options"]) };
   if (type === "tree") return { type, tree: parseSessionTreeSnapshot(record["tree"]) };
-  if (type === "done") return { type, ...optionalField("message", optionalString(record, "message")), ...optionalSession(record["session"]), ...optionalField("promptDraft", optionalString(record, "promptDraft")) };
+  if (type === "done") return { type, ...optionalField("presentation", parseCommandResultPresentation(record["presentation"])), ...optionalField("message", optionalString(record, "message")), ...optionalSession(record["session"]), ...optionalField("promptDraft", optionalString(record, "promptDraft")) };
   throw new Error("Invalid command result type");
 }
 

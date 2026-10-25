@@ -4,6 +4,7 @@ import { NetworkRequestError } from "../api/http";
 import { BrowserErrorReporter, sessionBrowserErrorScope, workspaceBrowserErrorScope, type SessionBrowserErrorOwner } from "../browserErrors";
 import { forgetCachedNewSession, isCachedNewSessionInfo, markCachedNewSessionInfo, mergeCachedNewSessions, rememberCachedNewSession, stripCachedNewSessionMarker } from "../cachedNewSessions";
 import { textMessage } from "../chatMessages";
+import { CommandResultError, localizedCommandResult } from "../commandResultMessages";
 import { HistoryActionError } from "../chatActionMessages";
 import { machineSessionKey } from "../machineKeys";
 import { samePromptChipTarget, type PromptChipTarget } from "../promptChips";
@@ -686,7 +687,9 @@ export class SessionController {
     let result: CommandResult;
     try {
       result = await this.api.runCommand(session, "/tree", machineId);
-      if (result.type !== "tree") throw "message" in result ? new Error(result.message) : new HistoryActionError("historyUnavailable");
+      if (result.type !== "tree") throw "message" in result
+        ? result.presentation === undefined ? new Error(result.message) : new CommandResultError(result.presentation)
+        : new HistoryActionError("historyUnavailable");
       if (!result.tree.nodes.some((node) => node.id === entryId)) throw new HistoryActionError("messageUnavailable");
     } catch (error) {
       this.reportSessionError(session, machineId, error, errorOwner);
@@ -1698,7 +1701,7 @@ export class SessionController {
     // session's immutable cwd is safe; deriving workspace metadata here would
     // let a later selection misattribute the failure.
     const scope = sessionBrowserErrorScope(machineId, session.id, errorOwner);
-    if (error instanceof HistoryActionError || error instanceof PendingSessionError || error instanceof SessionFeedbackError) this.browserErrors.reportLocalized(scope, () => String(error));
+    if (error instanceof HistoryActionError || error instanceof PendingSessionError || error instanceof SessionFeedbackError || error instanceof CommandResultError) this.browserErrors.reportLocalized(scope, () => String(error));
     else this.browserErrors.report(scope, String(error));
   }
 
@@ -2126,15 +2129,18 @@ export class SessionController {
 
   private async applyCommandResult(result: CommandResult, expected: NavigationSelection): Promise<void> {
     if (result.type === "select") {
-      this.setState({ commandDialog: result });
+      this.setState({ commandDialog: { ...result, get title() { return result.presentation === undefined ? result.title : localizedCommandResult(result.presentation); } } });
       return;
     }
     if (result.type === "tree") {
       this.setState({ treeDialog: result.tree });
       return;
     }
-    const message = result.type === "unsupported" ? result.message : result.message;
-    if (message !== undefined && message !== "") this.setState({ messages: [...this.getState().messages, textMessage(result.type === "unsupported" ? "system" : "tool", message)] });
+    const message = result.message;
+    if (message !== undefined && message !== "") this.setState({ messages: [...this.getState().messages, {
+      role: result.type === "unsupported" ? "system" : "tool",
+      parts: [{ type: "text", text: message, ...(result.presentation === undefined ? {} : { presentation: result.presentation }) }],
+    }] });
     if (result.type !== "done" || result.session === undefined) return;
 
     if (result.promptDraft !== undefined) saveDraft(this.sessionCacheKey(result.session.id), result.promptDraft);

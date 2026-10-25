@@ -1,8 +1,10 @@
+import type { CommandResultPresentation } from "../../shared/commandResultPresentation";
 import type { CommandOutputPresentation } from "../../shared/commandOutputPresentation";
 
 /** Generated prose keeps provenance separate from source/model text. */
 export type ChatTextPresentation =
   | CommandOutputPresentation
+  | CommandResultPresentation
   | { kind: "modelError"; detail: string }
   | { kind: "imagePlaceholder" }
   | ArgumentSummaryPresentation

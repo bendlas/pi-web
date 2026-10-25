@@ -1,3 +1,4 @@
+import type { CommandResultPresentation } from "./commandResultPresentation.js";
 import type { CommandOutputPresentation } from "./commandOutputPresentation.js";
 import type { SessionNotificationPresentation } from "./sessionNotificationPresentation.js";
 import type { RuntimeActivityPresentation } from "./sessionActivityPresentation.js";
@@ -1426,10 +1427,10 @@ export interface SessionTranscriptSnapshot extends SessionStreamSnapshot {
 }
 
 export type CommandResult =
-  | { type: "done"; message?: string; session?: SessionInfo; promptDraft?: string }
-  | { type: "select"; requestId: string; title: string; options: CommandOption[] }
+  | { type: "done"; message?: string; presentation?: CommandResultPresentation; session?: SessionInfo; promptDraft?: string }
+  | { type: "select"; requestId: string; title: string; presentation?: CommandResultPresentation; options: CommandOption[] }
   | { type: "tree"; tree: SessionTreeSnapshot }
-  | { type: "unsupported"; message: string };
+  | { type: "unsupported"; message: string; presentation?: CommandResultPresentation };
 
 /**
  * Transport-level per-session sequence stamp. `SessionEventHub.publish` assigns a
