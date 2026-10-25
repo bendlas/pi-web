@@ -1,4 +1,5 @@
 import { queuedMessageRecallConfirmation, type QueuedMessageActionTarget } from "../queuedMessageActions";
+import { appActionMessages } from "../appActionMessages";
 import { chatActionMessages, HistoryActionError } from "../chatActionMessages";
 import { localization, LocalizationController } from "../localization/browser";
 import { pickerMessages } from "../pickerMessages";
@@ -2721,9 +2722,9 @@ export class PiWebApp extends LitElement {
   private workspaceSurfaceActions(): AppAction[] {
     return [{
       id: "core:workspace.refresh-current",
-      title: "Refresh Current Panel",
+      get title() { return appActionMessages.t("refreshTitle"); },
       shortcut: "mod+shift+r",
-      group: "Workspace",
+      get group() { return appActionMessages.t("groupWorkspace"); },
       enabled: this.state.selectedWorkspace !== undefined,
       run: () => this.refreshCurrentWorkspaceSurface(),
     }];
@@ -2745,23 +2746,23 @@ export class PiWebApp extends LitElement {
     return [
       {
         id: "app.layout.reset-navigation-panel-size",
-        title: "Reset Navigation Panel Size",
-        description: "Restore the navigation panel to its default width",
-        group: "View",
+        get title() { return appActionMessages.t("resetNavigationTitle"); },
+        get description() { return appActionMessages.t("resetNavigationDescription"); },
+        get group() { return appActionMessages.t("groupView"); },
         run: () => { this.resetResizablePanel("navigation"); },
       },
       {
         id: "app.layout.reset-workspace-panel-size",
-        title: "Reset Workspace Panel Size",
-        description: "Restore the workspace panel to its default width",
-        group: "View",
+        get title() { return appActionMessages.t("resetWorkspaceTitle"); },
+        get description() { return appActionMessages.t("resetWorkspaceDescription"); },
+        get group() { return appActionMessages.t("groupView"); },
         run: () => { this.resetResizablePanel("workspace"); },
       },
       {
         id: "app.layout.reset-panel-sizes",
-        title: "Reset Panel Sizes",
-        description: "Restore all side panels to their default widths",
-        group: "View",
+        get title() { return appActionMessages.t("resetAllTitle"); },
+        get description() { return appActionMessages.t("resetAllDescription"); },
+        get group() { return appActionMessages.t("groupView"); },
         run: () => { this.resetResizablePanels(); },
       },
     ];
@@ -2771,41 +2772,41 @@ export class PiWebApp extends LitElement {
     return [
       {
         id: "app.navigation.open",
-        title: "Open Navigation",
-        description: "Find destinations and manage pinned tabs",
-        group: "Navigation",
+        get title() { return appActionMessages.t("openNavigationTitle"); },
+        get description() { return appActionMessages.t("openNavigationDescription"); },
+        get group() { return appActionMessages.t("groupNavigation"); },
         run: () => { this.showNavigation(); },
       },
       {
         id: "app.navigation.focus-machines",
-        title: "Focus Machines",
-        description: "Move keyboard focus to the machine selector",
+        get title() { return appActionMessages.t("focusMachinesTitle"); },
+        get description() { return appActionMessages.t("focusMachinesDescription"); },
         shortcut: "mod+g m",
-        group: "Navigation",
+        get group() { return appActionMessages.t("groupNavigation"); },
         run: () => this.focusNavigationSection("machines"),
       },
       {
         id: "app.navigation.focus-projects",
-        title: "Focus Projects",
-        description: "Move keyboard focus to the projects list",
+        get title() { return appActionMessages.t("focusProjectsTitle"); },
+        get description() { return appActionMessages.t("focusProjectsDescription"); },
         shortcut: "mod+g p",
-        group: "Navigation",
+        get group() { return appActionMessages.t("groupNavigation"); },
         run: () => this.focusNavigationSection("projects"),
       },
       {
         id: "app.navigation.focus-workspaces",
-        title: "Focus Workspaces",
-        description: "Move keyboard focus to the workspaces list",
+        get title() { return appActionMessages.t("focusWorkspacesTitle"); },
+        get description() { return appActionMessages.t("focusWorkspacesDescription"); },
         shortcut: "mod+g w",
-        group: "Navigation",
+        get group() { return appActionMessages.t("groupNavigation"); },
         run: () => this.focusNavigationSection("workspaces"),
       },
       {
         id: "app.navigation.focus-sessions",
-        title: "Focus Sessions",
-        description: "Move keyboard focus to the sessions list",
+        get title() { return appActionMessages.t("focusSessionsTitle"); },
+        get description() { return appActionMessages.t("focusSessionsDescription"); },
         shortcut: "mod+g s",
-        group: "Navigation",
+        get group() { return appActionMessages.t("groupNavigation"); },
         run: () => this.focusNavigationSection("sessions"),
       },
     ];
