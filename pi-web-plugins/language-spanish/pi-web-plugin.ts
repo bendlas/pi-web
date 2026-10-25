@@ -61,7 +61,6 @@ const namespaces = [
   "plugin:pi-web.terminal:terminal",
   "plugin:updates:panel",
   "plugin:workspace-tasks:tasks",
-  "plugin:captains-log:browser",
   "plugin:relays:browser",
   "plugin:workflows:worktree",
 ] as const;

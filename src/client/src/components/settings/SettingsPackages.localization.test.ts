@@ -14,7 +14,6 @@ const packages = [
 const suggestions = [
   { id: "@jmfederico/pi-relay", label: "server label", description: "server description", source: "/raw/relay" },
   { id: "@jmfederico/pi-web-workflows", label: "server label", description: "server description", source: "/raw/workflows" },
-  { id: "@jmfederico/pi-captains-log", label: "server label", description: "server description", source: "/raw/captains-log" },
   { id: "external", label: raw, description: raw, source: "/raw/external" },
 ];
 afterEach(async () => {
@@ -80,7 +79,7 @@ it("keeps draft, focus, rows and provider values while every panel-owned surface
     expect(field.placeholder).toBe(messages.t("placeholder"));
     expect(panel.renderRoot.querySelector("label")?.textContent).toBe(messages.t("source"));
     const text = panel.renderRoot.textContent;
-    for (const key of ["available", "configured", "community", "projectUpdate", "mixedUpdates", "pathUnknown", "relayDescription", "workflowsDescription", "captainsLogDescription"] as const) expect(text).toContain(messages.t(key));
+    for (const key of ["available", "configured", "community", "projectUpdate", "mixedUpdates", "pathUnknown", "relayDescription", "workflowsDescription"] as const) expect(text).toContain(messages.t(key));
     expect(text).toContain(messages.t("metadata", { scope: "project", filtered: "yes" }));
     for (const value of [raw, required(packages[0]).installedPath, "pi install <source>"]) expect(text).toContain(value);
     expect(panel.renderRoot.querySelector("img")).toBeNull();

@@ -19,7 +19,6 @@ const sourceModules = import.meta.glob<{ default: MessageDefinitions }>([
   "./**/*.messages.ts",
   "../pi-packages/relays/**/*.messages.ts",
   "../pi-packages/workflows/**/*.messages.ts",
-  "../pi-packages/captains-log/**/*.messages.ts",
 ], { eager: true });
 
 const sourcePaths: Record<string, string> = {
@@ -85,7 +84,6 @@ const sourcePaths: Record<string, string> = {
   "plugin:pi-web.terminal:terminal": "./terminal/terminal.messages.ts",
   "plugin:relays:browser": "../pi-packages/relays/relays.messages.ts",
   "plugin:workflows:worktree": "../pi-packages/workflows/browser/workflows.messages.ts",
-  "plugin:captains-log:browser": "../pi-packages/captains-log/src/browser/captain.messages.ts",
 };
 
 function definitionsFor(namespace: string): MessageDefinitions {

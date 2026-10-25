@@ -2,7 +2,6 @@ import { cp, mkdir, readFile, readdir, symlink, writeFile } from "node:fs/promis
 import { join, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import ts from "typescript";
-import { smokeInstalledCaptainsLog } from "./captains-log-package-smoke.mjs";
 
 const publicApiDeclarationPaths = [
   "plugin-api.d.ts",
@@ -41,7 +40,6 @@ const pluginConsumerCompilerModes = [
 ];
 
 export async function smokeInstalledPluginApi({ packageRoot, fixtureRoot, repoRoot }) {
-  await smokeInstalledCaptainsLog({ packageRoot, fixtureRoot });
   await assertPublicApiBaseline(packageRoot, repoRoot);
   await assertInstalledDeclarationArtifacts(packageRoot);
   await assertExampleCompatibilityFloor(packageRoot);
@@ -151,12 +149,6 @@ async function assertExampleCompatibilityFloor(packageRoot) {
   const actualRange = manifest?.devDependencies?.["@jmfederico/pi-web"];
   if (actualRange !== workspaceProviderExamplePiWebRange) {
     throw new Error(`Installed workspace-provider example must require @jmfederico/pi-web ${workspaceProviderExamplePiWebRange}; received ${JSON.stringify(actualRange)}`);
-  }
-  const captainsLog = JSON.parse(await readFile(join(packageRoot, "dist", "pi-packages", "captains-log", "package.json"), "utf8"));
-  for (const field of ["devDependencies", "peerDependencies"]) {
-    if (captainsLog[field]?.["@jmfederico/pi-web"] !== workspaceProviderExamplePiWebRange) {
-      throw new Error(`Installed Captain's Log ${field} must require @jmfederico/pi-web ${workspaceProviderExamplePiWebRange}`);
-    }
   }
 }
 

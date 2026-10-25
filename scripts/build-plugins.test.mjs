@@ -21,28 +21,28 @@ afterEach(async () => {
 describe("buildDirectory", () => {
   it("ships optional Pi packages with compiled entry graphs and unchanged manifests without including test sources", async () => {
     const source = join(tempDir, "pi-packages");
-    const packageDir = join(source, "captains-log");
+    const packageDir = join(source, "example-package");
     await mkdir(join(packageDir, "src"), { recursive: true });
     await mkdir(join(packageDir, "dist"));
     await mkdir(join(packageDir, "test"));
-    const manifest = { name: "@jmfederico/pi-captains-log", type: "module", pi: { extensions: ["./dist/index.js"] } };
+    const manifest = { name: "@example/pi-package", type: "module", pi: { extensions: ["./dist/index.js"] } };
     await writeFile(join(packageDir, "tsconfig.json"), JSON.stringify({ compilerOptions: { rootDir: "src", outDir: "dist" }, include: ["src/**/*.ts"] }));
     await writeFile(join(packageDir, "dist/index.js"), 'throw new Error("stale output");');
     await writeFile(join(packageDir, "dist/deleted.js"), 'throw new Error("deleted source");');
     await writeFile(join(packageDir, "test/index.test.mjs"), 'throw new Error("tests must not ship");');
     await writeFile(join(packageDir, "package.json"), JSON.stringify(manifest));
     await writeFile(join(packageDir, "src/index.ts"), 'import { name } from "./name.js"; export default function register(): string { return name; }');
-    await writeFile(join(packageDir, "src/name.ts"), 'export const name: string = "Captain’s Log";');
+    await writeFile(join(packageDir, "src/name.ts"), 'export const name: string = "Example package";');
     await writeFile(join(packageDir, "src/index.test.ts"), 'throw new Error("tests must not ship");');
     await writeFile(join(packageDir, "src/types.d.ts"), 'export type Name = string;');
 
     const target = join(tempDir, "dist/pi-packages");
     await buildPiPackages(source, target);
-    const output = join(target, "captains-log");
+    const output = join(target, "example-package");
     expect(await recursiveFiles(output)).toEqual(["dist/index.js", "dist/name.js", "package.json", "tsconfig.json"]);
     expect(JSON.parse(await readFile(join(output, "package.json"), "utf8"))).toEqual(manifest);
     const compiled = await import(pathToFileURL(join(output, "dist/index.js")).href);
-    expect(compiled.default()).toBe("Captain’s Log");
+    expect(compiled.default()).toBe("Example package");
   });
 
   it("materializes a symlinked file as a real file", async () => {

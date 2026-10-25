@@ -102,10 +102,9 @@ Unlike ordinary tests or artifact inspection, the smoke test packs the existing 
 | Pi-managed install | A separate `--legacy-peer-deps` installation omits automatic SDK peers and uses the selected existing Pi installation to load the CLI and server tool modules. |
 | Pi extension loading | The real Pi resource loader loads the installed `/pi-web` extension in both install layouts, registers its command, and reports no dependency warnings. |
 | Public plugin API | Strict browser/server consumer and example compilations resolve installed public entries under NodeNext and Bundler; unsupported deep imports are rejected and emitted session-bridge entries import successfully. |
-| Shipped plugin behavior | The installed Captain's Log translator uses real Pi sessions/extensions with fake model streaming to check read-only source access, translator-session reuse, failure recovery, reconnects, and persisted archive records. |
 | Native terminal | The installed stable `node-pty` and terminal service execute a real shell command, capture its output, and exit successfully. |
 
-This catches missing packaged files, bad exports, undeclared or incorrectly resolved dependencies, peer-install-policy differences, resource-loader incompatibility, and native PTY/install-script failures that can pass in a development checkout. It does not replace application tests, install user services, verify full HTTP/WebSocket interactions or host admission, exercise browser rendering/live model calls, or test every supported machine/platform. Captain's Log archive recreation is covered; process-crash recovery and reopening an on-disk Pi transcript are not.
+This catches missing packaged files, bad exports, undeclared or incorrectly resolved dependencies, peer-install-policy differences, resource-loader incompatibility, and native PTY/install-script failures that can pass in a development checkout. It does not replace application tests, install user services, verify full HTTP/WebSocket interactions or host admission, exercise browser rendering/live model calls, or test every supported machine/platform.
 
 Its cost comes largely from downloading/installing npm and runtime dependencies into a fresh temporary cache, unpacking two install layouts, and strict consumer/example compilations. It requires registry access and a POSIX shell. Prefixes, caches, and fixture agent directories are temporary and cleaned up afterward; npm subprocesses get a temporary home. The harness and PTY still inherit the process environment and run with the user's permissions, so this is test isolation rather than a security sandbox. It does not install into the user's global prefix or restart the live session daemon.
 
@@ -115,14 +114,14 @@ Run it before merging a change to an installed-package boundary, or to reproduce
 
 - Runtime dependencies, Pi SDK peers, TypeBox resolution, or npm/Pi install policy.
 - `package.json` exports/files/bin contracts, packaging/build scripts, or public plugin API resolution.
-- Shipped extension loading, built-in extension factories, native `node-pty`/terminal-service integration, or the installed Captain's Log translation/archive contract.
+- Shipped extension loading, built-in extension factories, native `node-pty`/terminal-service integration.
 - The smoke script or its fixtures.
 
 For a related change, the smoke command consumes the preceding build; rebuild after changing source or packaging inputs. Routine UI, route, application-logic, documentation, or unrelated test work does not require this command locally.
 
 CI runs it after merges/pushes to `main` and on manual runs, on Linux only. Ordinary PR CI skips it; packaging-sensitive PRs should run it locally before merge or use a manual CI run for their branch. The publication workflow always runs it before publishing. This trades an installed-package check on every PR for a post-merge gate plus a final publication gate, while keeping the normal PR build/artifact checks.
 
-The implementation lives in [`scripts/smoke-package-install.mjs`](../scripts/smoke-package-install.mjs), [`scripts/plugin-api-package-smoke.mjs`](../scripts/plugin-api-package-smoke.mjs), and [`scripts/captains-log-package-smoke.mjs`](../scripts/captains-log-package-smoke.mjs).
+The implementation lives in [`scripts/smoke-package-install.mjs`](../scripts/smoke-package-install.mjs) and [`scripts/plugin-api-package-smoke.mjs`](../scripts/plugin-api-package-smoke.mjs).
 
 ## Bun runtime delivery check
 

@@ -5,8 +5,6 @@ export default {
   relayDescription: message("Tool-agnostic Relay method, opinionated runner profile, and human-gated preparation prompts for independent Pi session chains.", "Shipped Relay package description"),
   workflowsName: message("Workflows", "Shipped Workflows package display name"),
   workflowsDescription: message("Opinionated workflow prompts and shortcuts, starting with /worktree for named Git worktrees based on the invoking checkout's HEAD.", "Shipped Workflows package description; preserve /worktree command"),
-  captainsLogName: message("Captain’s Log", "Shipped Captain's Log package display name"),
-  captainsLogDescription: message("Translate the selected session's last reply into pirate, with a visible Pi message trail. Install, then explicitly enable its PI WEB plugin.", "Shipped Captain's Log package description"),
   heading: message("Pi packages", "Pi package management heading"),
   description: message<{ target: string; strong: Rich }>("Managing Pi packages on <strong>{target}</strong>. Install, remove, and update packages managed by Pi on the selected machine. Pi packages can provide extensions, skills, prompt templates, themes, context/system prompt files, and PI WEB browser plugins.", "Panel scope; safe emphasis on raw target label"),
   target: message<{ name: string; kind: string }>("{name} ({kind, select, local {local gateway} other {remote machine}})", "Machine target label; name is unchanged"),

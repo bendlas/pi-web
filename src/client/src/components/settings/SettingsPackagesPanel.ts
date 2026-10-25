@@ -20,7 +20,6 @@ function suggestionPresentation(suggestion: PiPackageInstallableSuggestion): { l
   switch (suggestion.id) {
     case "@jmfederico/pi-relay": return { label: packagesMessages.t("relayName"), description: packagesMessages.t("relayDescription") };
     case "@jmfederico/pi-web-workflows": return { label: packagesMessages.t("workflowsName"), description: packagesMessages.t("workflowsDescription") };
-    case "@jmfederico/pi-captains-log": return { label: packagesMessages.t("captainsLogName"), description: packagesMessages.t("captainsLogDescription") };
     default: return suggestion;
   }
 }
