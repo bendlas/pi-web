@@ -165,7 +165,7 @@ describe("settings-dialog session daemon machine targeting", () => {
 
     await callDialogPromise(dialog, "loadSessiondConfigForTarget");
 
-    expect(getDialogProperty(dialog, "sessiondError")).toBe("Failed to load session-daemon config from Lab Mac (remote machine): Could not reach Lab Mac for selected-machine settings. Check the machine connection and try again.");
+    expect(getDialogProperty(dialog, "sessiondError")).toBe("Failed to load session-daemon config from Lab Mac (remote machine): Remote machine unavailable");
     expect(getDialogProperty(dialog, "sessiondLoading")).toBe(false);
   });
 });
