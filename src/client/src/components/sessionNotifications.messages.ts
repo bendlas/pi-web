@@ -5,6 +5,8 @@ export default {
   compactionCancelled: message(sessionNotificationSources.compactionCancelled, "Notification after manual compaction is cancelled"),
   automaticCompactionCancelled: message(sessionNotificationSources.automaticCompactionCancelled, "Notification after automatic compaction is cancelled"),
   compactionFailed: message(sessionNotificationSources.compactionFailed, "Compaction failure notification; provider diagnostics are separate and unchanged"),
+  dismissFailed: message<{ detail: string }>("Failed to dismiss notification: {detail}", "Notification dismissal failure; detail is an untranslated runtime diagnostic"),
+  dismissAllFailed: message<{ detail: string }>("Failed to dismiss session notifications: {detail}", "Clear notification inbox failure; detail is an untranslated runtime diagnostic"),
   info: message("Info", "Informational notification severity"),
   warning: message("Warning", "Warning notification severity"),
   error: message("Error", "Error notification severity"),
