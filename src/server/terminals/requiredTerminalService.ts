@@ -1,3 +1,4 @@
+import { terminalTitlePresentationField } from "../../shared/terminalTitlePresentation.js";
 import type { PluginCapability } from "../../server-plugin-api.js";
 import type { TerminalCommandRun } from "../../shared/apiTypes.js";
 import { REQUIRED_TERMINAL_PLUGIN_ID } from "../../shared/requiredTerminalPlugin.js";
@@ -14,6 +15,7 @@ export interface RunTerminalCommandOptions {
   workspaceId: string;
   cwd: string;
   origin: string;
+  titlePresentation?: import("../../shared/terminalTitlePresentation.js").TerminalTitlePresentation;
   title: string;
   command: string;
   metadata?: unknown;
@@ -115,6 +117,7 @@ function requireCommandRun(value: unknown): TerminalCommandRun {
     ...workspaceIdentity(value),
     terminalId: value["terminalId"],
     title: value["title"],
+    ...terminalTitlePresentationField(value["titlePresentation"]),
     command: value["command"],
     status,
     ...(exitCode === undefined ? {} : { exitCode }),

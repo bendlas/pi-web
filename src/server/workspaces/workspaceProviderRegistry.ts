@@ -1,3 +1,4 @@
+import { terminalTitlePresentationField } from "../../shared/terminalTitlePresentation.js";
 import { parseWorkspaceRemovalLocalization } from "../../shared/workspaceRemovalPresentation.js";
 import { createHash } from "node:crypto";
 import { stat } from "node:fs/promises";
@@ -797,7 +798,7 @@ function parseWorkspaceRemovePlan(value: unknown, pluginId: string): WorkspaceRe
   if (typeof command !== "string" || command.trim() === "") {
     throw providerRemovalError("invalid-plan", 502, `Server plugin ${pluginId} removal plan command must be a non-empty string`);
   }
-  return Object.freeze({ title, command });
+  return Object.freeze({ title, command, ...terminalTitlePresentationField(value["titlePresentation"]) });
 }
 
 function boundedErrorMessage(error: unknown): string {

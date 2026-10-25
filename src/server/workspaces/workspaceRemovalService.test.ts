@@ -128,6 +128,20 @@ describe("WorkspaceRemovalService", () => {
     });
   });
 
+  it("forwards explicit provider title provenance to the required Terminal without deriving it from text", async () => {
+    const target = hostWorkspace("target", "/linked", false);
+    const titlePresentation = { kind: "workspaceRemoval" as const, label: "feature/<img>" };
+    const terminals = terminalHost();
+    const service = new WorkspaceRemovalService(removalProvider({
+      ownerPluginId: "neutral",
+      target,
+      workspaces: [target, hostWorkspace("main", "/repo", true)],
+      prepare: () => Promise.resolve({ title: "Delete workspace: feature/<img>", command: "tool remove", titlePresentation }),
+    }), terminals);
+    await service.remove(project, target.id, removalPrecondition(target));
+    expect(terminals.runOptions[0]?.titlePresentation).toEqual(titlePresentation);
+  });
+
   it.each([
     {
       name: "main workspace",

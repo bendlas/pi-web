@@ -431,6 +431,7 @@ export class TerminalPanel extends LitElement {
   }
 
   private terminalName(terminal: TerminalInfo): string {
+    if (terminal.titlePresentation !== undefined) return this.text.messages.t("workspaceRemovalTitle", { label: terminal.titlePresentation.label });
     return terminal.defaultShellNumber === undefined ? terminal.name : this.text.messages.t("shellName", { number: terminal.defaultShellNumber });
   }
 
@@ -784,7 +785,7 @@ export class TerminalPanel extends LitElement {
       return html`
         <section class="command-run-notice running">
           <div>
-            <strong dir="auto">${run.title}</strong>
+            <strong dir="auto">${run.titlePresentation === undefined ? run.title : this.text.messages.t("workspaceRemovalTitle", { label: run.titlePresentation.label })}</strong>
             <p>${this.text.messages.rich("running", { shortcut: "Ctrl+C", key: (parts) => html`<kbd dir="ltr">${parts}</kbd>` })}</p>
             <code dir="ltr">${run.command}</code>
           </div>

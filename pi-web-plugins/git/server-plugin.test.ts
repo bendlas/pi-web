@@ -244,6 +244,7 @@ describe("bundled Git workspace provider", () => {
       signal: new AbortController().signal,
     })).resolves.toEqual({
       title: "Delete workspace: feature/remove",
+      titlePresentation: { kind: "workspaceRemoval", label: "feature/remove" },
       command: `git worktree remove '${linked.replaceAll("'", "'\\''")}'`,
     });
   });

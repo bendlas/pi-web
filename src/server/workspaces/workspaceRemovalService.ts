@@ -187,6 +187,7 @@ export class WorkspaceRemovalService {
             workspaceId: commandWorkspace.id,
             cwd: commandWorkspace.path,
             title: plan.title,
+            ...(plan.titlePresentation === undefined ? {} : { titlePresentation: plan.titlePresentation }),
             command,
             metadata: workspaceDeletionMetadata(target),
             failureNotice: {

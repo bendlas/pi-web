@@ -115,6 +115,37 @@ it("localizes whole command notices and exit codes, preserving rich shortcuts an
   expect(element.shadowRoot?.textContent).toContain("Continue in shell");
 });
 
+it("retranslates generated removal titles and tabs without changing authored titles or commands", async () => {
+  const { service, element } = fixture();
+  await settle(element);
+  const title = "Delete workspace: feature/<img>";
+  const titlePresentation = { kind: "workspaceRemoval", label: "feature/<img>" };
+  Reflect.set(element, "visible", true);
+  Reflect.set(element, "selectedId", "generated");
+  Reflect.set(element, "terminals", [
+    { id: "generated", name: title, titlePresentation, cwd: "/repo", exited: false, commandRunId: "run" },
+    { id: "authored", name: title, cwd: "/repo", exited: false },
+  ]);
+  const run = { id: "run", title, titlePresentation, command: "git worktree remove '/repo/<img>'", status: "running", terminalId: "generated" };
+  Reflect.set(element, "commandRuns", [run]);
+  await settle(element);
+  expect(element.shadowRoot?.querySelector("strong")?.textContent).toBe(title);
+  for (const language of ["en-XA", "ar-XB", "en"]) {
+    await service.setPreferences({ ...service.preferences, language });
+    await settle(element);
+    const heading = element.shadowRoot?.querySelector("strong")?.textContent;
+    if (heading === undefined) throw new Error("Expected generated command title");
+    const names = element.shadowRoot?.querySelectorAll(".terminal-tabs bdi");
+    expect(heading).toContain(titlePresentation.label);
+    if (language === "en") expect(heading).toBe(title);
+    else expect(heading).not.toBe(title);
+    expect(names?.[0]?.closest("button")?.getAttribute("title")).toBe(`${heading} · /repo`);
+    expect(names?.[1]?.closest("button")?.getAttribute("title")).toBe(`${title} · /repo`);
+    expect(element.shadowRoot?.querySelector("code")?.textContent).toBe(run.command);
+    expect(element.shadowRoot?.querySelector("img")).toBeNull();
+  }
+});
+
 it("releases observers on detach and switches localization owners without stale subscriptions", async () => {
   const { service, content, element } = fixture();
   await settle(element);

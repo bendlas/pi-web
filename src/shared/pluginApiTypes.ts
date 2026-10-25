@@ -172,6 +172,8 @@ interface TerminalCommandRunFields {
   id: string;
   origin: string;
   terminalId: string;
+  /** Generated title provenance; title remains the compatible fallback. */
+  titlePresentation?: import("./terminalTitlePresentation.js").TerminalTitlePresentation;
   title: string;
   command: string;
   status: TerminalCommandRunStatus;

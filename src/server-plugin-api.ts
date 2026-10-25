@@ -485,6 +485,8 @@ export interface ProviderRemoveContext {
  * approves the operation; it does not mean removal has completed.
  */
 export interface WorkspaceRemovePlan {
+  /** Optional generated title provenance; unknown metadata retains the authored title. */
+  titlePresentation?: import("./shared/terminalTitlePresentation.js").TerminalTitlePresentation;
   /** Human-readable title for the host-owned terminal run. */
   title: string;
   /**

@@ -1,3 +1,4 @@
+import type { TerminalTitlePresentation } from "../../../src/shared/terminalTitlePresentation.js";
 import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { mkdirSync } from "node:fs";
@@ -18,6 +19,7 @@ export type TerminalCommandRun = TerminalIdentity & {
   origin: string;
   terminalId: string;
   title: string;
+  titlePresentation?: TerminalTitlePresentation;
   command: string;
   status: TerminalCommandRunStatus;
   exitCode?: number;
@@ -39,6 +41,7 @@ export type TerminalInfo = TerminalIdentity & {
   id: string;
   cwd: string;
   name: string;
+  titlePresentation?: TerminalTitlePresentation;
   /** Present only for an automatically named shell; name remains the wire fallback. */
   defaultShellNumber?: number;
   createdAt: string;
@@ -70,6 +73,7 @@ export interface TerminalCommandFailureNotice {
 export type RunTerminalCommandOptions = TerminalScope & {
   origin: string;
   title: string;
+  titlePresentation?: TerminalTitlePresentation;
   command: string;
   metadata?: unknown;
   /** Private host-composition intent; never accepted from the paired browser protocol. */
@@ -192,6 +196,7 @@ export class TerminalService {
       ...terminalIdentity(options),
       terminalId,
       title: options.title,
+      ...terminalTitlePresentationField(options.titlePresentation),
       command: options.command,
       status: "queued",
       createdAt,
@@ -206,6 +211,7 @@ export class TerminalService {
         ...terminalIdentity(options),
         cwd: options.cwd,
         name: options.title,
+        ...terminalTitlePresentationField(options.titlePresentation),
         ...(options.cols === undefined ? {} : { cols: options.cols }),
         ...(options.rows === undefined ? {} : { rows: options.rows }),
         shellArgs: ["-lc", commandRunShellScript(options.command)],
@@ -348,7 +354,7 @@ export class TerminalService {
     if (errors.length > 0) throw new AggregateError(errors, "Failed to dispose terminal PTYs");
   }
 
-  private createTerminal(options: CreateTerminalOptions & { id?: string; shellArgs: string[]; commandRunId?: string; failureNotice?: TerminalCommandFailureNotice }): TerminalInfo {
+  private createTerminal(options: CreateTerminalOptions & { titlePresentation?: TerminalTitlePresentation; id?: string; shellArgs: string[]; commandRunId?: string; failureNotice?: TerminalCommandFailureNotice }): TerminalInfo {
     this.requireAvailable();
     validateScope(options);
     this.prepareCwd(options);
@@ -362,6 +368,7 @@ export class TerminalService {
       cwd: options.cwd,
       name: defaultShellNumber === undefined ? requestedName ?? "" : `Shell ${String(defaultShellNumber)}`,
       ...(defaultShellNumber === undefined ? {} : { defaultShellNumber }),
+      ...terminalTitlePresentationField(options.titlePresentation),
       createdAt,
       exited: false,
       generation: 0,
@@ -497,6 +504,7 @@ function toInfo(record: TerminalRecord): TerminalInfo {
     ...terminalIdentity(record),
     cwd: record.cwd,
     name: record.name,
+    ...terminalTitlePresentationField(record.titlePresentation),
     ...(record.defaultShellNumber === undefined ? {} : { defaultShellNumber: record.defaultShellNumber }),    createdAt: record.createdAt,
     exited: record.exited,
     ...(record.exitCode === undefined ? {} : { exitCode: record.exitCode }),
@@ -596,6 +604,16 @@ function matchesCommandRunFilter(run: TerminalCommandRun, filter: TerminalComman
 
 function isTerminalCommandRunFinal(status: TerminalCommandRunStatus): boolean {
   return status === "succeeded" || status === "failed";
+}
+
+// This server entry is shipped as a self-contained transpiled graph, not bundled
+// with core. Validate its private input locally; only the shared type is imported.
+function terminalTitlePresentationField(value: unknown): { titlePresentation?: TerminalTitlePresentation } {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return {};
+  const kind: unknown = Reflect.get(value, "kind");
+  const label: unknown = Reflect.get(value, "label");
+  return kind === "workspaceRemoval" && typeof label === "string" && label.length <= 4096
+    ? { titlePresentation: Object.freeze({ kind, label }) } : {};
 }
 
 function copyCommandRun(run: TerminalCommandRun): TerminalCommandRun {

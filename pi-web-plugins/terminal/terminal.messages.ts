@@ -5,6 +5,7 @@ function text<Values extends MessageValues = Record<string, never>>(message: str
 }
 
 export default {
+  workspaceRemovalTitle: text<{ label: string }>("Delete workspace: {label}", "Generated workspace-removal command title and terminal tab name; label is unmodified workspace data"),
   processExited: text("process exited", "Terminal transcript annotation when a process exits without a code"),
   processExitedCode: text<{ code: number }>("process exited with code {code, number}", "Terminal transcript exit annotation with a code"),
   terminalError: text<{ error: string }>("terminal error: {error}", "Terminal transcript annotation; error is unmodified backend data"),
