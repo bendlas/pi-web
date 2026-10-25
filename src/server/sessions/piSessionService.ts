@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { readFile, writeFile } from "node:fs/promises";
 import type { ImageContent } from "@earendil-works/pi-ai";
 import type { AgentMessage, StreamFn } from "@earendil-works/pi-agent-core";
-import type { McpAuthServerOption, McpAuthServersResponse, OAuthFlowState, SessionQueueMessageMutation } from "../../shared/apiTypes.js";
+import type { McpAuthServerOption, McpAuthServersResponse, OAuthFlowState, SessionActivity, SessionQueueMessageMutation } from "../../shared/apiTypes.js";
 import { QueueCompatibilityGuard, mirroredQueueEntries, mutableQueueAgent, mutableTextMirror, parseQueueMessageMutation, queuedMessageAttachmentCounts, queuedMessageAttachmentCount, snapshotAgentQueues, type QueueAgent } from "./queuedMessageMutation.js";
 import {
   createAgentSessionFromServices,
@@ -591,7 +591,7 @@ export interface CatalogRefreshStatus {
  * creation and leaves no per-session state to unwind if creation fails.
  */
 interface SessionStartupProgressReporter {
-  report(phase: string): void;
+  report(stage: "runtime" | "extensions"): void;
   end(): void;
 }
 
@@ -4187,7 +4187,7 @@ export class PiSessionService implements SessionRouteService {
     options: CreateSessionRuntimeOptions,
     startup: SessionStartupProgressReporter,
   ): Promise<ActiveSession<PiSessionRuntime>> {
-    startup.report(STARTUP_PHASE_RUNTIME);
+    startup.report("runtime");
     const delegationToolsEnabled = options.creationProvenance === undefined
       && await sessionAllowsDelegationTools(sessionManager, this.sessionManager);
     const runtime = await this.createAgentRuntime(this.createRuntime, {
@@ -4243,7 +4243,7 @@ export class PiSessionService implements SessionRouteService {
         await this.recoverSubsessionTrackingForOpenedSession(runtime.session);
       }
       startupSignal?.throwIfAborted();
-      startup.report(STARTUP_PHASE_EXTENSIONS);
+      startup.report("extensions");
       // session_start hooks use the same native agent as ordinary prompts.
       // Observe them before binding extensions, including startup messages.
       this.bindRuntime(active);
@@ -5085,7 +5085,12 @@ export class PiSessionService implements SessionRouteService {
     if (sessionId === "") return { report: noop, end: noop };
     const label = intent === "create" ? "Creating session" : "Opening session";
     return {
-      report: (phase) => { this.publishStartupProgress(sessionId, startupToken, label, "active", this.startupDetail(phase)); },
+      report: (stage) => {
+        const catalogRefreshing = this.catalogRefreshStatus?.isRefreshInFlight() === true;
+        const phase = stage === "runtime" ? STARTUP_PHASE_RUNTIME : STARTUP_PHASE_EXTENSIONS;
+        const detail = catalogRefreshing ? `${phase} · ${STARTUP_CONCURRENT_CATALOG_REFRESH}` : phase;
+        this.publishStartupProgress(sessionId, startupToken, label, "active", detail, { intent, stage, catalogRefreshing });
+      },
       end: () => {
         // A real activity published during the window (an extension error, say)
         // is the truth about this session and must survive the clear.
@@ -5093,12 +5098,6 @@ export class PiSessionService implements SessionRouteService {
         this.publishStartupProgress(sessionId, startupToken, "idle", "idle", undefined);
       },
     };
-  }
-
-  private startupDetail(phase: string): string {
-    return this.catalogRefreshStatus?.isRefreshInFlight() === true
-      ? `${phase} · ${STARTUP_CONCURRENT_CATALOG_REFRESH}`
-      : phase;
   }
 
   /**
@@ -5114,9 +5113,13 @@ export class PiSessionService implements SessionRouteService {
    * that sets the marker, and because it writes no `activities` entry no later
    * heartbeat re-publication can carry it.
    */
-  private publishStartupProgress(sessionId: string, startupToken: string | undefined, label: string, phase: "active" | "idle", detail: string | undefined): void {
+  private publishStartupProgress(sessionId: string, startupToken: string | undefined, label: string, phase: "active" | "idle", detail: string | undefined, startupPresentation?: SessionActivity["startupPresentation"]): void {
     const at = new Date().toISOString();
-    const activity = detail === undefined ? { sessionId, phase, label, at, startup: true } : { sessionId, phase, label, detail, at, startup: true };
+    const activity: SessionActivity = {
+      sessionId, phase, label, at, startup: true,
+      ...(detail === undefined ? {} : { detail }),
+      ...(startupPresentation === undefined ? {} : { startupPresentation }),
+    };
     this.events.publishGlobal(startupToken === undefined ? { type: "session.startup", activity } : { type: "session.startup", startupToken, activity });
   }
 

@@ -19,6 +19,14 @@ export function conversationActivityText(status: SessionStatus | undefined, acti
     : status.pendingMessageCount > 0 ? "queued" : "idle";
   if ((state === undefined && (activity === undefined || activity.phase === "idle")) || (state === "idle" && activity?.phase !== "active")) return undefined;
   if (activity === undefined || (state !== undefined && state !== "idle" && activity.phase === "idle")) return state === undefined || state === "idle" ? undefined : messages.t(state);
+  const startup = activity.startupPresentation;
+  // Older servers and future/unknown presentation versions retain their raw fallback.
+  if (activity.phase === "active" && startup !== undefined
+    && ["create", "open"].includes(startup.intent)
+    && ["runtime", "extensions"].includes(startup.stage)
+    && typeof startup.catalogRefreshing === "boolean") {
+    return messages.t("startup", { intent: startup.intent, stage: startup.stage, refreshing: startup.catalogRefreshing ? "yes" : "no" });
+  }
   return activity.detail !== undefined && activity.detail !== "" ? messages.t("summary", { label: activity.label, detail: activity.detail }) : activity.label;
 }
 

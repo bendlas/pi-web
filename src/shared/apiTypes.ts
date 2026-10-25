@@ -742,6 +742,14 @@ export interface SessionActivity {
    * work to report. `isSessionActive()` reads this to keep the two apart.
    */
   startup?: boolean;
+  /** Optional structured browser presentation; raw label/detail remain the wire fallback.
+   * Independent of `startup`: pending browser rows retain this when re-attributing progress.
+   */
+  startupPresentation?: {
+    intent: "create" | "open";
+    stage: "runtime" | "extensions";
+    catalogRefreshing: boolean;
+  };
 }
 
 export interface SessionQueueMessageMutation {

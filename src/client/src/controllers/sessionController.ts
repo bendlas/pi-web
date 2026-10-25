@@ -2553,6 +2553,7 @@ function pendingStartActivity(activity: SessionActivity, sessionId: string): Ses
     phase: activity.phase,
     label: activity.label,
     ...(activity.detail === undefined ? {} : { detail: activity.detail }),
+    ...(activity.startupPresentation === undefined ? {} : { startupPresentation: activity.startupPresentation }),
     at: activity.at,
   };
 }
