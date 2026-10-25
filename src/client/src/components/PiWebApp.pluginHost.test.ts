@@ -12,6 +12,7 @@ import type { Machine, Project, SessionInfo, TerminalCommandRun, Workspace, Work
 import { machineScopedBundledPluginId, machineScopedPluginId } from "../../../shared/machinePluginIds";
 import { initialAppState } from "../appState";
 import { localization } from "../localization/browser";
+import { pluginRecoveryMessages as recovery } from "../pluginRecoveryMessages";
 import { AppShellController } from "../appShell/appShellController";
 import { loadCachedNewSessions, markCachedNewSessionInfo, rememberCachedNewSession } from "../cachedNewSessions";
 import { loadDraft, saveDraft } from "../promptDraftStorage";
@@ -86,6 +87,53 @@ afterEach(async () => {
 });
 
 describe("PiWebApp plugin host", () => {
+  it("retains live required-plugin recovery and dismissal across language changes", async () => {
+    installBrowserWindow("http://localhost/app");
+    const app = createDetachedApp();
+    stubPluginLoadRendering(app);
+    const diagnostic = "raw /srv/插件: unavailable";
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    await callAsyncAppMethod(app, "registerExternalPlugins", () => recovery.t("remoteSource", { name: "机器" }),
+      () => Promise.reject(new Error(diagnostic)));
+    const english = displayedError(app);
+    for (const language of ["en-XA", "ar-XB"]) {
+      await localization.setPreferences({ language, formatLocale: "en" });
+      expect(displayedError(app)).toBe(recovery.t("loadFailed", {
+        source: recovery.t("remoteSource", { name: "机器" }), detail: diagnostic,
+      }));
+      expect(displayedError(app)).not.toBe(english);
+      expect(displayedError(app)).toContain(diagnostic);
+    }
+    callAppMethod(app, "dismissDisplayedError");
+    await localization.setPreferences({ language: "en", formatLocale: "en" });
+    expect(displayedError(app)).toBe("");
+    await callAsyncAppMethod(app, "registerExternalPlugins", "PI WEB plugins", () => Promise.resolve({
+      terminalMode: "required", declarations: [], registrations: [],
+      failures: [{ entry: manifestEntry("pi-web.terminal"), error: new Error(diagnostic) }],
+    }));
+    expect(displayedError(app)).toBe(recovery.t("terminalLoadFailed", { detail: diagnostic }));
+    for (const language of ["en-XA", "ar-XB"]) {
+      await localization.setPreferences({ language, formatLocale: "en" });
+      expect(displayedError(app)).toBe(recovery.t("terminalLoadFailed", { detail: diagnostic }));
+    }
+  });
+
+  it("localizes nested browser activation guidance instead of freezing it", async () => {
+    installBrowserWindow("http://localhost/app");
+    const app = createDetachedApp();
+    stubPluginLoadRendering(app);
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    await callAsyncAppMethod(app, "registerExternalPlugins", "PI WEB plugins", () => Promise.resolve({
+      terminalMode: "required", declarations: [], registrations: [], failures: [],
+    }));
+    for (const language of ["en", "en-XA", "ar-XB"]) {
+      await localization.setPreferences({ language, formatLocale: "en" });
+      expect(displayedError(app)).toBe(recovery.t("terminalActivationFailed", {
+        phase: "validate", detail: recovery.t("registrationMissing"),
+      }));
+    }
+  });
+
   it("updates every empty session guidance state in both pseudo modes", async () => {
     installBrowserWindow("http://localhost/app");
     const app = createDetachedApp();
@@ -4155,7 +4203,12 @@ describe("PiWebApp plugin host", () => {
     await expect(context.terminal.runCommand({ title: "Unavailable", command: "true" }))
       .rejects.toThrow("Required Terminal plugin is unavailable");
     context.terminal.open();
-    expect(appState(app).error).toContain("Required Terminal plugin is unavailable");
+    const error = Object.values(appState(app).browserErrors).find((entry) => entry.scope.kind === "machine" && entry.scope.machineId === "local");
+    expect(error?.displayMessage?.()).toBe(recovery.t("terminalUnavailable"));
+    for (const language of ["en-XA", "ar-XB"]) {
+      await localization.setPreferences({ language, formatLocale: "en" });
+      expect(error?.displayMessage?.()).toBe(recovery.t("terminalUnavailable"));
+    }
   });
 
   it("hides a failed registered Terminal contribution and re-enables the same paired revision on retry", async () => {
@@ -4309,7 +4362,7 @@ describe("PiWebApp plugin host", () => {
 
     expect(appPluginRegistry(app).hasPlugin("pi-web.terminal")).toBe(false);
     expect(appPluginRegistry(app).hasPlugin("info")).toBe(false);
-    expect(displayedError(app)).toContain("Required Terminal plugin failed during browser activate");
+    expect(displayedError(app)).toContain("Required Terminal plugin failed during browser activation");
     expect(displayedError(app)).toContain("Terminal activation failed");
   });
 
@@ -4349,7 +4402,7 @@ describe("PiWebApp plugin host", () => {
 
     expect(appPluginRegistry(app).hasPlugin("pi-web.terminal")).toBe(false);
     expect(ordinaryActivate).not.toHaveBeenCalled();
-    expect(displayedError(app)).toContain("Required Terminal plugin failed during browser start");
+    expect(displayedError(app)).toContain("Required Terminal plugin failed during browser startup");
     expect(displayedError(app)).toContain("Terminal start failed");
   });
 
@@ -4387,7 +4440,7 @@ describe("PiWebApp plugin host", () => {
     await ensureGatewayPluginsLoaded(app);
 
     expect(appPluginRegistry(app).hasPlugin("pi-web.terminal")).toBe(false);
-    expect(displayedError(app)).toContain("Required Terminal plugin failed during browser validate");
+    expect(displayedError(app)).toContain("Required Terminal plugin failed during browser validation");
     expect(displayedError(app)).toContain("did not provide facade v1");
   });
 
@@ -4438,7 +4491,7 @@ describe("PiWebApp plugin host", () => {
     expect(callAppMethod(app, "getDefaultActions")).toEqual(expect.not.arrayContaining([
       expect.objectContaining({ id: "pi-web.terminal:partial" }),
     ]));
-    expect(displayedError(app)).toContain("Required Terminal plugin failed during browser validate");
+    expect(displayedError(app)).toContain("Required Terminal plugin failed during browser validation");
     expect(displayedError(app)).toContain("did not provide required capability pi-web.terminal/browser-facade v1");
   });
 

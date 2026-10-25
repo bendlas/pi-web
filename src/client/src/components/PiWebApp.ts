@@ -105,6 +105,7 @@ import { shouldShowMachinesSection, type AppNavigationPanel, type NavigationFocu
 import "./appShell/AppPanelEdgeControl";
 import { appShellMessages as appShellText } from "../appShellMessages";
 import { appFeedbackMessages as appFeedback } from "../appFeedbackMessages";
+import { PluginRecoveryError, pluginRecoveryMessages as pluginRecovery } from "../pluginRecoveryMessages";
 import { renderPanelToggleButton } from "./appShell/panelToggleButton";
 import "./appShell/AppRefreshControl";
 import { errorBanner } from "./errorBanner";
@@ -343,8 +344,8 @@ export class PiWebApp extends LitElement {
   private readonly knownRequiredTerminalByMachine = new Map<string, RequiredTerminalBrowserComposition>();
   private readonly verifiedPluginModeByMachine = new Map<string, TerminalPluginMode>();
   /** Required-load failures outlive workspace/project resets until authoritative recovery. */
-  private readonly requiredPluginFailureByMachine = new Map<string, string>();
-  private readonly dismissedRequiredPluginFailureByMachine = new Map<string, string>();
+  private readonly requiredPluginFailureByMachine = new Map<string, () => string>();
+  private readonly dismissedRequiredPluginFailureByMachine = new Map<string, () => string>();
   private machineNavigationRestoreSeq = 0;
   private navigationSelectionSeq = 0;
   private modelDialogInstanceId = 0;
@@ -1557,7 +1558,7 @@ export class PiWebApp extends LitElement {
     const workspace = this.state.selectedWorkspace;
     if (workspace === undefined) {
       const terminal = this.maintenanceTerminal("core", machineId, this.beginNavigationOperation(WORKSPACE_SURFACE_SCOPE));
-      if (terminal === undefined) this.setState({ error: requiredTerminalUnavailableError(machineId).message });
+      if (terminal === undefined) this.browserErrors.reportLocalized(machineBrowserErrorScope(machineId), () => requiredTerminalUnavailableError(machineId).message);
       else terminal.open(options);
       return;
     }
@@ -1621,7 +1622,7 @@ export class PiWebApp extends LitElement {
     if (composition === undefined || peer === undefined) {
       const error = requiredTerminalUnavailableError(machineId);
       return Object.freeze({
-        open: () => { this.setState({ error: error.message }); },
+        open: () => { this.browserErrors.reportLocalized(machineBrowserErrorScope(machineId), () => error.message); },
         runCommand: () => Promise.reject(error),
       });
     }
@@ -2510,7 +2511,7 @@ export class PiWebApp extends LitElement {
       : resolveAppRoute({ ...route, tool: requested }, (value) => this.plugins.resolveWorkspacePanelRouteId(value, selectedMachineId(this.state))).tool;
     if ((requested !== undefined || panel !== undefined) && this.availableWorkspacePanelId(panel) === undefined) {
       return this.pluginLoadErrors.get(selectedMachineId(this.state))
-        ?? this.requiredPluginFailureByMachine.get(selectedMachineId(this.state))
+        ?? this.requiredPluginFailureByMachine.get(selectedMachineId(this.state))?.()
         ?? appShellText.t("unavailablePanel", { id: requested ?? panel ?? "unknown" });
     }
     return "";
@@ -2842,7 +2843,7 @@ export class PiWebApp extends LitElement {
   }
 
   private loadExternalPlugins(): Promise<boolean> {
-    return this.registerExternalPlugins("PI WEB plugins", () => loadExternalPlugins("pi-web-plugins/manifest.json", {
+    return this.registerExternalPlugins(() => pluginRecovery.t("source"), () => loadExternalPlugins("pi-web-plugins/manifest.json", {
       shouldLoadPlugin: (entry) => (entry.id === REQUIRED_TERMINAL_PLUGIN_ID && !this.terminalAvailableForMachine("local"))
         || !this.plugins.hasPlugin(entry.id),
     }));
@@ -2861,8 +2862,8 @@ export class PiWebApp extends LitElement {
     if (machine.kind !== "remote" || this.loadedMachinePluginIds.has(machine.id)) return;
     const runtime = this.state.machineRuntimes[machine.id];
     if (runtime?.ok === true && !supportsPiWebCapability(runtime, PI_WEB_CAPABILITIES.pluginLifecycle)) {
-      const message = `PI WEB plugins from ${machine.name} require a matching plugin lifecycle capability; update and restart PI WEB on that machine`;
-      console.warn(message);
+      const message = () => pluginRecovery.t("lifecycleRequired", { name: machine.name });
+      console.warn(message());
       this.verifiedPluginModeByMachine.delete(machine.id);
       this.clearRequiredTerminal(machine.id);
       this.reconcilePluginLoadSelection(urlAtLoad);
@@ -2872,7 +2873,7 @@ export class PiWebApp extends LitElement {
     const existing = this.machinePluginLoadPromises.get(machine.id);
     if (existing !== undefined) return existing;
 
-    const load = this.registerExternalPlugins(`PI WEB plugins from ${machine.name}`, () => loadExternalPlugins(`api/machines/${encodeURIComponent(machine.id)}/pi-web-plugins/manifest.json`, {
+    const load = this.registerExternalPlugins(() => pluginRecovery.t("remoteSource", { name: machine.name }), () => loadExternalPlugins(`api/machines/${encodeURIComponent(machine.id)}/pi-web-plugins/manifest.json`, {
       machineId: machine.id,
       shouldLoadPlugin: (entry) => this.plugins.shouldLoadRemotePlugin(entry.id, entry.machineSpecific)
         && ((entry.id === REQUIRED_TERMINAL_PLUGIN_ID && !this.terminalAvailableForMachine(machine.id))
@@ -2884,7 +2885,7 @@ export class PiWebApp extends LitElement {
     await load;
   }
 
-  private async registerExternalPlugins(label: string, load: () => Promise<ExternalPluginLoadResult>, machineId = "local"): Promise<boolean> {
+  private async registerExternalPlugins(label: string | (() => string), load: () => Promise<ExternalPluginLoadResult>, machineId = "local"): Promise<boolean> {
     const urlAtLoad = currentBrowserUrl();
     try {
       const result = await load();
@@ -2910,7 +2911,7 @@ export class PiWebApp extends LitElement {
         this.clearRequiredTerminal(machineId);
         this.reconcilePluginLoadSelection(urlAtLoad);
         this.applyPreferredTheme(false);
-        this.setRequiredPluginFailure(machineId, `Required Terminal plugin failed to load: ${errorMessage(requiredTerminalLoadFailure.error)}. Open Settings for recovery guidance.`);
+        this.setRequiredPluginFailure(machineId, () => pluginRecovery.t("terminalLoadFailed", { detail: errorMessage(requiredTerminalLoadFailure.error) }));
         this.requestUpdate();
         return false;
       }
@@ -2924,19 +2925,19 @@ export class PiWebApp extends LitElement {
           const terminalRegistration = result.registrations.find(({ id }) => id === terminalRuntimeId);
           if (this.plugins.hasPlugin(terminalRuntimeId)) {
             const known = this.knownRequiredTerminalByMachine.get(machineId);
-            if (known === undefined) throw new Error("Required Terminal browser capability was not retained after activation");
+            if (known === undefined) throw new PluginRecoveryError(() => pluginRecovery.t("capabilityLost"));
             if (terminalRegistration !== undefined) {
               const requiredBinding = requiredTerminalPluginBinding(terminalRegistration, machineId);
               if (!sameWorkspacePluginBinding(known.binding, requiredBinding)) {
-                throw new Error("Required Terminal revision changed after browser activation; reload PI WEB to activate the new paired revision");
+                throw new PluginRecoveryError(() => pluginRecovery.t("revisionChanged"));
               }
             }
             this.requiredTerminalByMachine.set(machineId, known);
           } else {
-            if (terminalRegistration === undefined) throw new Error("Required Terminal browser registration is unavailable");
+            if (terminalRegistration === undefined) throw new PluginRecoveryError(() => pluginRecovery.t("registrationMissing"));
             const requiredBinding = requiredTerminalPluginBinding(terminalRegistration, machineId);
             const terminalDeclaration = declarations.find(({ id }) => id === terminalRuntimeId);
-            if (terminalDeclaration === undefined) throw new Error("Required Terminal browser declaration is unavailable");
+            if (terminalDeclaration === undefined) throw new PluginRecoveryError(() => pluginRecovery.t("declarationMissing"));
             const terminalBatch = await this.plugins.registerBatch([terminalRegistration], {
               declarations: [terminalDeclaration],
               failures: registryImportFailures.filter(({ declaration }) => declaration.id === terminalRuntimeId),
@@ -2960,7 +2961,7 @@ export class PiWebApp extends LitElement {
           console.warn(`Failed to register PI WEB plugin ${terminalRuntimeId} during ${terminalFailurePhase}`, error);
           this.verifiedPluginModeByMachine.delete(machineId);
           this.clearRequiredTerminal(machineId);
-          this.setRequiredPluginFailure(machineId, `Required Terminal plugin failed during browser ${terminalFailurePhase}: ${errorMessage(error)}. Open Settings for recovery guidance.`);
+          this.setRequiredPluginFailure(machineId, () => pluginRecovery.t("terminalActivationFailed", { phase: terminalFailurePhase, detail: errorMessage(error) }));
         }
       }
 
@@ -2985,7 +2986,7 @@ export class PiWebApp extends LitElement {
         this.verifiedPluginModeByMachine.delete(machineId);
         this.clearRequiredTerminal(machineId);
         if (!this.requiredPluginFailureByMachine.has(machineId)) {
-          this.setRequiredPluginFailure(machineId, "Required Terminal plugin is unavailable after plugin activation. Open Settings for recovery guidance.");
+          this.setRequiredPluginFailure(machineId, () => pluginRecovery.t("terminalMissingAfterActivation"));
         }
       } else if (result.terminalMode === "required") {
         this.verifiedPluginModeByMachine.set(machineId, "required");
@@ -2996,13 +2997,13 @@ export class PiWebApp extends LitElement {
       this.invalidateWorkspaceSurface();
       return complete;
     } catch (error) {
-      console.warn(`Failed to load ${label}`, error);
+      console.warn(`Failed to load ${typeof label === "function" ? label() : label}`, error);
       this.pluginLoadErrors.set(machineId, errorMessage(error));
       this.verifiedPluginModeByMachine.delete(machineId);
       this.clearRequiredTerminal(machineId);
       this.reconcilePluginLoadSelection(urlAtLoad);
       this.applyPreferredTheme(false);
-      this.setRequiredPluginFailure(machineId, `Failed to load ${label}: ${errorMessage(error)}`);
+      this.setRequiredPluginFailure(machineId, () => pluginRecovery.t("loadFailed", { source: typeof label === "function" ? label() : label, detail: errorMessage(error) }));
       this.requestUpdate();
       return false;
     }
@@ -3017,7 +3018,7 @@ export class PiWebApp extends LitElement {
     this.reconcileWorkspacePanelSelection();
   }
 
-  private setRequiredPluginFailure(machineId: string, message: string): void {
+  private setRequiredPluginFailure(machineId: string, message: () => string): void {
     this.requiredPluginFailureByMachine.set(machineId, message);
     this.dismissedRequiredPluginFailureByMachine.delete(machineId);
     if (selectedMachineId(this.state) === machineId) this.requestUpdate();
@@ -3034,7 +3035,7 @@ export class PiWebApp extends LitElement {
     const machineId = selectedMachineId(this.state);
     const failure = this.requiredPluginFailureByMachine.get(machineId);
     return failure !== undefined && this.dismissedRequiredPluginFailureByMachine.get(machineId) !== failure
-      ? failure
+      ? failure()
       : "";
   }
 
