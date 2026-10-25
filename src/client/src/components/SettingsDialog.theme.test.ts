@@ -15,8 +15,10 @@ beforeEach(() => {
   vi.spyOn(piPackagesApi, "packages").mockResolvedValue({ packages: [] });
 });
 
-afterEach(() => {
+const registries: PluginRegistry[] = [];
+afterEach(async () => {
   document.body.replaceChildren();
+  for (const registry of registries.splice(0)) await registry.dispose();
   localStorage.clear();
   vi.restoreAllMocks();
 });
@@ -54,13 +56,13 @@ describe("saving a theme default", () => {
 
 async function mountDialog(): Promise<SettingsDialog> {
   const registry = new PluginRegistry();
+  registries.push(registry);
   await registry.registerBatch([{ id: "themes", plugin: themePackPlugin }]);
   const dialog = new SettingsDialog();
   dialog.themes = registry.getThemes();
   document.body.append(dialog);
   await vi.waitFor(() => { expect(themePanel(dialog).loading).toBe(false); });
   await themePanel(dialog).updateComplete;
-  await registry.dispose();
   return dialog;
 }
 

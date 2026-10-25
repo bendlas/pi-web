@@ -5,8 +5,10 @@ import { themePackPlugin } from "../../plugins/themes";
 import { PluginRegistry } from "../../plugins/registry";
 import { SettingsThemePanel } from "./SettingsThemePanel";
 
-afterEach(() => {
+const registries: PluginRegistry[] = [];
+afterEach(async () => {
   document.body.replaceChildren();
+  for (const registry of registries.splice(0)) await registry.dispose();
   localStorage.clear();
 });
 
@@ -110,12 +112,12 @@ describe("theme settings controls", () => {
 
 async function mountPanel(): Promise<SettingsThemePanel> {
   const registry = new PluginRegistry();
+  registries.push(registry);
   await registry.registerBatch([{ id: "themes", plugin: themePackPlugin }]);
   const panel = new SettingsThemePanel();
   panel.themes = registry.getThemes();
   document.body.append(panel);
   await panel.updateComplete;
-  await registry.dispose();
   return panel;
 }
 
