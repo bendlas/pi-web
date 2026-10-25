@@ -959,6 +959,25 @@ describe("API parsers", () => {
     });
   });
 
+  it.each([
+    { kind: "gitWorktree", label: "review", path: "/repo/review" },
+    { kind: "future" },
+    { kind: "gitWorktree", label: 42, path: "/repo/review" },
+    null,
+  ])("retains valid optional removal localization and ignores unknown cosmetics: %j", (localization) => {
+    const removal = parseWorkspace({
+      id: "w1", projectId: "p1", path: "/repo/review", label: "review", isMain: false,
+      removal: { actionLabel: "Delete workspace", confirmation: "Raw confirmation", precondition: "v1.token", localization },
+      effectiveConfig: {},
+    }).removal;
+    expect(removal?.confirmation).toBe("Raw confirmation");
+    expect(removal?.precondition).toBe("v1.token");
+    if (localization?.kind === "gitWorktree" && typeof localization.label === "string") {
+      expect(removal?.localization).toEqual(localization);
+      expect(Object.isFrozen(removal?.localization)).toBe(true);
+    } else expect(removal).not.toHaveProperty("localization");
+  });
+
   it("freezes host-owned workspace snapshots recursively", () => {
     const workspace = parseWorkspace({
       id: "w1",

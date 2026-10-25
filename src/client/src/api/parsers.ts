@@ -2,6 +2,7 @@ import { PI_WEB_PLUGIN_LIFECYCLE_VERSION, ASK_USER_COMMENT_MAX_LENGTH, ASK_USER_
 import { parseMachineStatusSnapshot, type MachineStatusSnapshot, type MachineStatusUiEvent } from "../../../shared/machineStatus";
 import type { JsonValue, PiPackageInfo, PiPackageInstallableSuggestion, PiPackageMutationAction, PiPackageMutationResponse, PiPackageScope, PiPackagesResponse, SessionActivity, SessionStartupProgressEvent, SessionTreeForkResult, SessionTreeNavigateResult, SessionTreeNode, SessionTreeNodeKind, SessionTreeSnapshot, WorkspaceProviderDiagnostic, WorkspaceProviderDiagnosticCode, WorkspaceProviderResolution, WorkspaceProviderResolutionStatus, WorkspaceProviderTier } from "../../../shared/apiTypes";
 
+import { parseWorkspaceRemovalLocalization } from "../../../shared/workspaceRemovalPresentation";
 import { parseCommandResultPresentation } from "../../../shared/commandResultPresentation";
 import { parseCommandOutputPresentation } from "../../../shared/commandOutputPresentation";
 import { parseSessionNotificationPresentation } from "../../../shared/sessionNotificationPresentation";
@@ -246,6 +247,7 @@ function optionalWorkspaceRemovalPresentation(value: unknown): Workspace["remova
     actionLabel: requireNonEmptyString(value, "actionLabel"),
     confirmation: requireNonEmptyString(value, "confirmation"),
     precondition: requireNonEmptyString(value, "precondition"),
+    ...optionalField("localization", parseWorkspaceRemovalLocalization(value["localization"])),
   });
 }
 

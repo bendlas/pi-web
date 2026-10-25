@@ -94,6 +94,8 @@ export interface WorkspaceProviderMetadata {
 export interface WorkspaceRemovalPresentation {
     readonly actionLabel: string;
     readonly confirmation: string;
+    /** Optional provenance for host-localized removal chrome; raw wording remains the fallback. */
+    readonly localization?: import("./workspaceRemovalPresentation.js").WorkspaceRemovalLocalization;
 }
 export interface FileTreeEntry {
     name: string;

@@ -9,7 +9,7 @@ import type { Workspace } from "../api";
 import type { MachineStatusSnapshot } from "../../../shared/machineStatus";
 import { writeClipboardText } from "../clipboard";
 import type { WorkspaceLabelItem } from "../plugins/types";
-import { canDeleteWorkspace } from "../workspaceDeletion";
+import { canDeleteWorkspace, workspaceRemovalActionLabel } from "../workspaceDeletion";
 import { createActionMenuController } from "./actionMenu";
 import { hasStatusUnread, renderActionActivityIndicator, statusActivityKind } from "./activityBadge";
 import type { KeyboardNavigableSection } from "./navigationFocus";
@@ -184,7 +184,7 @@ export class WorkspaceList extends LitElement implements KeyboardNavigableSectio
 
   private renderWorkspaceActions(workspace: Workspace, index: number): TemplateResult {
     const deleting = this.isDeleting(workspace);
-    const actionLabel = workspace.removal?.actionLabel ?? messages.t("removeWorkspace");
+    const actionLabel = workspaceRemovalActionLabel(workspace) ?? messages.t("removeWorkspace");
     return html`
       <div class="workspace-menu-actions">
         ${this.onMove === undefined ? null : html`

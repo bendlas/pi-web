@@ -2,6 +2,8 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock, type MockInstance } from "vitest";
 import { trustApi } from "../api";
+import { localization } from "../localization/browser";
+import { workspaceRemovalActionLabel } from "../workspaceDeletion";
 import type { Workspace, WorkspaceTrustResponse } from "../api";
 import type { MachineStatusSnapshot } from "../../../shared/machineStatus";
 import { machineStatusSnapshot } from "../machineStatus.testSupport";
@@ -126,6 +128,34 @@ function moveButton(list: WorkspaceList, label: string): HTMLButtonElement {
 }
 
 describe("workspace-list removal actions", () => {
+  it("updates the open Git removal action live and preserves its callback target", async () => {
+    const removable = workspace("review", { isMain: false, removal: {
+      actionLabel: "Delete workspace", confirmation: "Raw Git fallback", precondition: "v1.token",
+      localization: { kind: "gitWorktree", label: "review", path: "/repo/review" },
+    } });
+    const list = await mountWorkspaceList([removable]);
+    const onDelete = vi.fn();
+    list.onDelete = onDelete;
+    openMenu(list, "review");
+    await expectTrustLoaded(list, true);
+    const action = list.shadowRoot?.querySelector<HTMLButtonElement>(".workspace-menu-actions .danger");
+    expect(action?.textContent).toBe("Delete workspace");
+    try {
+      for (const language of ["en-XA", "ar-XB"]) {
+        await localization.setPreferences({ language, formatLocale: "en" });
+        await list.updateComplete;
+        expect(action?.textContent).toBe(workspaceRemovalActionLabel(removable));
+        expect(action?.title).toBe(workspaceRemovalActionLabel(removable));
+        expect(action?.textContent).not.toBe("Delete workspace");
+      }
+      action?.click();
+      expect(onDelete).toHaveBeenCalledExactlyOnceWith(removable);
+      expect(list.workspaces[0]).toBe(removable);
+    } finally {
+      await localization.setPreferences({ language: "en", formatLocale: "en" });
+    }
+  });
+
   it("shows provider wording for neutral removal metadata and no removal action without it", async () => {
     const removable = workspace("neutral", {
       isMain: false,

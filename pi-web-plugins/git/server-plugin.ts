@@ -184,6 +184,7 @@ function singleGitWorkspace(project: ProjectInput): ProviderWorkspace {
 
 function gitRemovalPresentation(label: string, path: string): NonNullable<ProviderWorkspace["removal"]> {
   return {
+    localization: { kind: "gitWorktree", label, path },
     actionLabel: "Delete workspace",
     confirmation: `Delete workspace ${label}?\n\nThis will run git worktree remove and delete:\n${path}\n\nThe Git branch will not be deleted.`,
   };
