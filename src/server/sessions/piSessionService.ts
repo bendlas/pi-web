@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
+import { sessionNotificationSources, type SessionNotificationPresentation } from "../../shared/sessionNotificationPresentation.js";
 import { randomUUID } from "node:crypto";
 import { statSync } from "node:fs";
 import { join } from "node:path";
@@ -4735,9 +4736,10 @@ export class PiSessionService implements SessionRouteService {
     const aborted = getBoolean(event, "aborted") === true;
     const errorMessage = getString(event, "errorMessage");
     const automatic = getString(event, "reason") !== "manual";
-    const message = aborted
-      ? (automatic ? "Automatic compaction cancelled." : "Compaction cancelled.")
-      : errorMessage === undefined ? undefined : "Couldn’t compact history. Try again.";
+    const presentation: SessionNotificationPresentation | undefined = aborted
+      ? { kind: automatic ? "automaticCompactionCancelled" : "compactionCancelled" }
+      : errorMessage === undefined ? undefined : { kind: "compactionFailed" };
+    const message = presentation === undefined ? undefined : sessionNotificationSources[presentation.kind];
     if (!aborted && errorMessage !== undefined) {
       this.events.publish(session.sessionId, { type: "session.diagnostic", message: errorMessage });
     }
@@ -4749,7 +4751,7 @@ export class PiSessionService implements SessionRouteService {
     // Keep cancellation/failure feedback in the refresh-safe session inbox only.
     const generation = this.notificationGenerationBySession.get(session);
     if (message !== undefined && generation !== undefined) {
-      this.publishNotificationMutations(this.notificationStore.addNotification(generation, message, aborted ? "info" : "error").mutations);
+      this.publishNotificationMutations(this.notificationStore.addNotification(generation, message, aborted ? "info" : "error", presentation).mutations);
     }
   }
 

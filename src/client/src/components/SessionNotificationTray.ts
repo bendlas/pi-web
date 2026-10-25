@@ -5,7 +5,7 @@ import { repeat } from "lit/directives/repeat.js";
 import {
   notificationAnnouncementLabel, notificationDismissLabel, notificationFocusTargetAfterDismiss,
   notificationInboxOverflowLabel, notificationInboxTotalCount, notificationMessageTruncationLabel,
-  notificationSeverityLabel, notificationTargetKey, notificationTrayHeading, notificationTrayIsCollapsed,
+  notificationMessage, notificationSeverityLabel, notificationTargetKey, notificationTrayHeading, notificationTrayIsCollapsed,
   setNotificationTrayCollapsed, type NotificationFocusTarget, type SelectedSessionNotificationView, type SessionNotificationTarget,
 } from "../sessionNotifications";
 import { uiButtonStyles, uiToolbarStyles } from "./ui/controlStyles";
@@ -136,7 +136,7 @@ export class SessionNotificationTray extends LitElement {
                 <span aria-hidden="true">·</span>
                 <time datetime=${notification.receivedAt}>${localization.time(new Date(notification.receivedAt), { timeStyle: "short" })}</time>
               </div>
-              <p class="notification-message" dir="auto">${renderNotificationMessage(notification.message, notification.truncated)}</p>
+              <p class="notification-message" dir="auto">${renderNotificationMessage(notificationMessage(notification), notification.truncated)}</p>
               ${notificationMessageTruncationLabel(notification) === undefined ? null : html`<p class="notification-truncated">${notificationMessageTruncationLabel(notification)}</p>`}
               <button type="button" class="ui-button ui-button--compact ui-button--icon notification-row-dismiss"
                 aria-label=${notificationDismissLabel(notification)} title=${messages.t("dismissTitle")}

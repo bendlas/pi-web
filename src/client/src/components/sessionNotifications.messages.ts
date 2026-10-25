@@ -1,6 +1,10 @@
 import { message } from "../localization/service";
+import { sessionNotificationSources } from "../../../shared/sessionNotificationPresentation";
 
 export default {
+  compactionCancelled: message(sessionNotificationSources.compactionCancelled, "Notification after manual compaction is cancelled"),
+  automaticCompactionCancelled: message(sessionNotificationSources.automaticCompactionCancelled, "Notification after automatic compaction is cancelled"),
+  compactionFailed: message(sessionNotificationSources.compactionFailed, "Compaction failure notification; provider diagnostics are separate and unchanged"),
   info: message("Info", "Informational notification severity"),
   warning: message("Warning", "Warning notification severity"),
   error: message("Error", "Error notification severity"),

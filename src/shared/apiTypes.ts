@@ -1,3 +1,4 @@
+import type { SessionNotificationPresentation } from "./sessionNotificationPresentation.js";
 import type { RuntimeActivityPresentation } from "./sessionActivityPresentation.js";
 import type { MachineStatusUiEvent } from "./machineStatus.js";
 import type { TerminalPluginMode } from "./requiredTerminalPlugin.js";
@@ -559,6 +560,8 @@ export type SessionNotificationSeverity = "info" | "warning" | "error";
 export interface SessionNotification {
   id: string;
   message: string;
+  /** Optional PI WEB-owned wording; absent for extension-authored notifications. */
+  presentation?: SessionNotificationPresentation;
   truncated: boolean;
   severity: SessionNotificationSeverity;
   receivedAt: string;

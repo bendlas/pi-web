@@ -209,8 +209,13 @@ export function notificationTrayHeading(inbox: Pick<SelectedSessionNotificationV
   return messages.t("heading", { count: notificationInboxTotalCount(inbox) });
 }
 
-export function notificationDismissLabel(notification: Pick<SessionNotification, "message" | "severity">): string {
-  const message = notification.message.replace(/\s+/gu, " ").trim();
+/** Localize only explicit host provenance; raw extension content stays untouched. */
+export function notificationMessage(notification: Pick<SessionNotification, "message" | "presentation">): string {
+  return notification.presentation === undefined ? notification.message : messages.t(notification.presentation.kind);
+}
+
+export function notificationDismissLabel(notification: Pick<SessionNotification, "message" | "severity" | "presentation">): string {
+  const message = notificationMessage(notification).replace(/\s+/gu, " ").trim();
   if (message === "") return messages.t("dismissEmpty", { severity: notification.severity });
   const maxCharacters = 80;
   const characters = Array.from(message);

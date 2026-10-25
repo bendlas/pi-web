@@ -1203,6 +1203,27 @@ describe("API parsers", () => {
     expect(() => parseSessionTreeForkResult({ session })).toThrow("cancelled");
   });
 
+  it.each([
+    { kind: "compactionCancelled" }, { kind: "automaticCompactionCancelled" }, { kind: "compactionFailed" },
+    { kind: "future" }, { kind: 42 }, null, [], "compactionFailed",
+  ].map((presentation) => ({ presentation })))("preserves known notification provenance and ignores cosmetic future/malformed metadata $presentation", ({ presentation }) => {
+    const inbox = notificationInboxWire();
+    const notification = { ...notificationWire(1), presentation };
+    const expected = presentation !== null && !Array.isArray(presentation) && typeof presentation === "object"
+      && typeof presentation.kind === "string" && ["compactionCancelled", "automaticCompactionCancelled", "compactionFailed"].includes(presentation.kind)
+      ? presentation : undefined;
+    expect(parseSessionNotificationInboxSnapshot({ ...inbox, notifications: [notification] }).notifications[0]?.presentation).toEqual(expected);
+    const event = {
+      type: "notifications.inbox", daemonInstanceId: "daemon-a", catalogRevision: 2,
+      summary: inbox.summary, dismissThrough: inbox.dismissThrough,
+      delta: { kind: "added", notification },
+    };
+    const parsed = parseSessionNotificationInboxEvent(event);
+    if (parsed.delta.kind !== "added") throw new Error("Expected added notification");
+    expect(parsed.delta.notification.presentation).toEqual(expected);
+    expect(parsed.delta.notification.message).toBe(notification.message);
+  });
+
   it("strictly parses selected notification snapshots and realtime events", () => {
     const inbox = notificationInboxWire();
 
