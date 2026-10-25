@@ -23,6 +23,7 @@ import { InMemorySessionSelectionMemory, markSessionArchived, markSessionsArchiv
 import { selectedMachineId, type GetState, type NavigationDestinationOptions, type NavigationFreshness, type NavigationScope, type NavigationSelection, type SetState, type UpdateUrl } from "./types";
 import { TrailingRefreshCoordinator } from "./trailingRefreshCoordinator";
 import { readWithNetworkRecovery } from "./networkReadRecovery";
+import { pendingSessionMessages as pendingMessages, PendingSessionError } from "./pendingSessionMessages";
 
 const MESSAGE_PAGE_SIZE = 100;
 const PENDING_SESSION_START_SCOPE = ["machine", "project", "workspace", "session"] as const;
@@ -552,7 +553,7 @@ export class SessionController {
     const pending = this.pendingSessionStarts.get(session.id);
     if (pending === undefined || pending.discarded) {
       const errorOwner = pending === undefined ? this.captureSessionErrorOwner(session) : this.captureSessionErrorOwner(session, pending.originWorkspace);
-      this.reportSessionError(session, session.machineId, "The backend session is not ready for queued sends. Copy your message before discarding this failed start.", errorOwner);
+      this.reportSessionError(session, session.machineId, new PendingSessionError(() => pendingMessages.t("queueUnavailable")), errorOwner);
       return;
     }
     const queued: QueuedPendingSessionSend = { ...input, id: `pending-send-${String(++this.pendingQueuedSendSeq)}` };
@@ -634,7 +635,7 @@ export class SessionController {
     try {
       const result = await this.api.runCommand(session, text, machineId);
       if (options.applyResult && this.isSelectedSessionIdentity(session.id, machineId)) await this.applyCommandResult(result, expected);
-      else if (result.type === "select" || result.type === "tree") this.reportSessionError(session, machineId, `Queued command “${text}” needs input; open the session and run it again.`, errorOwner);
+      else if (result.type === "select" || result.type === "tree") this.reportSessionError(session, machineId, new PendingSessionError(() => pendingMessages.t("commandInput", { command: text })), errorOwner);
       this.markCachedNewSessionPersisted(session);
       return true;
     } catch (error) {
@@ -1696,7 +1697,7 @@ export class SessionController {
     // session's immutable cwd is safe; deriving workspace metadata here would
     // let a later selection misattribute the failure.
     const scope = sessionBrowserErrorScope(machineId, session.id, errorOwner);
-    if (error instanceof HistoryActionError) this.browserErrors.reportLocalized(scope, () => String(error));
+    if (error instanceof HistoryActionError || error instanceof PendingSessionError) this.browserErrors.reportLocalized(scope, () => String(error));
     else this.browserErrors.report(scope, String(error));
   }
 
@@ -1797,7 +1798,7 @@ export class SessionController {
       path: `pi-web://pending-session/${tempId}`,
       cwd: workspace.path,
       persisted: false,
-      name: "New session",
+      get name() { return pendingMessages.t("newSession"); },
       created: now,
       modified: now,
       messageCount: 0,
@@ -1926,10 +1927,11 @@ export class SessionController {
           session,
           accepted || pending.pendingUrlPublished || !navigationIsCurrent(navigation)
             ? undefined
-            : "Session started, but its navigation changed before selection completed. Select it from the session list.",
+            : () => pendingMessages.t("navigationChanged"),
         );
       } catch (error) {
-        this.clearUnreconciledPendingSelection(pending, session, `Session started, but it could not be selected: ${errorMessage(error)}`);
+        const detail = errorMessage(error);
+        this.clearUnreconciledPendingSelection(pending, session, () => pendingMessages.t("selectionFailure", { detail }));
       }
       return;
     }
@@ -1941,13 +1943,14 @@ export class SessionController {
         return;
       }
       if (this.getState().selectedSession?.id !== session.id) {
-        this.clearUnreconciledPendingSelection(pending, session, "Session started, but its selection changed before navigation completed. Select it from the session list.");
+        this.clearUnreconciledPendingSelection(pending, session, () => pendingMessages.t("selectionChanged"));
         return;
       }
       if (pending.pendingUrlPublished) this.updateUrl({ replace: true });
       else this.updateUrl();
     } catch (error) {
-      this.clearUnreconciledPendingSelection(pending, session, `Session started, but it could not be selected: ${errorMessage(error)}`);
+      const detail = errorMessage(error);
+      this.clearUnreconciledPendingSelection(pending, session, () => pendingMessages.t("selectionFailure", { detail }));
     }
   }
 
@@ -1965,12 +1968,12 @@ export class SessionController {
     return { ...current, sessionId: pending.expectedNavigation.sessionId };
   }
 
-  private clearUnreconciledPendingSelection(pending: PendingSessionStart, session: SessionInfo, message?: string): void {
+  private clearUnreconciledPendingSelection(pending: PendingSessionStart, session: SessionInfo, message?: () => string): void {
     const selectedId = this.getState().selectedSession?.id;
     if (selectedId !== pending.tempId && selectedId !== session.id) return;
     this.clearActiveSession();
     if (message !== undefined) {
-      this.browserErrors.report(
+      this.browserErrors.reportLocalized(
         workspaceBrowserErrorScope(pending.machineId, pending.originWorkspace.projectId, pending.workspaceId),
         message,
       );
@@ -1994,13 +1997,13 @@ export class SessionController {
       return;
     }
     const message = errorMessage(error);
-    const failureMessage = `Failed to start session: ${message}`;
+    const failureMessage = new PendingSessionError(() => pendingMessages.t("startFailure", { detail: message }));
     if (!isCurrentPendingStart) {
       // The temporary row belongs to the workspace that started it, even after
       // navigation reset the workspace-scoped session list. Report the late
       // failure at that retained workspace scope so it is visible on return
       // without attributing it to the newer selection.
-      this.browserErrors.report(workspaceBrowserErrorScope(pending.machineId, pending.originWorkspace.projectId, pending.originWorkspace.id), failureMessage);
+      this.browserErrors.reportLocalized(workspaceBrowserErrorScope(pending.machineId, pending.originWorkspace.projectId, pending.originWorkspace.id), () => failureMessage.message);
       return;
     }
     const state = this.getState();
@@ -2552,19 +2555,18 @@ function creatingPendingSessionActivity(sessionId: string, queuedCount = 0): Ses
   return {
     sessionId,
     phase: "active",
-    label: "Creating session",
-    detail: queuedCount > 0 ? `${String(queuedCount)} queued ${queuedCount === 1 ? "message" : "messages"} will send when the backend session is ready` : "Waiting for the backend session to be ready",
+    get label() { return pendingMessages.t("creating"); },
+    get detail() { return queuedCount > 0 ? pendingMessages.t("queued", { count: queuedCount }) : pendingMessages.t("waiting"); },
     at: new Date().toISOString(),
   };
 }
 
 function failedPendingSessionActivity(sessionId: string, message: string, queuedCount = 0): SessionActivity {
-  const queuedDetail = queuedCount > 0 ? ` · ${String(queuedCount)} queued ${queuedCount === 1 ? "message" : "messages"} kept below` : "";
   return {
     sessionId,
     phase: "error",
-    label: "Session creation failed",
-    detail: `${message}${queuedDetail}`,
+    get label() { return pendingMessages.t("failed"); },
+    get detail() { return pendingMessages.t("failedDetail", { detail: message, count: queuedCount }); },
     at: new Date().toISOString(),
   };
 }
@@ -2573,7 +2575,8 @@ function queuedSessionMessagePreview(queued: QueuedPendingSessionSend): QueuedSe
   if (queued.type === "prompt") {
     const attachmentCount = queued.attachments?.length ?? 0;
     return {
-      kind: queued.streamingBehavior === "steer" ? "steer" : "followUp", text: queuedPromptPreviewText(queued.text, queued.attachments),
+      kind: queued.streamingBehavior === "steer" ? "steer" : "followUp",
+      get text() { return queuedPromptPreviewText(queued.text, queued.attachments); },
       ...(attachmentCount > 0 ? { hasAttachments: true, attachmentCount } : {}),
     };
   }
@@ -2584,18 +2587,15 @@ function queuedPromptPreviewText(text: string, attachments: PromptAttachment[] |
   const attachmentText = queuedAttachmentSummary(attachments);
   if (attachmentText === undefined) return text;
   const trimmed = text.trim();
-  return trimmed === "" ? attachmentText : `${text}\n\n${attachmentText}`;
+  return trimmed === "" ? attachmentText : pendingMessages.t("promptAttachments", { text, attachments: attachmentText });
 }
 
 function queuedAttachmentSummary(attachments: PromptAttachment[] | undefined): string | undefined {
   if (attachments === undefined || attachments.length === 0) return undefined;
   const names = attachments.map((attachment) => attachment.name?.trim()).filter((name): name is string => name !== undefined && name !== "");
   const count = attachments.length;
-  const label = `${String(count)} ${count === 1 ? "attachment" : "attachments"}`;
-  if (names.length === 0) return `[${label} queued]`;
-  const shownNames = names.slice(0, 3).join(", ");
-  const suffix = names.length > 3 ? `, +${String(names.length - 3)} more` : "";
-  return `[${label} queued: ${shownNames}${suffix}]`;
+  if (names.length === 0) return pendingMessages.t("attachments", { count });
+  return pendingMessages.t("namedAttachments", { count, names: names.slice(0, 3).join(", "), remaining: Math.max(0, names.length - 3) });
 }
 
 function uniqueSessionsById(sessions: readonly SessionInfo[]): SessionInfo[] {

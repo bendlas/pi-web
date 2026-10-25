@@ -3,18 +3,23 @@ import { customElement, property } from "lit/decorators.js";
 import type { SessionActivity, SessionStatus } from "../api";
 import { stylesheetIntegrationCapability } from "../plugins/styles";
 import { conversationLayoutStyles } from "../theme/base/conversationLayoutStyles";
+import { localization, LocalizationController } from "../localization/browser";
+import definitions from "./conversationLayout.messages";
+
+export const conversationLayoutMessages = localization.registerMessages("core.conversationLayout", definitions);
+const messages = conversationLayoutMessages;
 
 /** Activity belongs to the conversation boundary, not the transcript scroller. */
 export function conversationActivityText(status: SessionStatus | undefined, activity: SessionActivity | undefined, sending: boolean): string | undefined {
-  if (sending) return "Sending your message…";
-  const state = status === undefined ? activity?.label
+  if (sending) return messages.t("sending");
+  const state = status === undefined ? undefined
     : status.isCompacting ? "compacting"
     : status.isBashRunning ? "bash"
     : status.isStreaming ? "running"
     : status.pendingMessageCount > 0 ? "queued" : "idle";
-  if (state === undefined || (state === "idle" && activity?.phase !== "active")) return undefined;
-  if (activity === undefined || (state !== "idle" && activity.phase === "idle")) return state;
-  return activity.detail !== undefined && activity.detail !== "" ? `${activity.label}: ${activity.detail}` : activity.label;
+  if ((state === undefined && (activity === undefined || activity.phase === "idle")) || (state === "idle" && activity?.phase !== "active")) return undefined;
+  if (activity === undefined || (state !== undefined && state !== "idle" && activity.phase === "idle")) return state === undefined || state === "idle" ? undefined : messages.t(state);
+  return activity.detail !== undefined && activity.detail !== "" ? messages.t("summary", { label: activity.label, detail: activity.detail }) : activity.label;
 }
 
 /** Owns the transcript/composer boundary; children own their content and actions. */
@@ -23,6 +28,7 @@ export class ConversationLayout extends LitElement {
   constructor() {
     super();
     stylesheetIntegrationCapability.createController(this);
+    new LocalizationController(this, localization);
   }
 
   @property({ attribute: false }) status: SessionStatus | undefined;
