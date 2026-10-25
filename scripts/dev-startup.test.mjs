@@ -44,7 +44,8 @@ it("launches a build process in its requested directory", async () => {
     const exited = once(child, "exit");
     const [reportedCwd] = await once(child, "message");
     expect(await exited).toEqual([0, null]);
-    expect(reportedCwd).toBe(await realpath(cwd));
+    // Windows process.cwd() can retain an 8.3 alias; compare canonical paths.
+    expect(await realpath(reportedCwd)).toBe(await realpath(cwd));
   } finally {
     if (child.exitCode === null) child.kill();
     await rm(cwd, { recursive: true, force: true });
