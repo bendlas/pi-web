@@ -35,7 +35,7 @@ export default {
   missingState: message("Package no longer available in saved settings", "Runtime-only plugin absent from saved packages"),
   disabledState: message("Saved: disabled", "Explicit saved disabled state"),
   enabledState: message("Saved: enabled", "Explicit saved enabled state"),
-  defaultState: message("Enabled by default", "Implicit enabled state"),
+  defaultState: message("Using package default", "Saved state inherits the package default, which can be enabled or disabled"),
   configOnly: message("Saved settings only · package not found", "Config-only plugin provenance"),
   provenance: message<{ source: string; scope: string; machine: string; required: string; discovered: string }>("{source} · {scope, select, bundled {bundled} local {local} user {user} other {project}}{machine, select, yes { · machine-specific} other {}}{required, select, yes { · required} other {}}{discovered, select, yes {} other { · running version only}}", "Complete plugin provenance; source is a raw package specifier, scope is a settings location"),
   healthDetail: message<{ detail: string }>("Health: {detail}", "Raw health diagnostic"),

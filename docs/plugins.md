@@ -272,6 +272,15 @@ Keep gateways and targets compatible. During this plugin API transition, upgrade
 - **Info** displays machine and PI WEB status without requiring a workspace, adds workspace details when selected, and provides copyable diagnostics.
 - **Updates** shows update/restart guidance when relevant and offers a manual update check. Run uses the selected machine's maintenance terminal in `$PI_WEB_DATA_DIR/maintenance` (default `~/.pi-web/maintenance`), whether or not a workspace is selected. It requires an available Terminal provider on that machine; guidance and Copy remain available without one.
 - **Workspace Tasks** turns project commands into runnable buttons.
+- **Spanish / Español** and **Swedish / Svenska** are optional interface language packs, included but disabled by default. See [Language packs](#language-packs) to enable them.
+
+### Language packs
+
+Enable `language-spanish` or `language-swedish` in **Settings → PI WEB plugins** on the gateway machine, then reload the browser. These are browser-only plugins; no session-daemon restart is needed.
+
+In **Settings → General → Language and region**, select **Spanish** (`es`) or **Swedish** (`sv`) as the interface language and apply it to this browser. Language names follow the current interface language. You can enable both packs and switch between them. Browser or gateway language defaults can also select an enabled pack.
+
+The packs translate PI WEB's interface and bundled plugin labels, not conversations, model responses, file contents, or third-party plugins. Missing translations fall back to English. Regional formats, time zone, and clock preferences remain independent of interface language. Disabling a pack and reloading restores English fallback when that language is requested.
 
 ### Automatic Git worktree discovery
 

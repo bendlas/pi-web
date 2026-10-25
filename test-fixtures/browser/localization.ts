@@ -1,7 +1,20 @@
-import { html, render } from "lit";
+import { html, render, svg } from "lit";
 import { initializeLocalization, localization } from "../../src/client/src/localization/browser";
 import { SettingsGeneralPanel } from "../../src/client/src/components/settings/SettingsGeneralPanel";
 import { ModalSurface } from "../../src/client/src/components/ModalSurface";
+import { createPluginLocalization } from "../../src/client/src/plugins/localization";
+import spanish from "../../pi-web-plugins/language-spanish/pi-web-plugin";
+import swedish from "../../pi-web-plugins/language-swedish/pi-web-plugin";
+
+// Exercise the shipped packs through the same activation-scoped API as the app.
+for (const [pluginId, plugin] of [["language-spanish", spanish], ["language-swedish", swedish]] as const) {
+  const lifetime = new AbortController();
+  plugin.activate({
+    apiVersion: 5, pluginId, runtimePluginId: pluginId, html, svg,
+    signal: lifetime.signal, lifetimeSignal: lifetime.signal,
+    localization: createPluginLocalization(localization, pluginId, pluginId, lifetime.signal),
+  });
+}
 
 // Test-only long/RTL catalog; it is not a shipped additional language.
 localization.registerCatalog({ id: "fixture-ar", namespace: "core.settingsLocalization", locale: "ar", load: () => Promise.resolve({
