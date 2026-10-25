@@ -16,23 +16,59 @@ function activation(service: LocalizationService, runtime = "files") {
 afterEach(() => { document.body.replaceChildren(); });
 
 describe("plugin localization", () => {
-  it("shares federated package sources, rejects conflicts, and releases the last owner", async () => {
-    const service = new LocalizationService();
+  it("keeps federated source revisions independent at the same catalog address", async () => {
+    const service = new LocalizationService({ preferences: { language: "fr", formatLocale: "en" } });
     const local = activation(service);
     const remote = activation(service, "remote-files");
     const messages = local.api.registerMessages("panel", definitions);
-    const remoteMessages = remote.api.registerMessages("panel", { ...definitions });
+    const remoteMessages = remote.api.registerMessages("panel", {
+      cancel: message("Cancel operation", "Updated translator context"),
+      added: message("New action", "Action added in the newer plugin"),
+    });
     expect(() => local.api.registerMessages("panel", definitions)).toThrow(/Duplicate/);
-    const conflict = activation(service, "other-files");
-    expect(() => conflict.api.registerMessages("panel", { cancel: message("Stop", "Cancel the operation") })).toThrow(/Conflicting/);
+    const remove = local.api.registerCatalog({ id: "fr", namespace: "plugin:files:panel", locale: "fr", load: () => Promise.resolve({ cancel: "Annuler", added: "Nouvelle action" }) });
+    await service.ready;
+    expect(messages.t("cancel")).toBe("Annuler");
+    expect(remoteMessages.t("cancel")).toBe("Annuler");
+    expect(remoteMessages.t("added")).toBe("Nouvelle action");
     local.lifetime.abort();
+    await service.ready;
     expect(messages.t("cancel")).toBe("Cancel");
-    expect(remoteMessages.t("cancel")).toBe("Cancel");
+    expect(remoteMessages.t("cancel")).toBe("Cancel operation");
     expect(() => service.registerMessages("plugin:files:panel", definitions)).toThrow(/Duplicate/);
+    remove();
     remote.lifetime.abort();
     await service.ready;
     expect(service.registerMessages("plugin:files:panel", definitions).t("cancel")).toBe("Cancel");
-    conflict.lifetime.abort();
+  });
+
+  it("activates different plugin revisions from two machines without localization rollback", async () => {
+    const service = new LocalizationService();
+    const registry = new PluginRegistry({ localization: service });
+    let localLabel = () => "";
+    let remoteLabel = () => "";
+    try {
+      await registry.register({ id: "files-local", sourcePluginId: "files", plugin: {
+        apiVersion: 5, name: "Files", activate(context) {
+          const messages = context.localization?.registerMessages("panel", definitions);
+          localLabel = () => messages?.t("cancel") ?? "";
+          return { contributions: {} };
+        },
+      } });
+      await registry.register({ id: "files-remote", sourcePluginId: "files", machineId: "remote", plugin: {
+        apiVersion: 5, name: "Files", activate(context) {
+          const messages = context.localization?.registerMessages("panel", {
+            cancel: message("Cancel operation", "New description"), added: message("Added", "New key"),
+          });
+          remoteLabel = () => messages?.t("cancel") ?? "";
+          return { contributions: {} };
+        },
+      } });
+      expect(registry.hasPlugin("files-local")).toBe(true);
+      expect(registry.hasPlugin("files-remote")).toBe(true);
+      expect(localLabel()).toBe("Cancel");
+      expect(remoteLabel()).toBe("Cancel operation");
+    } finally { await registry.dispose(); }
   });
 
   it("lets queued detached renders read source messages without retaining activation registrations", async () => {
@@ -158,16 +194,16 @@ describe("plugin localization", () => {
     const unsubscribe = api.subscribe(listener);
     try {
       await service.setPreferences({ language: "fr", formatLocale: "en" });
-      await Promise.resolve();
+      await service.ready;
       expect(messages.t("cancel")).toBe("Annuler");
-      expect(listener).toHaveBeenCalledOnce();
-      expect(warning).toHaveBeenCalledTimes(2);
+      expect(listener).toHaveBeenCalledTimes(2);
+      expect(warning).toHaveBeenCalledTimes(4);
       unsubscribe();
       remove();
       remove();
       await service.ready;
       expect(messages.t("cancel")).toBe("Cancel");
-      expect(listener).toHaveBeenCalledOnce();
+      expect(listener).toHaveBeenCalledTimes(2);
     } finally {
       lifetime.abort();
       warning.mockRestore();

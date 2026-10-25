@@ -93,7 +93,7 @@ Set `defaultLocalization` in the gateway's global config to supply browser defau
 
 All fields are optional and independent. `language` requests installed translations, with English fallback. `formatLocale` is a standard locale tag. `timeZone` is validated by native `Intl`; omitted zones use the device zone. `hourCycle` accepts `h11`, `h12`, `h23`, or `h24`; omission uses regional conventions. Omitted language/format locale use the browser language. No currency or zone is inferred from language. Development pseudo locales cannot be configured here.
 
-Saved browser preferences override the whole default snapshot. Settings → General → Language and region saves device choices, not this server setting. Remove the browser's `pi-web-localization` storage key and reload to resume inheritance. Reload the tab after changing config defaults; no service restart is needed. This key is gateway-only, not selected-machine or project-local. `{}` clears all configured fields.
+Saved browser preferences override defaults independently per field. Settings → General → Language and region saves only explicit browser-local choices, not this server setting. Empty Regional format and Time zone fields inherit the configured gateway value, if any, otherwise the browser’s value; the source and value are shown below each field. Clear a field and apply to resume inheritance for that field, or choose **Use defaults** to clear all local overrides. Existing saved snapshots remain explicit overrides until cleared. Reload the tab after changing config defaults; no service restart is needed. This key is gateway-only, not selected-machine or project-local. `{}` clears all configured fields.
 
 ### Streaming send default
 

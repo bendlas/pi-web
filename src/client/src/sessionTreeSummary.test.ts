@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { SessionTreeNode, SessionTreeSummaryPresentation } from "../../shared/apiTypes";
+import { projectSessionTree } from "../../server/sessions/sessionTreeProjection";
+import { parseCommandResult, parseSessionTreeSnapshot } from "./api/parsers";
 import { localization } from "./localization/browser";
 import { sessionTreeSummary } from "./sessionTreeSummary";
 
@@ -57,6 +59,53 @@ describe("history summary presentation", () => {
     const named = sessionTreeSummary(node({ type: "named", field: "label", value: text }));
     expect(named).toContain(text);
     expect(named).not.toBe(`Label: ${text}`);
+  });
+
+  it("carries every projected presentation through JSON and API parsing into localized summaries", async () => {
+    const literal = "Tool error [image] العربية";
+    const entries = [
+      { type: "message", message: { role: "assistant", stopReason: "error" } },
+      { type: "message", message: { role: "user", content: [{ type: "text", text: literal }, { type: "image", data: "private" }] } },
+      { type: "model_change", provider: "provider", modelId: "model" },
+      { type: "message", message: { role: "assistant", content: [{ type: "toolCall", name: "read" }, { type: "toolCall", name: "bash" }] } },
+      { type: "message", message: { role: "toolResult", isError: true, toolName: "read", content: literal } },
+      { type: "custom_message", display: true, customType: "notice", content: literal },
+      { type: "message", message: { role: "user", content: literal } },
+    ];
+    const projected = projectSessionTree(entries.map((entry, index) => ({
+      entry: { id: String(index), parentId: null, ...entry }, children: [],
+    })), "0");
+    const wire: unknown = JSON.parse(JSON.stringify(projected));
+    const parsed = parseSessionTreeSnapshot(wire);
+    expect(parsed).toEqual(projected);
+    expect(parseCommandResult({ type: "tree", tree: wire })).toEqual({ type: "tree", tree: projected });
+
+    await localization.setPreferences({ language: "en", formatLocale: "en-US" });
+    const english = parsed.nodes.map(sessionTreeSummary);
+    expect(english).toEqual([
+      "Assistant error", `${literal} [image]`, "Model: provider/model",
+      `Tool call: ${new Intl.ListFormat("en-US").format(["read", "bash"])}`,
+      `Tool error (read): ${literal}`, `Custom message (notice): ${literal}`, literal,
+    ]);
+    await localization.setPreferences({ language: "en-XA", formatLocale: "en-US" });
+    const translated = parsed.nodes.map(sessionTreeSummary);
+    for (let index = 0; index < 6; index += 1) expect(translated[index]).not.toBe(english[index]);
+    for (const index of [1, 4, 5, 6]) expect(translated[index]).toContain(literal);
+    expect(translated[2]).toContain("provider/model");
+    expect(translated[3]).toContain("read");
+    expect(translated[6]).toBe(literal);
+  });
+
+  it("renders raw fallback after API parsing of missing, malformed, or future metadata", async () => {
+    await localization.setPreferences({ language: "en-XA", formatLocale: "en" });
+    for (const summaryPresentation of [undefined, null, { type: "future" }, { type: "status", status: "future" }, { type: "content", parts: [{ type: "future" }], fallback: "message" }]) {
+      const wire: unknown = JSON.parse(JSON.stringify({
+        nodes: [{ ...node(), summaryPresentation }], activeLeafId: "id", activePathIds: ["id"],
+      }));
+      const parsed = parseSessionTreeSnapshot(wire);
+      expect(parsed.nodes).toEqual([node()]);
+      expect(parsed.nodes.map(sessionTreeSummary)).toEqual(["Legacy Tool error [image]"]);
+    }
   });
 
   it("bounds complete localized output without splitting a surrogate pair", async () => {

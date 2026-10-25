@@ -7,6 +7,7 @@ import { parseWorkspaceRemovalLocalization } from "../../../shared/workspaceRemo
 import { parseCommandResultPresentation } from "../../../shared/commandResultPresentation";
 import { parseCommandOutputPresentation } from "../../../shared/commandOutputPresentation";
 import { parseSessionNotificationPresentation } from "../../../shared/sessionNotificationPresentation";
+import { parseSessionTreeSummaryPresentation } from "../../../shared/sessionTreeSummaryPresentation";
 import { parseKnownPiWebCapabilities } from "../../../shared/capabilities";
 import { parseDeprecatedAgentInputs } from "../../../shared/piWebStatusParsing";
 import { PI_WEB_PLUGIN_RECOVERY_COMMANDS, pluginDisableRecoveryCommand } from "../../../shared/pluginRecoveryCommands";
@@ -2016,6 +2017,7 @@ function parseSessionTreeNode(value: unknown): SessionTreeNode {
     parentId: requireNullableString(record, "parentId"),
     kind: parseSessionTreeNodeKind(record["kind"]),
     summary: requireString(record, "summary"),
+    ...optionalField("summaryPresentation", parseSessionTreeSummaryPresentation(record["summaryPresentation"])),
     ...optionalField("timestamp", optionalString(record, "timestamp")),
     ...optionalField("label", optionalString(record, "label")),
   };

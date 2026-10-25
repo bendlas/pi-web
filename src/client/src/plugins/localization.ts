@@ -52,6 +52,7 @@ export function createPluginLocalization(
         console.warn(`PI WEB plugin ${runtimePluginId} localization subscriber failed`, error);
       };
       return own(service.subscribe(() => {
+        if (lifetime.aborted) return;
         try {
           const result: unknown = listener();
           if (result !== undefined) void Promise.resolve(result).catch(reportFailure);

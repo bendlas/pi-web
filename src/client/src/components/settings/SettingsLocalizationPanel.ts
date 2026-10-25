@@ -1,8 +1,8 @@
 import { css, html, LitElement, nothing, type TemplateResult } from "lit";
 import { customElement, state } from "lit/decorators.js";
 import { live } from "lit/directives/live.js";
-import { browserLocalizationPreferences, localization, LocalizationController } from "../../localization/browser";
-import { normalizePreferences, type LocalizationPreferences } from "../../localization/service";
+import { inheritedLocalizationSetting, localization, LocalizationController } from "../../localization/browser";
+import type { LocalizationPreferences } from "../../localization/service";
 import { stylesheetIntegrationCapability } from "../../plugins/styles";
 import { uiButtonStyles } from "../ui/controlStyles";
 import { uiFormStyles } from "../ui/formStyles";
@@ -14,14 +14,25 @@ const messages = localizationSettingsMessages;
 interface Draft { language: string; formatLocale: string; timeZone: string; hourCycle: string }
 type Field = keyof Draft;
 interface Validation { field: Field; key: "invalidLanguage" | "invalidRegion" | "invalidZone" | "invalidHours" }
-function draftFromPreferences(value: Readonly<LocalizationPreferences>): Draft {
-  return { language: value.language, formatLocale: value.formatLocale, timeZone: value.timeZone ?? "", hourCycle: value.hourCycle ?? "" };
+function draftFromPreferences(value: Readonly<Partial<LocalizationPreferences>>): Draft {
+  return { language: value.language ?? localization.preferences.language, formatLocale: value.formatLocale ?? "", timeZone: value.timeZone ?? "", hourCycle: value.hourCycle ?? "" };
+}
+function availableLanguage(requested: string): string {
+  const languages = localization.availableLanguages;
+  if (languages.includes(requested)) return requested;
+  return languages.includes(localization.language) ? localization.language : "en";
+}
+function clockFormat(draft: Draft): "" | "h12" | "h23" {
+  if (!draft.hourCycle) return "";
+  // Represent old explicit cycles by their conventional 12/24-hour equivalents.
+  return draft.hourCycle === "h11" || draft.hourCycle === "h12" ? "h12" : "h23";
 }
 function sameDraft(a: Draft, b: Draft): boolean {
   return a.language === b.language && a.formatLocale === b.formatLocale && a.timeZone === b.timeZone && a.hourCycle === b.hourCycle;
 }
 function validateDraft(draft: Draft): Validation | undefined {
   for (const [field, key] of [["language", "invalidLanguage"], ["formatLocale", "invalidRegion"]] as const) {
+    if (field === "formatLocale" && !draft[field].trim()) continue;
     try { if (Intl.getCanonicalLocales(draft[field].trim())[0] === undefined) return { field, key }; }
     catch { return { field, key }; }
   }
@@ -34,7 +45,7 @@ function validateDraft(draft: Draft): Validation | undefined {
 /** Browser-owned preferences are independent of gateway/selected-machine config and availability. */
 @customElement("settings-localization-panel")
 export class SettingsLocalizationPanel extends LitElement {
-  private baseline = draftFromPreferences(localization.preferences);
+  private baseline = draftFromPreferences(localization.preferenceOverrides);
   @state() private draft = { ...this.baseline };
   @state() private validation: Validation | undefined;
   @state() private failure: string | undefined;
@@ -49,7 +60,7 @@ export class SettingsLocalizationPanel extends LitElement {
   }
 
   protected override willUpdate(): void {
-    const incoming = draftFromPreferences(localization.preferences);
+    const incoming = draftFromPreferences(localization.preferenceOverrides);
     if (!sameDraft(incoming, this.baseline)) {
       if (sameDraft(this.draft, this.baseline)) this.draft = incoming;
       this.baseline = incoming;
@@ -60,12 +71,16 @@ export class SettingsLocalizationPanel extends LitElement {
     // Apply values after options exist, including options added by a live language pack.
     const language = this.renderRoot.querySelector<HTMLSelectElement>("#language");
     const hours = this.renderRoot.querySelector<HTMLSelectElement>("#hourCycle");
-    if (language) language.value = this.draft.language;
-    if (hours) hours.value = this.draft.hourCycle;
+    if (language) language.value = availableLanguage(this.draft.language);
+    if (hours) hours.value = clockFormat(this.draft);
   }
 
   override render(): TemplateResult {
-    const languages = [...new Set([...localization.availableLanguages, this.draft.language])];
+    const languages = localization.availableLanguages;
+    const selectedLanguage = availableLanguage(this.draft.language);
+    const selectedClockFormat = clockFormat(this.draft);
+    const regionDefault = inheritedLocalizationSetting("formatLocale");
+    const zoneDefault = inheritedLocalizationSetting("timeZone");
     const displayNames = new Intl.DisplayNames([localization.language], { type: "language" });
     return html`
       <section class="ui-settings-section" aria-labelledby="localization-heading">
@@ -78,29 +93,31 @@ export class SettingsLocalizationPanel extends LitElement {
             <span>${messages.t("language")}</span>
             <select id="language" class="ui-input" aria-describedby=${this.helpIds("language", "language-help")} aria-invalid=${this.validation?.field === "language" ? "true" : nothing} ?disabled=${this.applying}
               @change=${(event: Event) => { this.edit("language", event); }}>
-              ${languages.map((code) => html`<option value=${code} ?selected=${code === this.draft.language}>${messages.t("languageOption", { name: displayNames.of(code) ?? code, code })}</option>`)}
+              ${languages.map((code) => html`<option value=${code} ?selected=${code === selectedLanguage}>${messages.t("languageOption", { name: displayNames.of(code) ?? code, code })}</option>`)}
             </select>
             <small id="language-help">${messages.t("languageHelp")}</small>
           </label>
-          <label class="ui-form-field" for="formatLocale">
-            <span>${messages.t("region")}</span>
+          <div class="ui-form-field">
+            <label for="formatLocale">${messages.t("region")}</label>
             <input id="formatLocale" class="ui-input" dir="ltr" spellcheck="false" autocapitalize="off" .value=${live(this.draft.formatLocale)}
-              aria-describedby=${this.helpIds("formatLocale", "region-help")} aria-invalid=${this.validation?.field === "formatLocale" ? "true" : nothing}
+              placeholder=${messages.t("useDefault")} aria-describedby=${this.helpIds("formatLocale", "region-help region-default")} aria-invalid=${this.validation?.field === "formatLocale" ? "true" : nothing}
               ?disabled=${this.applying} @input=${(event: Event) => { this.edit("formatLocale", event); }}>
             <small id="region-help">${messages.t("regionHelp")}</small>
-          </label>
+            <small id="region-default">${messages.rich(regionDefault.source === "server" ? "gatewayDefault" : "browserDefault", { value: regionDefault.value, isolate: (parts) => html`<bdi dir="ltr">${parts}</bdi>` })}</small>
+          </div>
           <label class="ui-form-field" for="timeZone">
             <span>${messages.t("zone")}</span>
             <input id="timeZone" class="ui-input" dir="ltr" spellcheck="false" autocapitalize="off" .value=${live(this.draft.timeZone)}
-              aria-describedby=${this.helpIds("timeZone", "zone-help")} aria-invalid=${this.validation?.field === "timeZone" ? "true" : nothing}
+              placeholder=${messages.t("useDefault")} aria-describedby=${this.helpIds("timeZone", "zone-help zone-default")} aria-invalid=${this.validation?.field === "timeZone" ? "true" : nothing}
               ?disabled=${this.applying} @input=${(event: Event) => { this.edit("timeZone", event); }}>
             <small id="zone-help">${messages.t("zoneHelp")}</small>
+            <small id="zone-default">${messages.rich(zoneDefault.source === "server" ? "gatewayDefault" : "browserDefault", { value: zoneDefault.value, isolate: (parts) => html`<bdi dir="ltr">${parts}</bdi>` })}</small>
           </label>
           <label class="ui-form-field" for="hourCycle">
             <span>${messages.t("hours")}</span>
             <select id="hourCycle" class="ui-input" aria-describedby=${this.validation?.field === "hourCycle" ? "localization-validation" : nothing} aria-invalid=${this.validation?.field === "hourCycle" ? "true" : nothing} ?disabled=${this.applying} @change=${(event: Event) => { this.edit("hourCycle", event); }}>
-              <option value="" ?selected=${this.draft.hourCycle === ""}>${messages.t("hoursDefault")}</option>
-              ${(["h11", "h12", "h23", "h24"] as const).map((cycle) => html`<option value=${cycle} ?selected=${this.draft.hourCycle === cycle}>${messages.t(cycle)}</option>`)}
+              <option value="" ?selected=${selectedClockFormat === ""}>${messages.t(localization.preferenceDefaults.hourCycle === undefined ? "hoursDefault" : "hoursGatewayDefault")}</option>
+              ${(["h12", "h23"] as const).map((cycle) => html`<option value=${cycle} ?selected=${cycle === selectedClockFormat}>${messages.t(cycle)}</option>`)}
             </select>
           </label>
           ${this.validation ? html`<p class="ui-form-error" id="localization-validation" role="alert">${messages.t(this.validation.key)}</p>` : nothing}
@@ -113,7 +130,7 @@ export class SettingsLocalizationPanel extends LitElement {
           <footer class="ui-settings-actions">
             <button type="submit" class="ui-button ui-button--action ui-button--primary" ?disabled=${this.applying}>${messages.t(this.applying ? "applying" : "apply")}</button>
             <button type="button" class="ui-button ui-button--action" ?disabled=${this.applying}
-              @click=${() => { void this.apply(draftFromPreferences(browserLocalizationPreferences())); }}>${messages.t("reset")}</button>
+              @click=${() => { this.save({}); }}>${messages.t("reset")}</button>
           </footer>
           <p role="status">${this.saved ? messages.t("saved") : nothing}</p>
         </form>
@@ -127,7 +144,11 @@ export class SettingsLocalizationPanel extends LitElement {
 
   private edit(field: Field, event: Event): void {
     if (!(event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement)) return;
-    this.draft = { ...this.draft, [field]: event.target.value };
+    this.setField(field, event.target.value);
+  }
+
+  private setField(field: Field, value: string): void {
+    this.draft = { ...this.draft, [field]: value };
     if (this.validation?.field === field) this.validation = undefined;
     this.saved = false;
     this.failure = undefined;
@@ -143,12 +164,22 @@ export class SettingsLocalizationPanel extends LitElement {
       this.renderRoot.querySelector<HTMLElement>(`#${this.validation.field}`)?.focus();
       return;
     }
+    const hourCycle = clockFormat(draft);
+    this.save({ language: availableLanguage(draft.language.trim()),
+      ...(draft.formatLocale.trim() ? { formatLocale: draft.formatLocale.trim() } : {}),
+      ...(draft.timeZone.trim() ? { timeZone: draft.timeZone.trim() } : {}), ...(hourCycle ? { hourCycle } : {}) });
+  }
+
+  private save(overrides: Partial<LocalizationPreferences>): void {
+    if (this.applying) return;
     this.applying = true;
+    this.validation = undefined;
+    this.failure = undefined;
+    this.saved = false;
     try {
-      const preferences = normalizePreferences({ language: draft.language.trim(), formatLocale: draft.formatLocale.trim(),
-        ...(draft.timeZone.trim() ? { timeZone: draft.timeZone.trim() } : {}), ...(draft.hourCycle ? { hourCycle: draft.hourCycle } : {}) });
-      await localization.setPreferences(preferences);
-      this.baseline = draftFromPreferences(preferences);
+      // The choice commits synchronously. Catalog readiness must not block this form.
+      void localization.setPreferenceOverrides(overrides);
+      this.baseline = draftFromPreferences(localization.preferenceOverrides);
       this.draft = { ...this.baseline };
       this.saved = true;
     } catch (cause) {

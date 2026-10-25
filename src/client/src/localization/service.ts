@@ -3,18 +3,24 @@ import { IntlMessageFormat, type Formatters } from "intl-messageformat";
 import type { TemplateResult } from "lit";
 import type {
   LocalizationDiagnostic, LocalizationPreferences, LocalizedMessages, MessageArguments,
-  MessageDefinitions, MessageValues, TranslationCatalog, TranslationContribution,
+  MessageDefinitions, MessageValues, TranslationContribution,
 } from "../../../shared/localization.js";
 import { pseudoLocalize, validateCatalog, validateMessages } from "./catalog.js";
+import { loadCatalog, type CatalogLoad } from "./catalogLoader.js";
 
 export { message } from "../../../shared/localization.js";
 export type * from "../../../shared/localization.js";
 
 interface RegisteredCatalog extends TranslationContribution {
-  loaded?: Promise<TranslationCatalog>;
+  loaded?: CatalogLoad;
 }
 
 interface SelectedMessage { message: string; locale: string }
+interface RegisteredSource {
+  definitions: MessageDefinitions;
+  selected: Map<string, SelectedMessage>;
+  active: boolean;
+}
 
 export interface LocalizationOptions {
   preferences?: LocalizationPreferences;
@@ -57,6 +63,17 @@ export function normalizePreferences(value: unknown): LocalizationPreferences {
     ...(hourCycle === undefined ? {} : { hourCycle }) };
 }
 
+export function normalizePreferenceOverrides(value: unknown): Partial<LocalizationPreferences> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) throw new TypeError("Expected localization overrides");
+  const normalized = normalizePreferences({ language: "en", formatLocale: "en", ...value });
+  return {
+    ...("language" in value ? { language: normalized.language } : {}),
+    ...("formatLocale" in value ? { formatLocale: normalized.formatLocale } : {}),
+    ...(normalized.timeZone === undefined ? {} : { timeZone: normalized.timeZone }),
+    ...(normalized.hourCycle === undefined ? {} : { hourCycle: normalized.hourCycle }),
+  };
+}
+
 function hasTextInfoMethod(locale: Intl.Locale): locale is Intl.Locale & { getTextInfo(): unknown } {
   return "getTextInfo" in locale && typeof locale.getTextInfo === "function";
 }
@@ -72,28 +89,31 @@ export function localeDirection(language: string): "ltr" | "rtl" {
 /** Owns catalogs/preferences. Environment effects belong to the browser/plugin adapters. */
 export class LocalizationService {
   private current: LocalizationPreferences;
+  private defaults: LocalizationPreferences = { language: "en", formatLocale: "en" };
+  private overrides: Partial<LocalizationPreferences>;
   private readonly development: boolean;
   private readonly diagnostic: (diagnostic: LocalizationDiagnostic) => void;
-  private readonly sources = new Map<string, MessageDefinitions>();
+  private readonly sources = new Map<string, Set<RegisteredSource>>();
   private readonly contributions = new Map<string, RegisteredCatalog>();
-  private readonly sourceOwners = new Map<string, { definitions: MessageDefinitions; count: number }>();
-  private selected = new Map<string, Map<string, SelectedMessage>>();
   private readonly listeners = new Set<() => void>();
   private readonly formats = new Map<string, IntlMessageFormat>();
   private readonly reported = new Set<string>();
-  private generation = 0;
   private preferencesRevision = 0;
   private pending: Promise<void> = Promise.resolve();
   private resolvedLanguage = "en";
 
   constructor(options: LocalizationOptions = {}) {
-    this.current = normalizePreferences(options.preferences ?? { language: "en", formatLocale: "en" });
+    this.current = normalizePreferences(options.preferences ?? this.defaults);
+    this.overrides = options.preferences === undefined ? {} : { ...this.current };
     this.development = options.development ?? false;
     this.diagnostic = options.diagnostic ?? ((diagnostic) => { console.warn(`[i18n:${diagnostic.code}] ${diagnostic.message}`, diagnostic.cause ?? ""); });
     this.assertLanguage(this.current.language);
   }
 
   get preferences(): Readonly<LocalizationPreferences> { return { ...this.current }; }
+  /** Explicit choices only; omitted fields continue to inherit defaults. */
+  get preferenceOverrides(): Readonly<Partial<LocalizationPreferences>> { return { ...this.overrides }; }
+  get preferenceDefaults(): Readonly<LocalizationPreferences> { return { ...this.defaults }; }
   /** Distinguishes explicit preference requests (even identical values) from catalog refreshes. */
   get preferenceRevision(): number { return this.preferencesRevision; }
   /** Actual UI language after catalog fallback, suitable for document.lang. */
@@ -133,64 +153,78 @@ export class LocalizationService {
   setPreferences(preferences: LocalizationPreferences): Promise<void> {
     const normalized = normalizePreferences(preferences);
     this.assertLanguage(normalized.language);
+    return this.setPreferenceOverrides(normalized);
+  }
+
+  /** Update inherited values without converting them into explicit preferences. */
+  setPreferenceDefaults(preferences: LocalizationPreferences): Promise<void> {
+    const defaults = normalizePreferences(preferences);
+    const current = normalizePreferences({ ...defaults, ...this.overrides });
+    this.assertLanguage(defaults.language);
+    this.assertLanguage(current.language);
+    this.defaults = defaults;
+    this.current = current;
+    this.refresh();
+    return this.pending;
+  }
+
+  /** Replace the override layer. Clearing a field resumes inheritance for that field. */
+  setPreferenceOverrides(preferences: Partial<LocalizationPreferences>): Promise<void> {
+    const overrides = normalizePreferenceOverrides(preferences);
+    const normalized = normalizePreferences({ ...this.defaults, ...overrides });
+    this.assertLanguage(normalized.language);
+    this.overrides = overrides;
     this.current = normalized;
     this.preferencesRevision++;
-    return this.refresh();
+    this.refresh();
+    return this.pending;
   }
 
-  /** Register one namespace's English source; keys remain local to its typed handle. */
+  /** Register one application-lifetime namespace; keys remain local to its typed handle. */
   registerMessages<Definitions extends MessageDefinitions>(namespace: string, definitions: Definitions): LocalizedMessages<Definitions> {
     if (!namespace || this.sources.has(namespace)) throw new Error(`Duplicate or empty message namespace: ${namespace}`);
-    const errors = validateMessages(definitions);
-    if (errors.length) throw new Error(`Invalid source ${namespace}: ${errors.join("; ")}`);
-    this.sources.set(namespace, definitions);
-    void this.refresh();
-    return this.messageHandle<Definitions>(namespace);
+    return this.messageHandle<Definitions>(namespace, this.addSource(namespace, definitions));
   }
 
-  /** Shared package sources survive until their last federated activation releases them. */
+  /** Activations share a catalog address, not a mutable source definition. */
   acquireMessages<Definitions extends MessageDefinitions>(namespace: string, definitions: Definitions): {
     messages: LocalizedMessages<Definitions>; release(): void;
   } {
-    let owner = this.sourceOwners.get(namespace);
-    if (owner === undefined) {
-      this.registerMessages(namespace, definitions);
-      owner = { definitions, count: 0 };
-      this.sourceOwners.set(namespace, owner);
-    } else {
-      const existing = owner.definitions;
-      const keys = Object.keys(definitions);
-      if (keys.length !== Object.keys(existing).length || keys.some((key) => {
-        const source = existing[key];
-        return source?.message !== definitions[key]?.message || source?.description !== definitions[key]?.description;
-      })) throw new Error(`Conflicting source messages: ${namespace}`);
-    }
-    const acquiredOwner = owner;
-    acquiredOwner.count++;
-    let released = false;
+    const source = this.addSource(namespace, definitions);
     return {
-      // Detached Lit hosts may finish a queued render after activation cleanup.
-      // Keep reads safe without retaining registrations or another owner's catalog.
-      messages: this.messageHandle<Definitions>(namespace, () => released ? definitions : undefined),
+      messages: this.messageHandle<Definitions>(namespace, source),
       release: () => {
-        if (released) return;
-        released = true;
-        if (--acquiredOwner.count !== 0) return;
-        this.sourceOwners.delete(namespace);
-        this.sources.delete(namespace);
-        void this.refresh();
+        if (!source.active) return;
+        source.active = false;
+        source.selected.clear();
+        const registrations = this.sources.get(namespace);
+        registrations?.delete(source);
+        if (registrations?.size === 0) this.sources.delete(namespace);
+        this.refresh();
       },
     };
   }
 
-  private messageHandle<Definitions extends MessageDefinitions>(namespace: string, detachedDefinitions?: () => Definitions | undefined): LocalizedMessages<Definitions> {
+  private addSource(namespace: string, definitions: MessageDefinitions): RegisteredSource {
+    if (!namespace) throw new Error("Empty message namespace");
+    const errors = validateMessages(definitions);
+    if (errors.length) throw new Error(`Invalid source ${namespace}: ${errors.join("; ")}`);
+    const source: RegisteredSource = { definitions, selected: new Map(), active: true };
+    let registrations = this.sources.get(namespace);
+    if (!registrations) { registrations = new Set(); this.sources.set(namespace, registrations); }
+    registrations.add(source);
+    this.refresh();
+    return source;
+  }
+
+  private messageHandle<Definitions extends MessageDefinitions>(namespace: string, source: RegisteredSource): LocalizedMessages<Definitions> {
     return {
       t: <Key extends keyof Definitions & string>(key: Key, ...args: MessageArguments<Definitions[Key]>) => {
-        const result = this.format(namespace, key, args[0], detachedDefinitions?.());
+        const result = this.format(namespace, source, key, args[0]);
         if (typeof result !== "string") throw new Error(`Use rich() for ${namespace}.${key}`);
         return result;
       },
-      rich: <Key extends keyof Definitions & string>(key: Key, ...args: MessageArguments<Definitions[Key]>) => this.format(namespace, key, args[0], detachedDefinitions?.()),
+      rich: <Key extends keyof Definitions & string>(key: Key, ...args: MessageArguments<Definitions[Key]>) => this.format(namespace, source, key, args[0]),
     };
   }
 
@@ -199,70 +233,71 @@ export class LocalizationService {
     if (!contribution.id || this.contributions.has(contribution.id)) throw new Error(`Duplicate or empty catalog ID: ${contribution.id}`);
     const registered: RegisteredCatalog = { ...contribution, locale: canonicalLocale(contribution.locale) };
     this.contributions.set(registered.id, registered);
-    void this.refresh();
+    this.refresh();
     return () => {
       if (this.contributions.get(registered.id) !== registered) return;
       this.contributions.delete(registered.id);
-      void this.refresh();
+      registered.loaded?.dispose();
+      this.refresh();
     };
   }
 
-  private refresh(): Promise<void> {
-    const generation = ++this.generation;
-    const language = this.current.language;
-    const chain = this.isPseudo ? [] : localeChain(language).filter((locale) => locale !== "en");
-    const contributions = [...this.contributions.values()]
+  private matchingCatalogs(): RegisteredCatalog[] {
+    const chain = this.isPseudo ? [] : localeChain(this.current.language).filter((locale) => locale !== "en");
+    return [...this.contributions.values()]
       .filter((item) => chain.includes(item.locale))
       .sort((a, b) => chain.indexOf(a.locale) - chain.indexOf(b.locale) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-    this.pending = (async () => {
-      const loaded = await Promise.all(contributions.map(async (item) => {
-        // Promise.resolve catches synchronous loader failures as well as rejected promises.
-        item.loaded ??= Promise.resolve().then(() => item.load()).then((catalog: unknown) => {
-          if (typeof catalog !== "object" || catalog === null || Array.isArray(catalog)) {
-            throw new TypeError("Expected a translation catalog object");
-          }
-          // One bad message must not discard valid siblings.
-          const entries: [string, string][] = [];
-          for (const [key, value] of Object.entries(catalog)) {
-            if (typeof value === "string") entries.push([key, value]);
-            else this.report("invalid", `${item.id}: ${key}: expected an ICU string`);
-          }
-          return Object.fromEntries(entries);
-        }).catch((cause: unknown) => {
-          this.report("load", `Could not load ${item.id} (${item.locale}/${item.namespace})`, cause);
-          return {};
-        });
-        return { item, catalog: await item.loaded };
-      }));
-      if (generation !== this.generation) return;
-      const selected = new Map<string, Map<string, SelectedMessage>>();
-      const owners = new Map<string, string>();
-      let resolvedLanguage = "en";
-      for (const { item, catalog } of loaded) {
-        const source = this.sources.get(item.namespace);
-        // Language packs can arrive before the plugin owning their target namespace.
-        if (!source) continue;
-        for (const [key, value] of Object.entries(catalog)) {
-          const errors = validateCatalog(source, { [key]: value });
-          if (errors.length) {
-            this.report("invalid", `${item.id}: ${errors.join("; ")}`);
+  }
+
+  private refresh(): void {
+    const loads: Promise<void>[] = [];
+    for (const item of this.matchingCatalogs()) {
+      if (item.loaded === undefined) {
+        item.loaded = loadCatalog(item, ({ code, message, cause }) => { this.report(code, message, cause); });
+        // Each catalog publishes independently. One slow pack cannot hide healthy siblings.
+        void item.loaded.ready.then(() => { this.publish(); });
+      }
+      loads.push(item.loaded.ready);
+    }
+    this.pending = Promise.all(loads).then(() => undefined);
+    // Preferences, persistence and fallback UI commit before any catalog I/O.
+    this.publish();
+  }
+
+  private publish(): void {
+    for (const registrations of this.sources.values()) {
+      for (const source of registrations) source.selected.clear();
+    }
+    const owners = new Map<string, string>();
+    let resolvedLanguage = "en";
+    for (const item of this.matchingCatalogs()) {
+      const registrations = this.sources.get(item.namespace);
+      if (!registrations) continue;
+      for (const [key, value] of Object.entries(item.loaded?.catalog ?? {})) {
+        let used = false;
+        const errors = new Set<string>();
+        for (const source of registrations) {
+          const incompatible = validateCatalog(source.definitions, { [key]: value });
+          if (incompatible.length) {
+            incompatible.forEach((error) => errors.add(error));
             continue;
           }
-          const identity = JSON.stringify([item.locale, item.namespace, key]);
-          const owner = owners.get(identity);
-          if (owner !== undefined) this.report("duplicate", `${item.locale}/${item.namespace}.${key}: ${item.id} overrides ${owner}`);
-          owners.set(identity, item.id);
-          let namespace = selected.get(item.namespace);
-          if (!namespace) { namespace = new Map(); selected.set(item.namespace, namespace); }
-          namespace.set(key, { message: value, locale: item.locale });
-          resolvedLanguage = item.locale;
+          source.selected.set(key, { message: value, locale: item.locale });
+          used = true;
         }
+        if (!used) {
+          this.report("invalid", `${item.id}: ${[...errors].join("; ")}`);
+          continue;
+        }
+        const identity = JSON.stringify([item.locale, item.namespace, key]);
+        const owner = owners.get(identity);
+        if (owner !== undefined) this.report("duplicate", `${item.locale}/${item.namespace}.${key}: ${item.id} overrides ${owner}`);
+        owners.set(identity, item.id);
+        resolvedLanguage = item.locale;
       }
-      this.selected = selected;
-      this.resolvedLanguage = resolvedLanguage;
-      this.notify();
-    })();
-    return this.pending;
+    }
+    this.resolvedLanguage = resolvedLanguage;
+    this.notify();
   }
 
   private dateOptions(options: Intl.DateTimeFormatOptions): Intl.DateTimeFormatOptions {
@@ -270,11 +305,11 @@ export class LocalizationService {
       ...(this.current.hourCycle === undefined ? {} : { hourCycle: this.current.hourCycle, hour12: undefined }) };
   }
 
-  private format(namespace: string, key: string, values?: MessageValues, detachedDefinitions?: MessageDefinitions): string | TemplateResult | (string | TemplateResult)[] {
-    const source = (detachedDefinitions ?? this.sources.get(namespace))?.[key];
+  private format(namespace: string, registration: RegisteredSource, key: string, values?: MessageValues): string | TemplateResult | (string | TemplateResult)[] {
+    const source = registration.definitions[key];
     if (!source) throw new Error(`Unknown message: ${namespace}.${key}`);
-    const translated = detachedDefinitions === undefined ? this.selected.get(namespace)?.get(key) : undefined;
-    if (!translated && detachedDefinitions === undefined && !this.isPseudo && !this.current.language.startsWith("en") && this.development) {
+    const translated = registration.selected.get(key);
+    if (!translated && registration.active && !this.isPseudo && !this.current.language.startsWith("en") && this.development) {
       this.report("missing", `${this.current.language}/${namespace}.${key}: using English`);
     }
     const selected = this.isPseudo ? { message: source.message, locale: "en" } : translated ?? { message: source.message, locale: "en" };

@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { html, LitElement, render } from "lit";
-import { initializeLocalization, LocalizationController } from "./browser.js";
+import { initializeLocalization, inheritedLocalizationSetting, LocalizationController } from "./browser.js";
 import { LocalizationService, message, type RichMessageTag } from "./service.js";
 
 afterEach(() => {
@@ -19,6 +19,7 @@ describe("browser localization boundary", () => {
     const messages = service.registerMessages("test", { cancel: message("Cancel", "Cancel the operation") });
     service.registerCatalog({ id: "ar", namespace: "test", locale: "ar", load: () => Promise.resolve({ cancel: "إلغاء" }) });
     const dispose = await initializeLocalization(service, window, false);
+    await service.ready;
     expect(messages.t("cancel")).toBe("إلغاء");
     expect(document.documentElement.lang).toBe("ar");
     expect(document.documentElement.dir).toBe("rtl");
@@ -60,7 +61,62 @@ describe("browser localization boundary", () => {
     release();
     const restored = new LocalizationService();
     dispose = await initializeLocalization(restored, window, false, { language: "ar", formatLocale: "ar-EG", timeZone: "UTC" });
-    expect(restored.preferences).toEqual({ language: "en", formatLocale: "de-DE" });
+    expect(restored.preferences).toEqual({ language: "en", formatLocale: "de-DE", timeZone: "UTC" });
+    dispose();
+  });
+
+  it("persists preferences immediately while a translation pack remains pending", async () => {
+    const service = new LocalizationService();
+    const dispose = await initializeLocalization(service, window, false);
+    const remove = service.registerCatalog({ id: "stalled", namespace: "absent-plugin", locale: "fr", load: () => new Promise(() => undefined) });
+    try {
+      void service.setPreferenceOverrides({ language: "fr", formatLocale: "sv-SE" });
+      expect(JSON.parse(localStorage.getItem("pi-web-localization") ?? "null")).toEqual({ language: "fr", formatLocale: "sv-SE" });
+      expect(document.documentElement.lang).toBe("en");
+      await service.setPreferenceOverrides({ language: "en" });
+      expect(service.preferences.formatLocale).toBe(navigator.languages[0] ?? navigator.language);
+      expect(JSON.parse(localStorage.getItem("pi-web-localization") ?? "null")).toEqual({ language: "en" });
+    } finally { remove(); dispose(); }
+  });
+
+  it("persists cleared overrides without freezing inherited values and refreshes them on reload", async () => {
+    const service = new LocalizationService();
+    let dispose = await initializeLocalization(service, window, false, { formatLocale: "de-DE", timeZone: "Europe/Berlin" });
+    expect(service.preferenceOverrides).toEqual({});
+    expect(inheritedLocalizationSetting("formatLocale", service)).toEqual({ source: "server", value: "de-DE" });
+    await service.setPreferenceOverrides({ language: "en", formatLocale: "ar-EG", timeZone: "UTC" });
+    await service.setPreferenceOverrides({ language: "en" });
+    expect(service.preferences).toEqual({ language: "en", formatLocale: "de-DE", timeZone: "Europe/Berlin" });
+    expect(JSON.parse(localStorage.getItem("pi-web-localization") ?? "null")).toEqual({ language: "en" });
+    dispose();
+    const restored = new LocalizationService();
+    dispose = await initializeLocalization(restored, window, false, { formatLocale: "en-GB" });
+    expect(restored.preferenceOverrides).toEqual({ language: "en" });
+    expect(restored.preferences).toEqual({ language: "en", formatLocale: "en-GB" });
+    expect(inheritedLocalizationSetting("timeZone", restored)).toEqual({ source: "browser", value: new Intl.DateTimeFormat().resolvedOptions().timeZone });
+    dispose();
+    vi.spyOn(navigator, "languages", "get").mockReturnValue(["sv-SE"]);
+    dispose = await initializeLocalization(restored, window, false);
+    expect(restored.preferences).toEqual({ language: "en", formatLocale: "sv-SE" });
+    expect(inheritedLocalizationSetting("formatLocale", restored)).toEqual({ source: "browser", value: "sv-SE" });
+    dispose();
+  });
+
+  it("applies late defaults per field without replacing edits or persisting inherited values", async () => {
+    let resolveDefaults: ((defaults: { formatLocale: string; timeZone: string }) => void) | undefined;
+    const pending = new Promise<{ formatLocale: string; timeZone: string }>((resolve) => { resolveDefaults = resolve; });
+    const service = new LocalizationService();
+    const initialization = initializeLocalization(service, window, false, pending);
+    await service.ready;
+    await Promise.resolve();
+    await service.setPreferenceOverrides({ formatLocale: "sv-SE" });
+    if (resolveDefaults === undefined) throw new Error("Missing defaults resolver");
+    resolveDefaults({ formatLocale: "de-DE", timeZone: "Europe/Berlin" });
+    const dispose = await initialization;
+    expect(service.preferences.formatLocale).toBe("sv-SE");
+    expect(service.preferences.timeZone).toBe("Europe/Berlin");
+    expect(service.preferenceOverrides).toEqual({ formatLocale: "sv-SE" });
+    expect(JSON.parse(localStorage.getItem("pi-web-localization") ?? "null")).toEqual({ formatLocale: "sv-SE" });
     dispose();
   });
 

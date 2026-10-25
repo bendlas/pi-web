@@ -87,6 +87,7 @@ describe("localization", () => {
     const ready = service.setPreferences({ language: "fr-CA", formatLocale: "en-GB" });
     slow.resolve({ cancel: "Annuler Z" });
     await ready;
+    await service.ready;
     expect(messages.t("cancel")).toBe("Annuler Z");
     expect(messages.t("greeting", { name: "Ada" })).toBe("Salut Ada");
     expect(service.language).toBe("fr-CA");
@@ -135,6 +136,81 @@ describe("localization", () => {
     expect(messages.t("cancel")).toBe("Annuler");
   });
 
+  it("publishes preferences and healthy catalogs without waiting for an unrelated stalled pack", async () => {
+    const { service, messages } = setup();
+    const healthy = deferred<Record<string, string>>();
+    const removeStalled = service.registerCatalog({ id: "stalled", namespace: "absent-plugin", locale: "fr", load: () => new Promise(() => undefined) });
+    service.registerCatalog({ id: "healthy", namespace: "test", locale: "fr", load: () => healthy.promise });
+    let translated: () => void = () => undefined;
+    const published = new Promise<void>((resolve) => { translated = resolve; });
+    const listener = vi.fn(() => { if (messages.t("cancel") === "Annuler") translated(); });
+    const unsubscribe = service.subscribe(listener);
+    void service.setPreferences({ language: "fr", formatLocale: "sv-SE" });
+    expect(listener).toHaveBeenCalledOnce();
+    expect(messages.t("cancel")).toBe("Cancel");
+    expect(service.number(1234.5)).toBe(new Intl.NumberFormat("sv-SE").format(1234.5));
+    healthy.resolve({ cancel: "Annuler" });
+    await published;
+    expect(service.language).toBe("fr");
+    expect(messages.t("cancel")).toBe("Annuler");
+    // Removal also settles a captured readiness promise without waiting for the loader.
+    const ready = service.ready;
+    removeStalled();
+    await ready;
+    unsubscribe();
+  });
+
+  it("does not start a catalog loader after its registration was removed", async () => {
+    const { service, messages } = setup("fr");
+    const load = vi.fn(() => Promise.resolve({ cancel: "Annuler" }));
+    const remove = service.registerCatalog({ id: "removed", namespace: "test", locale: "fr", load });
+    remove();
+    await service.ready;
+    expect(load).not.toHaveBeenCalled();
+    expect(messages.t("cancel")).toBe("Cancel");
+  });
+
+  it("settles stalled loaders after five seconds and ignores their late result", async () => {
+    vi.useFakeTimers();
+    try {
+      const { service, messages, diagnostics } = setup("fr");
+      const late = deferred<Record<string, string>>();
+      service.registerCatalog({ id: "stalled", namespace: "test", locale: "fr", load: () => late.promise });
+      const ready = service.ready;
+      expect(messages.t("cancel")).toBe("Cancel");
+      await vi.advanceTimersByTimeAsync(5_000);
+      await ready;
+      expect(messages.t("cancel")).toBe("Cancel");
+      expect(diagnostics.filter(({ code }) => code === "load")).toHaveLength(1);
+      expect(String(diagnostics.find(({ code }) => code === "load")?.cause)).toContain("exceeded 5 seconds");
+      late.resolve({ cancel: "Too late" });
+      await late.promise;
+      await Promise.resolve();
+      expect(messages.t("cancel")).toBe("Cancel");
+      expect(vi.getTimerCount()).toBe(0);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("validates shared catalog entries separately against each activation's source schema", async () => {
+    const diagnostic = vi.fn<(value: LocalizationDiagnostic) => void>();
+    const service = new LocalizationService({ preferences: { language: "fr", formatLocale: "en" }, diagnostic });
+    const old = service.acquireMessages("plugin:example:panel", { greeting: message<{ name: string }>("Hello {name}", "Original source") });
+    const newer = service.acquireMessages("plugin:example:panel", { greeting: message<{ user: string }>("Welcome {user}", "Revised source") });
+    service.registerCatalog({ id: "a-original", namespace: "plugin:example:panel", locale: "fr", load: () => Promise.resolve({ greeting: "Bonjour {name}" }) });
+    const removeNew = service.registerCatalog({ id: "z-newer", namespace: "plugin:example:panel", locale: "fr", load: () => Promise.resolve({ greeting: "Salut {user}" }) });
+    await service.ready;
+    expect(old.messages.t("greeting", { name: "Ada" })).toBe("Bonjour Ada");
+    expect(newer.messages.t("greeting", { user: "Ada" })).toBe("Salut Ada");
+    removeNew();
+    await service.ready;
+    expect(old.messages.t("greeting", { name: "Ada" })).toBe("Bonjour Ada");
+    expect(newer.messages.t("greeting", { user: "Ada" })).toBe("Welcome Ada");
+    old.release();
+    expect(old.messages.t("greeting", { name: "Ada" })).toBe("Hello Ada");
+    expect(newer.messages.t("greeting", { user: "Ada" })).toBe("Welcome Ada");
+    newer.release();
+  });
+
   it("pseudo-localizes English literals only, including ICU branches and rich messages", async () => {
     const { service, messages } = setup();
     await service.setPreferences({ language: "en-XA", formatLocale: "en" });
@@ -163,6 +239,27 @@ describe("localization", () => {
     await service.setPreferences({ language: "en", formatLocale: "de" });
     expect(listener).toHaveBeenCalledOnce();
     expect(normalizePreferences({ language: "EN-us", formatLocale: "de-de" })).toEqual({ language: "en-US", formatLocale: "de-DE" });
+  });
+
+  it("keeps independent override/default layers and validates them before mutation", async () => {
+    const service = new LocalizationService();
+    await service.setPreferenceDefaults({ language: "fr", formatLocale: "de-DE", timeZone: "Europe/Berlin", hourCycle: "h23" });
+    expect(service.preferenceOverrides).toEqual({});
+    const revision = service.preferenceRevision;
+    await service.setPreferenceOverrides({ formatLocale: "sv-SE" });
+    expect(service.preferences).toEqual({ language: "fr", formatLocale: "sv-SE", timeZone: "Europe/Berlin", hourCycle: "h23" });
+    expect(service.preferenceRevision).toBe(revision + 1);
+    await service.setPreferenceDefaults({ language: "en", formatLocale: "en-GB", timeZone: "UTC" });
+    expect(service.preferenceRevision).toBe(revision + 1);
+    expect(service.preferences).toEqual({ language: "en", formatLocale: "sv-SE", timeZone: "UTC" });
+    const before = service.preferences;
+    expect(() => service.setPreferenceOverrides({ formatLocale: "" })).toThrow();
+    expect(() => service.setPreferenceDefaults({ language: "en", formatLocale: "en", timeZone: "Mars/Olympus" })).toThrow();
+    expect(service.preferences).toEqual(before);
+    expect(service.preferenceOverrides).toEqual({ formatLocale: "sv-SE" });
+    await service.setPreferenceOverrides({});
+    expect(service.preferences).toEqual({ language: "en", formatLocale: "en-GB", timeZone: "UTC" });
+    expect(service.preferenceOverrides).toEqual({});
   });
 
   it("rejects invalid source catalogs and validates translation placeholders/tags", () => {
