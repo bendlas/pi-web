@@ -2,7 +2,7 @@ import type { ReactiveController, ReactiveControllerHost } from "lit";
 import { canOpenTransientPopup, registerTransientPopup } from "./popupScope";
 
 export interface AnchoredPopupOptions {
-  placement?: "below-end" | "below-start" | "above-start" | "left-end";
+  placement?: "below-end" | "below-start" | "above-start" | "left-end" | "inline-start-end";
   gap?: number;
   padding?: number;
   width?: number | "anchor";
@@ -152,12 +152,14 @@ export function anchoredPopupStyle(anchor: HTMLElement, options: AnchoredPopupOp
   const anchorRight = clamp(trigger.right, left, right);
   const anchorLeft = clamp(trigger.left, left, right);
   const style: Record<string, string> = { top: "auto", bottom: "auto", left: "auto", right: "auto", width: "max-content" };
-  if (options.placement === "left-end") {
-    const maxWidth = Math.max(0, anchorLeft - left - gap);
+  if (options.placement === "left-end" || options.placement === "inline-start-end") {
+    const openRight = options.placement === "inline-start-end" && getComputedStyle(anchor).direction === "rtl";
+    const maxWidth = Math.max(0, openRight ? right - anchorRight - gap : anchorLeft - left - gap);
     style["max-width"] = px(maxWidth);
     style["min-width"] = px(Math.min(options.minWidth ?? 0, maxWidth));
     style["max-height"] = px(bottom - top);
-    style["right"] = px(window.innerWidth - anchorLeft + gap);
+    if (openRight) style["left"] = px(anchorRight + gap);
+    else style["right"] = px(window.innerWidth - anchorLeft + gap);
     style["top"] = px(clamp(trigger.bottom - (panel?.getBoundingClientRect().height ?? 0), top, bottom - (panel?.getBoundingClientRect().height ?? 0)));
     return style;
   }

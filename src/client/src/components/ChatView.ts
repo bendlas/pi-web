@@ -109,6 +109,7 @@ export class ChatView extends LitElement {
     stylesheetIntegrationCapability.createController(this);
     new LocalizationController(this, localization, () => {
       this.messageMetaCache = new WeakMap();
+      this.messageActionController.localizationChanged();
       this.navigationLocalizationChanged = true;
     });
   }

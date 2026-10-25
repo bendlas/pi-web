@@ -27,7 +27,9 @@ it("keeps display getters live through v5 services, qualification, shortcuts and
       const messages = api.registerMessages("ui", { title: message("Preview", "Contribution title") });
       api.registerCatalog({ id: "fr", namespace: "plugin:labels:ui", locale: "fr", load: () => Promise.resolve({ title: "Aperçu" }) });
       return { contributions: {
-        actions: [{ id: "display", get title() { return `${messages.t("title")} ${this.id}`; }, get description() { return messages.t("title"); }, get group() { return messages.t("title"); }, shortcut: "mod+k", run: () => undefined }],
+        messageActions: [{ id: "copy", target: "display", get title() { return `${messages.t("title")} ${this.id}`; }, run: () => undefined }],
+        actions: [{ id: "display", get title() { return `${messages.t("title")} ${this.id}`; }, get description() { return messages.t("title"); }, get group() { return messages.t("title"); }, shortcut: "mod+k", run: () => undefined },
+          { id: "disabled", title: "Disabled", enabled: () => false, disabledReason: () => messages.t("title"), run: () => undefined }],
         applicationPanels: [{ id: "application", get title() { return messages.t("title"); }, get order() { return order; }, render: () => html`` }],
         workspacePanels: [{ id: "workspace", get title() { return messages.t("title"); }, get order() { return order; }, render: () => html`` }],
         contentRenderers: [{ id: "renderer", get title() { return messages.t("title"); }, languages: ["test"], get renderMode() { return mode; }, render: () => html`` }],
@@ -37,6 +39,8 @@ it("keeps display getters live through v5 services, qualification, shortcuts and
     },
   }) });
   const action = applyActiveShortcutPreferences(registry.getActions(createContext().context), { "labels:display": "mod+j" })[0];
+  const disabledAction = applyActiveShortcutPreferences(registry.getActions(createContext().context), {})[1];
+  const messageAction = registry.getMessageActions("local")[0];
   const application = registry.getApplicationPanels()[0];
   const workspace = registry.getWorkspacePanels()[0];
   const theme = registry.getThemes().find(({ id }) => id === "labels:light");
@@ -46,11 +50,16 @@ it("keeps display getters live through v5 services, qualification, shortcuts and
   const rendering = registry.getChatContentRendering("local");
   const listed = registry.contentRendering.listRenderers(request)[0];
   if (!action || !application || !workspace || !theme || !pair || !choice || !listed) throw new Error("Expected all contributions");
+  expect(messageAction?.title).toBe("Preview copy");
   expect(action.title).toBe("Preview display");
+  expect(disabledAction?.disabledReason).toBe("Preview");
   expect(choice.label).toBe("Preview");
   order = 99;
   mode = "automatic";
   await service.setPreferences({ language: "fr", formatLocale: "en" });
+  expect(disabledAction?.disabledReason).toBe("Aperçu");
+  expect(messageAction?.title).toBe("Aperçu copy");
+  expect(registry.getMessageActions("local")[0]).toBe(messageAction);
   expect([action.title, action.description, action.group]).toEqual(["Aperçu display", "Aperçu", "Aperçu"]);
   expect([application.title, workspace.title, theme.name, theme.description, pair.name, pair.description]).toEqual(Array(6).fill("Aperçu"));
   expect([choice.label, choice.renderer.title, listed.label, listed.title]).toEqual(Array(4).fill("Aperçu"));

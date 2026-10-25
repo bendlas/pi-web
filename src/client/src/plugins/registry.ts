@@ -8,7 +8,7 @@ import { createPluginCatalog } from "./catalog";
 import { stylesheetIntegrationCapability, stylesheetIntegrationCapabilityToken } from "./styles";
 import type { QualifiedStylesheetContribution, StylesheetContribution } from "./types";
 import { createPluginBackend } from "./pluginPeer";
-import type { ContentRenderRequest, DisplayedMessageActionAvailabilityContext, DisplayedMessageActionContext, MessageActionAvailabilityContext, MessageActionContext, MessageActionResult, PluginSelectionSnapshot } from "../../../plugin-api";
+import type { ContentRenderRequest, DisplayedMessageActionAvailabilityContext, DisplayedMessageActionContext, MessageActionAvailabilityContext, MessageActionContext, MessageActionContribution, MessageActionResult, PluginSelectionSnapshot } from "../../../plugin-api";
 import { availableDisplayedMessageActions, availableMessageActions, type RegisteredMessageAction } from "./messageActions";
 import { PluginSelectionHost } from "./selection";
 import { PromptChipStore, type PromptChipTarget } from "../promptChips";
@@ -584,12 +584,12 @@ export class PluginRegistry {
       });
       return highlighter;
     });
-    const messageActions = (contributions.messageActions ?? []).map((action): RegisteredMessageAction => Object.freeze({
+    const messageActions = (contributions.messageActions ?? []).map((action): RegisteredMessageAction => Object.freeze(snapshotDisplayMetadata<RegisteredMessageAction>(action, {
       ...action,
       id: this.qualify(runtimePluginId, action.id, contributionIds),
       binding: workspacePluginBinding(runtimePluginId, registration.sourcePluginId, backendRevision, pairedRequestVersion, pairedChannelVersion),
       ...(registration.machineId === undefined ? {} : { machineId: registration.machineId }),
-    }));
+    })));
     const actions = (contributions.actions ?? []).map((action) => this.qualifyAction(runtimePluginId, action, registration.machineId, registration.sourcePluginId, contributionIds));
     const applicationPanels = (contributions.applicationPanels ?? []).map((panel) => this.qualifyApplicationPanel(runtimePluginId, panel, registration.machineId, registration.sourcePluginId, contributionIds));
     const workspacePanels = (contributions.workspacePanels ?? []).map((panel) => this.qualifyWorkspacePanel(runtimePluginId, panel, registration.machineId, registration.sourcePluginId, backendRevision, pairedRequestVersion, pairedChannelVersion, contributionIds));
@@ -868,7 +868,9 @@ export class PluginRegistry {
       if (action.shortcut !== undefined) qualified.shortcut = action.shortcut;
       if (action.shortcutAliases !== undefined) qualified.shortcutAliases = [...action.shortcutAliases];
       if (enabled !== undefined) qualified.enabled = enabled;
-      if (disabledReason !== undefined && disabledReason !== "") qualified.disabledReason = disabledReason;
+      if (disabledReason !== undefined && disabledReason !== "") {
+        Object.defineProperty(qualified, "disabledReason", { enumerable: true, get: () => action.disabledReason?.(scopedContext) });
+      }
       return qualified;
     });
   }
@@ -1434,13 +1436,13 @@ function contributionsForVersion(contributions: PluginContributions, apiVersion:
     ...(contributions.messageActions === undefined ? {} : { messageActions: contributions.messageActions.map((action) => {
       if (action.target === "display") return action;
       const { visible, enabled, ariaLabel, run } = action;
-      return {
+      return snapshotDisplayMetadata<MessageActionContribution>(action, {
         ...action,
         ...(visible === undefined ? {} : { visible: (context: MessageActionAvailabilityContext) => visible(legacyContext(context)) }),
         ...(enabled === undefined ? {} : { enabled: (context: MessageActionAvailabilityContext) => enabled(legacyContext(context)) }),
         ...(ariaLabel === undefined ? {} : { ariaLabel: (context: MessageActionAvailabilityContext) => ariaLabel(legacyContext(context)) }),
         run: (context: MessageActionContext) => run(legacyContext(context)),
-      };
+      });
     }) }),
   };
 }
@@ -1508,8 +1510,8 @@ function withV5Services(
       items: wrap(items),
     })) }),
     ...(contributions.messageActions === undefined ? {} : { messageActions: contributions.messageActions.map((action) => action.target === "display"
-      ? { ...action, run: wrap(action.run) }
-      : { ...action, run: wrap(action.run) }) }),
+      ? snapshotDisplayMetadata<MessageActionContribution>(action, { ...action, run: wrap(action.run) })
+      : snapshotDisplayMetadata<MessageActionContribution>(action, { ...action, run: wrap(action.run) })) }),
   };
 }
 

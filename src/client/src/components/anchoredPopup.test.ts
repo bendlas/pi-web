@@ -45,6 +45,23 @@ describe("anchored transient popup", () => {
     expect(start["max-width"]).toBe("40px");
   });
 
+  it("opens inline-start action strips into the viewport at either direction's trailing edge", () => {
+    vi.stubGlobal("visualViewport", { offsetLeft: 0, offsetTop: 0, width: 360, height: 900 });
+    const anchor = document.createElement("button");
+    document.body.append(anchor);
+    const rect = vi.spyOn(anchor, "getBoundingClientRect");
+    anchor.style.direction = "ltr";
+    rect.mockReturnValue(new DOMRect(324, 68, 28, 28));
+    expect(anchoredPopupStyle(anchor, { placement: "inline-start-end", padding: 8 })).toMatchObject({
+      "max-width": "316px", right: `${String(window.innerWidth - 324)}px`, left: "auto",
+    });
+    anchor.style.direction = "rtl";
+    rect.mockReturnValue(new DOMRect(8, 68, 28, 28));
+    expect(anchoredPopupStyle(anchor, { placement: "inline-start-end", padding: 8 })).toMatchObject({
+      "max-width": "316px", left: "36px", right: "auto",
+    });
+  });
+
   it("keeps the native panel in its themed root and reconciles native dismissal once", async () => {
     const { host, panel } = await mount();
     expect(panel.getRootNode()).toBe(host.shadowRoot);

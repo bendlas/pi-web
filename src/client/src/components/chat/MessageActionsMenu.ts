@@ -6,7 +6,7 @@ import { AnchoredPopupController } from "../anchoredPopup";
 import { customElement, query, state } from "lit/decorators.js";
 import { uiButtonStyles } from "../ui/controlStyles";
 
-/** Expands parent-owned actions to the left without changing transcript layout. */
+/** Expands parent-owned actions toward inline-start without changing transcript layout. */
 @customElement("pi-message-actions-menu")
 export class MessageActionsMenu extends LitElement {
   constructor() {
@@ -22,7 +22,7 @@ export class MessageActionsMenu extends LitElement {
   readonly popup = new AnchoredPopupController(this, () => this.expanded ? {
     anchor: this.trigger, panel: this.panel,
     onClose: () => { this.expanded = false; this.removeAttribute("open"); },
-    options: { placement: "left-end", padding: 8 },
+    options: { placement: "inline-start-end", padding: 8 },
   } : undefined);
 
   override disconnectedCallback() {
