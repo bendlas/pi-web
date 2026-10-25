@@ -214,7 +214,7 @@ export function renderPart(context: TranscriptRenderContext, part: ChatPart, mes
           </details>
         `;
       }
-      if (part.presentation !== undefined && part.presentation.kind !== "bash") return html`<div class="part generated-text" dir="auto">${text}</div>`;
+      if (part.presentation !== undefined && part.presentation.kind !== "bash" && part.presentation.kind !== "liveShell") return html`<div class="part generated-text" dir="auto">${text}</div>`;
       if (message.role === "bash") return html`<pre class="part shell-output">${text}</pre>`;
       return html`<formatted-text .imagesEnabled=${context.behaviors.loadImages} .codeBlocks=${context.behaviors.codeBlocks} .intentKey=${intentKey} class="part" .contentRendering=${context.contentRendering} .machineId=${context.machineId} .workspaceContext=${context.workspaceContext} .text=${text}></formatted-text>`;
     }

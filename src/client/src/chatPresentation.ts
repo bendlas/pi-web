@@ -8,7 +8,25 @@ export type ChatTextPresentation =
   | { kind: "modelError"; detail: string }
   | { kind: "imagePlaceholder" }
   | ArgumentSummaryPresentation
-  | { kind: "bash"; command: string; output?: string; exitCode?: string; excluded: boolean; cancelled: boolean; truncated: boolean; fullOutputPath?: string };
+  | { kind: "bash"; command: string; output?: string; exitCode?: string; excluded: boolean; cancelled: boolean; truncated: boolean; fullOutputPath?: string }
+  | LiveShellPresentation;
+
+/** Live output remains separate from generated completion notes and their English fallback. */
+export interface LiveShellPresentation {
+  kind: "liveShell";
+  command: string;
+  excluded: boolean;
+  output?: string;
+  completion?: {
+    noOutput: boolean;
+    failed: boolean;
+    failureOutput?: string;
+    exitCode?: string;
+    cancelled: boolean;
+    truncated: boolean;
+    fullOutputPath?: string;
+  };
+}
 
 export interface ArgumentSummaryPresentation { kind: "arguments"; args: unknown }
 

@@ -4,6 +4,7 @@ installNativeDialogFake();
 import { afterEach, expect, it } from "vitest";
 import { localization } from "../localization/browser";
 import { chatTranscriptMessages as messages } from "../chatTranscriptMessages";
+import transcriptDefinitions from "./chatTranscript.messages";
 import { ChatView, chatMessageMetadataLabel } from "./ChatView";
 import { TranscriptImage } from "./TranscriptImage";
 import type { MessageActionsMenu } from "./chat/MessageActionsMenu";
@@ -126,6 +127,56 @@ it("resolves normalized generated prose live without translating source or repla
     expect(generated.querySelector("img")).toBeNull();
     expect(tool.shadowRoot?.querySelector(".generated-summary")?.textContent).toBe(localizedArgumentSummary({ kind: "arguments", args: { edits: [1, 2] } }));
     expect(Array.from(root.querySelectorAll("formatted-text")).some((node) => "text" in node && node.text === raw)).toBe(true);
+  }
+});
+
+it("localizes live shell starts, chunks and completion notes without rewriting output or replacing the shell node", async () => {
+  release = localization.registerCatalog({ id: "live-shell-test", namespace: "core.chatTranscript", locale: "de", load: () => Promise.resolve({
+    ...Object.fromEntries(Object.entries(transcriptDefinitions).map(([key, definition]) => [key, definition.message])),
+    shellExcluded: "Vom Kontext ausgeschlossen", shellExit: "Status {code}", shellCancelled: "abgebrochen",
+    shellTruncated: "Ausgabe gekürzt", shellFullOutput: "Vollständige Ausgabe: {path}",
+    shellNoOutput: "(keine Ausgabe)", shellFailed: "Bash-Befehl fehlgeschlagen",
+  }) });
+  const command = "echo '<raw>'";
+  const raw = "cancelled\noutput truncated <img src=x> العربية";
+  const view = new ChatView();
+  view.behaviors = { ...view.behaviors, followTail: false, rememberPosition: false };
+  view.messages = required(applyTranscriptEvent([], { type: "shell.start", command, excludeFromContext: true }));
+  document.body.append(view); await view.updateComplete;
+  const root = required(view.shadowRoot);
+  const shell = required(root.querySelector(".shell-output"));
+  for (const event of [
+    { type: "shell.chunk", chunk: "cancelled\n" },
+    { type: "shell.chunk", chunk: "output truncated <img src=x> العربية" },
+    { type: "shell.end", exitCode: 1234, cancelled: true, truncated: true, fullOutputPath: "/raw/<path>" },
+  ] as const) {
+    view.messages = required(applyTranscriptEvent(view.messages, event));
+    await view.updateComplete;
+    expect(root.querySelector(".shell-output")).toBe(shell);
+  }
+  const retained = view.messages;
+  for (const locale of ["de", "en-XA", "ar-XB", "en"]) {
+    await language(view, locale);
+    expect(root.querySelector(".shell-output")).toBe(shell);
+    expect(shell.textContent).toBe([
+      messages.t("shellExcluded"), "", `$ ${command}`, "", raw, "",
+      messages.t("shellExit", { code: "1234" }), messages.t("shellCancelled"), messages.t("shellTruncated"), messages.t("shellFullOutput", { path: "/raw/<path>" }),
+    ].join("\n"));
+    expect(shell.querySelector("img, raw, path")).toBeNull();
+    expect(view.messages).toBe(retained);
+  }
+
+  let empty: ChatLine[] = [];
+  for (const event of [
+    { type: "shell.start", command: "false" }, { type: "shell.end", isError: true },
+    { type: "shell.start", command: "false" }, { type: "shell.end", isError: true, output: "Bash command failed" },
+  ] as const) empty = required(applyTranscriptEvent(empty, event));
+  view.messages = empty; await view.updateComplete;
+  for (const locale of ["de", "en-XA", "ar-XB", "en"]) {
+    await language(view, locale);
+    const shells = root.querySelectorAll(".shell-output");
+    expect(shells[0]?.textContent).toBe(`$ false\n\n${messages.t("shellNoOutput")}\n${messages.t("shellFailed")}`);
+    expect(shells[1]?.textContent).toBe("$ false\n\nBash command failed");
   }
 });
 

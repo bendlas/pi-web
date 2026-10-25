@@ -6,6 +6,8 @@ export default {
   modelFailure: message<{ detail: string; detailed: string }>("{detailed, select, yes {Model response failed: {detail}} other {Model response failed: The model returned an error.}}", "Model failure notice. Detail is an untranslated provider diagnostic, rendered as plain text"),
   imagePlaceholder: message("[image]", "Placeholder for malformed or unavailable inline image data"),
   shellExcluded: message("excluded from context", "Shell execution omitted from the model context"),
+  shellNoOutput: message("(no output)", "Live shell execution completed without output"),
+  shellFailed: message("Bash command failed", "Live shell execution failed without a supplied diagnostic"),
   shellExit: message<{ code: string }>("exit {code}", "Shell exit status; code is a raw process status, not a regional quantity"),
   shellCancelled: message("cancelled", "Shell execution was cancelled"),
   shellTruncated: message("output truncated", "Shell output is incomplete"),

@@ -19,6 +19,22 @@ export function localizedChatText(presentation: ChatTextPresentation): string {
     case "arguments": return localizedArgumentSummary(presentation);
     case "imagePlaceholder": return messages.t("imagePlaceholder");
     case "modelError": return messages.t("modelFailure", { detail: presentation.detail, detailed: presentation.detail === "" ? "no" : "yes" });
+    case "liveShell": {
+      const lines = presentation.excluded ? [messages.t("shellExcluded"), "", `$ ${presentation.command}`] : [`$ ${presentation.command}`];
+      if (presentation.output !== undefined) lines.push("", presentation.output);
+      const completion = presentation.completion;
+      if (completion !== undefined) {
+        const notes: string[] = [];
+        if (completion.noOutput) notes.push(messages.t("shellNoOutput"));
+        if (completion.failed) notes.push(completion.failureOutput ?? messages.t("shellFailed"));
+        if (completion.exitCode !== undefined) notes.push(messages.t("shellExit", { code: completion.exitCode }));
+        if (completion.cancelled) notes.push(messages.t("shellCancelled"));
+        if (completion.truncated) notes.push(messages.t("shellTruncated"));
+        if (completion.fullOutputPath !== undefined) notes.push(messages.t("shellFullOutput", { path: completion.fullOutputPath }));
+        if (notes.length > 0) lines.push("", notes.join("\n"));
+      }
+      return lines.join("\n");
+    }
     case "bash": {
       const lines = presentation.excluded ? [messages.t("shellExcluded"), "", `$ ${presentation.command}`] : [`$ ${presentation.command}`];
       if (presentation.output !== undefined) lines.push("", presentation.output);
