@@ -1,6 +1,7 @@
 import type { ReactiveController, ReactiveControllerHost, TemplateResult } from "lit";
 import type { LocalizationReader, LocalizedMessages, MessageDefinitions, TranslationContribution } from "./shared/localization.js";
 export type * from "./shared/localization.js";
+export type { TerminalTitlePresentation } from "./shared/terminalTitlePresentation.js";
 /** Localization registrations and observers are released when this activation ends. */
 export interface PluginLocalization extends LocalizationReader {
     /** Define source descriptors without importing a runtime library. */

@@ -1,5 +1,6 @@
 import type { ServerNoticePresentation } from "./shared/serverNoticePresentation.js";
 export type { ServerNoticePresentation } from "./shared/serverNoticePresentation.js";
+export type { TerminalTitlePresentation } from "./shared/terminalTitlePresentation.js";
 import type { PluginBackend, JsonObject, JsonPrimitive, JsonValue, PluginCapability, PluginCapabilityProvision, WorkspaceProviderMetadata, WorkspaceRemovalPresentation } from "./shared/pluginApiTypes.js";
 export type { JsonObject, JsonPrimitive, JsonValue, PluginCapability, PluginCapabilityProvision, WorkspaceProviderMetadata, WorkspaceRemovalPresentation, };
 export { PI_WEB_HOST_CATALOG_CAPABILITY, type PluginCatalogProject, type PluginCatalogWorkspace, type PluginSessionSnapshot, type PluginWorkspaceSelection, type PluginSessionSelection, type PluginCatalogReadOptions, type PluginCatalogV1, } from "./shared/pluginCatalogTypes.js";

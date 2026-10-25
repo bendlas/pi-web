@@ -26,13 +26,45 @@ describe("plugin localization", () => {
     const conflict = activation(service, "other-files");
     expect(() => conflict.api.registerMessages("panel", { cancel: message("Stop", "Cancel the operation") })).toThrow(/Conflicting/);
     local.lifetime.abort();
-    expect(() => messages.t("cancel")).toThrow();
+    expect(messages.t("cancel")).toBe("Cancel");
     expect(remoteMessages.t("cancel")).toBe("Cancel");
     expect(() => service.registerMessages("plugin:files:panel", definitions)).toThrow(/Duplicate/);
     remote.lifetime.abort();
     await service.ready;
     expect(service.registerMessages("plugin:files:panel", definitions).t("cancel")).toBe("Cancel");
     conflict.lifetime.abort();
+  });
+
+  it("lets queued detached renders read source messages without retaining activation registrations", async () => {
+    const service = new LocalizationService({ preferences: { language: "fr", formatLocale: "en" } });
+    const { api, lifetime } = activation(service);
+    const messages = api.registerMessages("panel", {
+      cancel: definitions.cancel,
+      greeting: message<{ name: string }>("Hello {name}", "Greet the user"),
+    });
+    api.registerCatalog({ id: "fr", namespace: "plugin:files:panel", locale: "fr", load: () => Promise.resolve({ cancel: "Annuler" }) });
+    await service.ready;
+    class DetachedLocalizedTest extends LitElement {
+      constructor() { super(); api.controller(this); }
+      override render() { return html`<button>${messages.t("cancel")}</button>`; }
+    }
+    customElements.define("detached-localized-test", DetachedLocalizedTest);
+    const element = new DetachedLocalizedTest();
+    document.body.append(element);
+    await element.updateComplete;
+    expect(element.shadowRoot?.textContent).toContain("Annuler");
+    element.requestUpdate();
+    element.remove();
+    lifetime.abort();
+    await expect(element.updateComplete).resolves.toBe(true);
+    await service.ready;
+    expect(element.shadowRoot?.textContent).toContain("Cancel");
+    expect(messages.rich("greeting", { name: "Ada" })).toBe("Hello Ada");
+    // A later activation may replace the same namespace; old handles stay detached.
+    const replacement = service.registerMessages("plugin:files:panel", { cancel: message("Stop", "Stop the operation") });
+    expect(replacement.t("cancel")).toBe("Stop");
+    expect(messages.t("cancel")).toBe("Cancel");
+    expect(() => api.registerMessages("later", definitions)).toThrow();
   });
 
   it("keeps dotted package and local namespace names distinct", () => {

@@ -169,7 +169,9 @@ export class LocalizationService {
     acquiredOwner.count++;
     let released = false;
     return {
-      messages: this.messageHandle<Definitions>(namespace),
+      // Detached Lit hosts may finish a queued render after activation cleanup.
+      // Keep reads safe without retaining registrations or another owner's catalog.
+      messages: this.messageHandle<Definitions>(namespace, () => released ? definitions : undefined),
       release: () => {
         if (released) return;
         released = true;
@@ -181,14 +183,14 @@ export class LocalizationService {
     };
   }
 
-  private messageHandle<Definitions extends MessageDefinitions>(namespace: string): LocalizedMessages<Definitions> {
+  private messageHandle<Definitions extends MessageDefinitions>(namespace: string, detachedDefinitions?: () => Definitions | undefined): LocalizedMessages<Definitions> {
     return {
       t: <Key extends keyof Definitions & string>(key: Key, ...args: MessageArguments<Definitions[Key]>) => {
-        const result = this.format(namespace, key, args[0]);
+        const result = this.format(namespace, key, args[0], detachedDefinitions?.());
         if (typeof result !== "string") throw new Error(`Use rich() for ${namespace}.${key}`);
         return result;
       },
-      rich: <Key extends keyof Definitions & string>(key: Key, ...args: MessageArguments<Definitions[Key]>) => this.format(namespace, key, args[0]),
+      rich: <Key extends keyof Definitions & string>(key: Key, ...args: MessageArguments<Definitions[Key]>) => this.format(namespace, key, args[0], detachedDefinitions?.()),
     };
   }
 
@@ -268,11 +270,11 @@ export class LocalizationService {
       ...(this.current.hourCycle === undefined ? {} : { hourCycle: this.current.hourCycle, hour12: undefined }) };
   }
 
-  private format(namespace: string, key: string, values?: MessageValues): string | TemplateResult | (string | TemplateResult)[] {
-    const source = this.sources.get(namespace)?.[key];
+  private format(namespace: string, key: string, values?: MessageValues, detachedDefinitions?: MessageDefinitions): string | TemplateResult | (string | TemplateResult)[] {
+    const source = (detachedDefinitions ?? this.sources.get(namespace))?.[key];
     if (!source) throw new Error(`Unknown message: ${namespace}.${key}`);
-    const translated = this.selected.get(namespace)?.get(key);
-    if (!translated && !this.isPseudo && !this.current.language.startsWith("en") && this.development) {
+    const translated = detachedDefinitions === undefined ? this.selected.get(namespace)?.get(key) : undefined;
+    if (!translated && detachedDefinitions === undefined && !this.isPseudo && !this.current.language.startsWith("en") && this.development) {
       this.report("missing", `${this.current.language}/${namespace}.${key}: using English`);
     }
     const selected = this.isPseudo ? { message: source.message, locale: "en" } : translated ?? { message: source.message, locale: "en" };

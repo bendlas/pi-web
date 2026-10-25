@@ -1,5 +1,6 @@
-import { terminalTitlePresentationField, type TerminalTitlePresentation } from "../../src/shared/terminalTitlePresentation";
+import { terminalTitlePresentationField } from "./terminalTitlePresentation.js";
 import type {
+  TerminalTitlePresentation,
   JsonObject,
   JsonValue,
   AnyTerminalCommandRun,

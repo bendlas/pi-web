@@ -1,4 +1,4 @@
-import type { TerminalTitlePresentation } from "../../../src/shared/terminalTitlePresentation.js";
+import type { TerminalTitlePresentation } from "@jmfederico/pi-web/server-plugin-api";
 import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { mkdirSync } from "node:fs";
@@ -607,7 +607,7 @@ function isTerminalCommandRunFinal(status: TerminalCommandRunStatus): boolean {
 }
 
 // This server entry is shipped as a self-contained transpiled graph, not bundled
-// with core. Validate its private input locally; only the shared type is imported.
+// with core. Validate its private input locally; only the public type is imported.
 function terminalTitlePresentationField(value: unknown): { titlePresentation?: TerminalTitlePresentation } {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return {};
   const kind: unknown = Reflect.get(value, "kind");

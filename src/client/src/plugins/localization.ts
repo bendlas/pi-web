@@ -38,10 +38,7 @@ export function createPluginLocalization(
       const acquired = service.acquireMessages(`plugin:${pluginId}:${namespace}`, definitions);
       sources.add(namespace);
       own(() => { acquired.release(); });
-      return {
-        t: (key, ...args) => { assertActive(); return acquired.messages.t(key, ...args); },
-        rich: (key, ...args) => { assertActive(); return acquired.messages.rich(key, ...args); },
-      };
+      return acquired.messages;
     },
     registerCatalog(contribution) {
       assertActive();

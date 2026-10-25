@@ -1,5 +1,6 @@
 import type { ServerNoticePresentation } from "./shared/serverNoticePresentation.js";
 export type { ServerNoticePresentation } from "./shared/serverNoticePresentation.js";
+export type { TerminalTitlePresentation } from "./shared/terminalTitlePresentation.js";
 
 import type {
   PluginBackend,

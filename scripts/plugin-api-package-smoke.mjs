@@ -9,6 +9,10 @@ const publicApiDeclarationPaths = [
   "server-plugin-api.d.ts",
   "shared/pluginApiTypes.d.ts",
   "shared/pluginCatalogTypes.d.ts",
+  "shared/localization.d.ts",
+  "shared/serverNoticePresentation.d.ts",
+  "shared/terminalTitlePresentation.d.ts",
+  "shared/workspaceRemovalPresentation.d.ts",
 ];
 const expectedPackageDeclarationPaths = [
   ...publicApiDeclarationPaths.map((path) => `dist/${path}`),
@@ -73,23 +77,26 @@ export async function smokeInstalledPluginApi({ packageRoot, fixtureRoot, repoRo
       "dist/plugin-api.d.ts",
       "dist/shared/pluginApiTypes.d.ts",
       "dist/shared/pluginCatalogTypes.d.ts",
+      "dist/shared/localization.d.ts",
+      "dist/shared/terminalTitlePresentation.d.ts",
+      "dist/shared/workspaceRemovalPresentation.d.ts",
     ]);
     assertStrictPluginConsumer("server-only", [serverPath], mode, packageRoot, repoRoot, [
       "dist/server-plugin-api.d.ts",
       "dist/shared/pluginApiTypes.d.ts",
       "dist/shared/pluginCatalogTypes.d.ts",
+      "dist/shared/serverNoticePresentation.d.ts",
+      "dist/shared/terminalTitlePresentation.d.ts",
+      "dist/shared/workspaceRemovalPresentation.d.ts",
     ]);
     assertStrictPluginConsumer("session-bridge browser/backend", [
       join(consumerRoot, "session-bridge", "src", "browser", "index.ts"),
       join(consumerRoot, "session-bridge", "src", "server.ts"),
     ], mode, packageRoot, repoRoot, [
-      "dist/plugin-api.d.ts", "dist/server-plugin-api.d.ts", "dist/shared/pluginApiTypes.d.ts", "dist/shared/pluginCatalogTypes.d.ts",
+      ...publicApiDeclarationPaths.map((path) => `dist/${path}`),
     ], ["node"]);
     assertStrictPluginConsumer("dual-entry example", dualEntryPaths, mode, packageRoot, repoRoot, [
-      "dist/plugin-api.d.ts",
-      "dist/server-plugin-api.d.ts",
-      "dist/shared/pluginApiTypes.d.ts",
-      "dist/shared/pluginCatalogTypes.d.ts",
+      ...publicApiDeclarationPaths.map((path) => `dist/${path}`),
     ], ["node"]);
   }
 }
