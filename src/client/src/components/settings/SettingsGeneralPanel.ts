@@ -9,6 +9,7 @@ import { uiButtonStyles } from "../ui/controlStyles";
 import { uiFormStyles } from "../ui/formStyles";
 import { uiSettingsStyles } from "../ui/settingsStyles";
 import "./SettingsPanelFrame";
+import "./SettingsLocalizationPanel";
 import type { SettingsNotice } from "./SettingsPanelFrame";
 import {
   emptyGatewayServerConfigDraft,
@@ -109,6 +110,7 @@ export class SettingsGeneralPanel extends LitElement {
       >
         <div class="settings-sections ui-settings-list">
           <slot name="appearance"></slot>
+          <settings-localization-panel></settings-localization-panel>
           ${this.renderChatDisplaySettings()}
           ${this.renderGatewayServerSettings()}
           ${this.renderSelectedMachineAccessSettings()}

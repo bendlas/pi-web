@@ -97,6 +97,11 @@ export class LocalizationService {
   get language(): string { return this.isPseudo ? this.current.language : this.resolvedLanguage; }
   get direction(): "ltr" | "rtl" { return localeDirection(this.language); }
   get ready(): Promise<void> { return this.pending; }
+  /** Installed catalog languages, without loading catalogs or exposing development pseudo modes. */
+  get availableLanguages(): readonly string[] {
+    return [...new Set(["en", ...[...this.contributions.values()].map((item) => item.locale)])]
+      .filter((locale) => locale !== "en-XA" && locale !== "ar-XB").sort();
+  }
   private get isPseudo(): boolean { return this.current.language === "en-XA" || this.current.language === "ar-XB"; }
 
   subscribe(listener: () => void): () => void {

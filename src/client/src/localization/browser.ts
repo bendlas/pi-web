@@ -4,14 +4,21 @@ import { LocalizationService, normalizePreferences, type LocalizationPreferences
 const STORAGE_KEY = "pi-web-localization";
 export const localization = new LocalizationService({ development: import.meta.env.DEV });
 
+/** Snapshot browser defaults without inferring a time zone or currency from a locale. */
+export function browserLocalizationPreferences(navigator: Pick<Navigator, "languages" | "language"> = window.navigator): LocalizationPreferences {
+  const locale = navigator.languages[0] ?? navigator.language;
+  return { language: locale, formatLocale: locale };
+}
+
 /** Explicit startup boundary; importing localization never reads browser globals or attaches listeners. */
 export async function initializeLocalization(
   service = localization,
   environment: Pick<Window, "localStorage" | "navigator" | "document"> & { location: Pick<Location, "search"> } = window,
   development = import.meta.env.DEV,
 ): Promise<() => void> {
-  const browserLocale = environment.navigator.languages[0] ?? environment.navigator.language;
-  let preferences: LocalizationPreferences = { language: browserLocale, formatLocale: browserLocale };
+  const defaults = browserLocalizationPreferences(environment.navigator);
+  const browserLocale = defaults.language;
+  let preferences = defaults;
   try {
     const stored = environment.localStorage.getItem(STORAGE_KEY);
     if (stored !== null) preferences = normalizePreferences(JSON.parse(stored));

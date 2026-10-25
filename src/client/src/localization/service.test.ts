@@ -29,6 +29,21 @@ function deferred<T>() {
 }
 
 describe("localization", () => {
+  it("lists installed catalog languages without loading, deduplicates, and removes released languages", async () => {
+    const { service } = setup();
+    const load = vi.fn(() => Promise.resolve({}));
+    const remove = service.registerCatalog({ id: "de-a", namespace: "test", locale: "de-de", load });
+    service.registerCatalog({ id: "de-b", namespace: "other", locale: "de-DE", load });
+    const removeFrench = service.registerCatalog({ id: "fr", namespace: "other", locale: "fr", load });
+    service.registerCatalog({ id: "pseudo", namespace: "test", locale: "ar-XB", load });
+    await service.ready;
+    expect(service.availableLanguages).toEqual(["de-DE", "en", "fr"]);
+    expect(load).not.toHaveBeenCalled();
+    remove();
+    removeFrench();
+    expect(service.availableLanguages).toEqual(["de-DE", "en"]);
+  });
+
   it("formats ICU interpolation, selects, plurals and rich callbacks without translating values", async () => {
     const { service, messages } = setup();
     await service.ready;

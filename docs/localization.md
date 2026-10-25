@@ -50,7 +50,11 @@ await localization.setPreferences({
 
 `language` requests the UI catalog; `formatLocale` selects regional conventions. The browser initially supplies both. Omit `timeZone` for the runtime's local zone and `hourCycle` for the regional default. Explicit preferences override individual date/time formatting options. Currency must always be supplied explicitly, for example `{ style: "currency", currency: "CAD" }`; it is never inferred from a locale.
 
-The browser adapter persists preferences under `pi-web-localization` in browser storage. It updates document language to the resolved UI language (English when no translated catalog is available) and direction from native locale data. `service.preferences.language` retains the requested language even when catalogs are unavailable. This currently has no settings UI.
+Open **Settings → General → Language and region** to apply preferences to this browser across all machines and projects. The interface-language list includes English, installed catalog languages, and the current preference. Language packs may provide partial translations; missing messages fall back to English. Regional format accepts a standard language tag such as `en-GB` or `de-DE`. Leave time zone blank for the device default, or enter a supported name such as `Europe/Berlin` or `UTC`. Clock format can follow the regional default or use an explicit hour cycle. The preview shows the currently applied formats, not unsubmitted edits.
+
+**Copy browser defaults** applies a snapshot of the browser language and regional locale, removing explicit time-zone and hour-cycle overrides. Preferences are browser-local, not gateway or selected-machine configuration, and can be changed even when those machines are unavailable.
+
+The browser adapter persists preferences under `pi-web-localization` in browser storage. It updates document language to the resolved UI language (English when no translated catalog is available) and direction from native locale data. `service.preferences.language` retains the requested language even when catalogs are unavailable.
 
 ## Contribute translations
 
