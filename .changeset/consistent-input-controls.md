@@ -2,4 +2,4 @@
 "@jmfederico/pi-web": patch
 ---
 
-Keep controls the same size across mouse, touch, and pen input, with 44px terminal tabs and close targets. Make message action menus and terminal copy/keyboard toggles consistently available. Use screen width rather than touch capability for narrow-screen composer and terminal defaults, while preserving explicit preferences.
+Make controls consistently sized across mouse, touch, and pen input, keep attachment buttons compact, and make panel dividers easier to grab. Keep menus anchored and above surrounding content, improve dialog accessibility, and show the current model and selected sessions correctly from the start. Make nested-session labels less prominent and preserve drafts and completion behavior when switching sessions.

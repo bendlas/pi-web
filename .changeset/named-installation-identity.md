@@ -2,4 +2,4 @@
 "@jmfederico/pi-web": patch
 ---
 
-Name installations in Settings and show their identity even with a single machine. Use remote installations' reported names unless locally overridden, and apply the gateway name to the installed PWA manifest.
+Give installations recognizable names in Settings, including single-machine installations. Use remote installations' reported names unless locally overridden, and show the gateway name when installing PI WEB as an app.

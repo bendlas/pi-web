@@ -2,4 +2,4 @@
 "@jmfederico/pi-web": patch
 ---
 
-Keep the session cleanup completion message visible above the dialog actions instead of hiding it in the scrolling preview.
+Keep session cleanup results visible above the dialog buttons instead of hiding them in the scrolling preview.

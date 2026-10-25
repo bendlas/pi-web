@@ -2,4 +2,4 @@
 "@jmfederico/pi-web": patch
 ---
 
-Offer Photos, Camera, and Files choices from the composer attach button on touch devices, with an image accept hint on the photo pickers so Android's chooser can offer the photo gallery. Pointer devices keep the direct file dialog.
+Offer Photos, Camera, and Files choices when attaching content on touch devices, while keeping direct file selection for mouse users. Restore Enter inserting a new line by default on wide touch devices such as iPads, including when the touch keyboard automatically capitalizes text.

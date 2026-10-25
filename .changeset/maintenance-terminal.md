@@ -2,4 +2,4 @@
 "@jmfederico/pi-web": patch
 ---
 
-Run Updates commands in a dedicated maintenance directory on the selected machine, without requiring or using a workspace. Show existing maintenance terminals alongside workspace terminals in a single Terminal tab. Maintenance terminals start only from explicit actions such as Update and can be continued interactively.
+Run updates in a dedicated maintenance terminal on the selected machine without requiring or using a project workspace. Show maintenance and workspace terminals together, allow update commands to be continued interactively, and avoid freezing when no project is selected. Keep terminal text fully visible and show selection and extra-key controls only on touch-capable devices.

@@ -2,4 +2,4 @@
 "@jmfederico/pi-web": patch
 ---
 
-Add an optional quiet mode for the transcript. Turn it on in **Settings → General → Chat display**, or set `quietMode` in the gateway config. Tool calls, thinking, results, and skill loads stay in the conversation but start collapsed into one expandable live events line instead of expanding while the agent works. Off by default.
+Add an optional quiet conversation view under Settings → General → Chat display. Keep tool activity, thinking, results, and skill loads in one expandable live activity line instead of expanding each event while the agent works. Quiet mode is off by default and can also be set as an installation-wide default.

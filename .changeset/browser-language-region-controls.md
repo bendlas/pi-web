@@ -2,4 +2,4 @@
 "@jmfederico/pi-web": patch
 ---
 
-Add language and region controls in General settings, with independent regional formatting, time-zone and clock preferences, live format examples, and browser-default reset.
+Choose interface language, regional formatting, time zone, and clock style independently in General settings, with live examples. Administrators can set installation-wide defaults, while each browser can override or inherit individual preferences. Show only installed languages and make inherited values clear.

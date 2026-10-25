@@ -2,4 +2,4 @@
 "@jmfederico/pi-web": patch
 ---
 
-Repair stale bundled Relays and Workflows package paths after PI WEB upgrades, preserving resource filters and intentional removals.
+Keep bundled Relays and Workflows available after PI WEB upgrades while preserving resource selections and intentionally removed packages.
