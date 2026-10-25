@@ -4,6 +4,7 @@ import { NetworkRequestError } from "../api/http";
 import { BrowserErrorReporter, sessionBrowserErrorScope, workspaceBrowserErrorScope, type SessionBrowserErrorOwner } from "../browserErrors";
 import { forgetCachedNewSession, isCachedNewSessionInfo, markCachedNewSessionInfo, mergeCachedNewSessions, rememberCachedNewSession, stripCachedNewSessionMarker } from "../cachedNewSessions";
 import { textMessage } from "../chatMessages";
+import { HistoryActionError } from "../chatActionMessages";
 import { machineSessionKey } from "../machineKeys";
 import { samePromptChipTarget, type PromptChipTarget } from "../promptChips";
 import { isCreatingSessionId } from "../route";
@@ -683,8 +684,8 @@ export class SessionController {
     let result: CommandResult;
     try {
       result = await this.api.runCommand(session, "/tree", machineId);
-      if (result.type !== "tree") throw new Error("message" in result ? result.message : "Session history is unavailable.");
-      if (!result.tree.nodes.some((node) => node.id === entryId)) throw new Error("This message is no longer available in session history.");
+      if (result.type !== "tree") throw "message" in result ? new Error(result.message) : new HistoryActionError("historyUnavailable");
+      if (!result.tree.nodes.some((node) => node.id === entryId)) throw new HistoryActionError("messageUnavailable");
     } catch (error) {
       this.reportSessionError(session, machineId, error, errorOwner);
       throw error;
@@ -702,7 +703,7 @@ export class SessionController {
     const state = this.getState();
     const session = state.selectedSession;
     if (session === undefined || tree === undefined || session.archived === true || isClientPendingStartSessionInfo(session)) {
-      throw new Error("The session tree navigator is no longer available");
+      throw new HistoryActionError("treeUnavailable");
     }
 
     const machineId = selectedMachineId(state);
@@ -764,7 +765,7 @@ export class SessionController {
     const state = this.getState();
     const session = state.selectedSession;
     if (session === undefined || tree === undefined || session.archived === true || isClientPendingStartSessionInfo(session)) {
-      throw new Error("The session tree navigator is no longer available");
+      throw new HistoryActionError("treeUnavailable");
     }
 
     const machineId = selectedMachineId(state);
@@ -1694,7 +1695,9 @@ export class SessionController {
     // The owner is captured before the operation awaits. Falling back to the
     // session's immutable cwd is safe; deriving workspace metadata here would
     // let a later selection misattribute the failure.
-    this.browserErrors.report(sessionBrowserErrorScope(machineId, session.id, errorOwner), String(error));
+    const scope = sessionBrowserErrorScope(machineId, session.id, errorOwner);
+    if (error instanceof HistoryActionError) this.browserErrors.reportLocalized(scope, () => String(error));
+    else this.browserErrors.report(scope, String(error));
   }
 
   private captureSessionErrorOwner(session: SessionInfo, workspace = this.workspaceForSessionError(session)): SessionBrowserErrorOwner {

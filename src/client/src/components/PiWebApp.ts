@@ -1,4 +1,5 @@
 import { queuedMessageRecallConfirmation, type QueuedMessageActionTarget } from "../queuedMessageActions";
+import { chatActionMessages, HistoryActionError } from "../chatActionMessages";
 import { localization, LocalizationController } from "../localization/browser";
 import { pickerMessages } from "../pickerMessages";
 import { LitElement, html, type TemplateResult } from "lit";
@@ -3652,7 +3653,7 @@ export class PiWebApp extends LitElement {
     if (target.action === "edit") {
       const confirmation = queuedMessageRecallConfirmation(target.expectedQueue, target.index);
       if (confirmation !== undefined && !window.confirm(confirmation)) return;
-      if ((editor?.view?.state.doc.toString() ?? "") !== "" && !window.confirm("Recalling will replace your unsent draft. Continue?")) return;
+      if ((editor?.view?.state.doc.toString() ?? "") !== "" && !window.confirm(chatActionMessages.t("recallDraft"))) return;
     }
     this.queuedMessageActionTarget = target;
     try {
@@ -3793,13 +3794,13 @@ export class PiWebApp extends LitElement {
       const isCurrent = () => selectedMachineId(this.state) === input.machine.id && this.state.selectedSession?.id === input.session.id;
       const actOnHistory = async (action: "fork" | "back"): Promise<void> => {
         if (!isCurrent() || !this.plugins.promptChipOwnerAvailable(binding.registrationPluginId, input.machine.id)) {
-          throw new Error("This message's conversation is no longer available.");
+          throw new HistoryActionError("conversationUnavailable");
         }
         if (action === "fork") return this.sessions.actOnMessage(input.message.entryId, action);
-        if (this.messageRevertTarget !== undefined || this.queuedMessageActionTarget !== undefined) throw new Error("Another draft-replacing action is already in progress.");
+        if (this.messageRevertTarget !== undefined || this.queuedMessageActionTarget !== undefined) throw new HistoryActionError("draftActionPending");
         const editor = this.promptEditor;
         const draft = editor?.view?.state.doc.toString() ?? "";
-        if (input.message.role === "user" && draft !== "" && !window.confirm("Going back will replace your unsent draft. Continue?")) return;
+        if (input.message.role === "user" && draft !== "" && !window.confirm(chatActionMessages.t("backDraft"))) return;
 
         const target = { machineId: input.machine.id, sessionId: input.session.id };
         this.messageRevertTarget = target;
