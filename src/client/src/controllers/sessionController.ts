@@ -24,6 +24,7 @@ import { selectedMachineId, type GetState, type NavigationDestinationOptions, ty
 import { TrailingRefreshCoordinator } from "./trailingRefreshCoordinator";
 import { readWithNetworkRecovery } from "./networkReadRecovery";
 import { pendingSessionMessages as pendingMessages, PendingSessionError } from "./pendingSessionMessages";
+import { sessionFeedbackMessages as feedbackMessages, SessionFeedbackError } from "./sessionFeedbackMessages";
 
 const MESSAGE_PAGE_SIZE = 100;
 const PENDING_SESSION_START_SCOPE = ["machine", "project", "workspace", "session"] as const;
@@ -938,9 +939,9 @@ export class SessionController {
         if (selectionChange.type === "select") await this.selectSessionAfterNavigation(selectionChange.session, expected);
         else if (selectionChange.type === "clear") await this.clearSessionAfterNavigation(expected);
       }
-      this.applyBulkSessionFailures("Archive", failures, machineId, originWorkspace, fallbackSession, errorOwner);
+      this.applyBulkSessionFailures("archive", failures, machineId, originWorkspace, fallbackSession, errorOwner);
     } catch (error) {
-      this.reportWorkspaceOrSessionError(originWorkspace, fallbackSession, machineId, `Archive failed: ${errorMessage(error)}`, errorOwner);
+      this.reportWorkspaceOrSessionError(originWorkspace, fallbackSession, machineId, new SessionFeedbackError(() => feedbackMessages.t("archiveFailure", { detail: errorMessage(error) })), errorOwner);
     }
   }
 
@@ -967,9 +968,9 @@ export class SessionController {
           else await this.clearSessionAfterNavigation(expected);
         }
       }
-      this.applyBulkSessionFailures("Delete", failures, machineId, originWorkspace, fallbackSession, errorOwner);
+      this.applyBulkSessionFailures("delete", failures, machineId, originWorkspace, fallbackSession, errorOwner);
     } catch (error) {
-      this.reportWorkspaceOrSessionError(originWorkspace, fallbackSession, machineId, `Delete failed: ${errorMessage(error)}`, errorOwner);
+      this.reportWorkspaceOrSessionError(originWorkspace, fallbackSession, machineId, new SessionFeedbackError(() => feedbackMessages.t("deleteFailure", { detail: errorMessage(error) })), errorOwner);
     }
   }
 
@@ -1052,7 +1053,7 @@ export class SessionController {
     } catch (error) {
       if (options?.recoverNetwork === true && !isCurrent()) return;
       if (error instanceof NetworkRequestError) {
-        this.browserErrors.report(scope, "The session list could not be refreshed. Check your connection and retry.", "workspace-sessions-refresh");
+        this.browserErrors.reportLocalized(scope, () => feedbackMessages.t("sessionListRefresh"), "workspace-sessions-refresh");
       } else {
         this.reportWorkspaceError(workspace, machineId, error);
       }
@@ -1501,9 +1502,9 @@ export class SessionController {
         return;
       }
       if (error instanceof NetworkRequestError) {
-        this.browserErrors.report(
+        this.browserErrors.reportLocalized(
           sessionBrowserErrorScope(target.machineId, target.session.id, target.errorOwner),
-          "The conversation could not be refreshed. Check your connection and retry.",
+          () => feedbackMessages.t("conversationRefresh"),
           "session-refresh",
         );
       } else {
@@ -1697,7 +1698,7 @@ export class SessionController {
     // session's immutable cwd is safe; deriving workspace metadata here would
     // let a later selection misattribute the failure.
     const scope = sessionBrowserErrorScope(machineId, session.id, errorOwner);
-    if (error instanceof HistoryActionError || error instanceof PendingSessionError) this.browserErrors.reportLocalized(scope, () => String(error));
+    if (error instanceof HistoryActionError || error instanceof PendingSessionError || error instanceof SessionFeedbackError) this.browserErrors.reportLocalized(scope, () => String(error));
     else this.browserErrors.report(scope, String(error));
   }
 
@@ -1719,16 +1720,21 @@ export class SessionController {
   }
 
   private reportWorkspaceError(workspace: Workspace, machineId: string, error: unknown): void {
-    this.browserErrors.report(workspaceBrowserErrorScope(machineId, workspace.projectId, workspace.id), String(error));
+    const scope = workspaceBrowserErrorScope(machineId, workspace.projectId, workspace.id);
+    if (error instanceof SessionFeedbackError) this.browserErrors.reportLocalized(scope, () => String(error));
+    else this.browserErrors.report(scope, String(error));
   }
 
-  private applyBulkSessionFailures(action: string, failures: readonly string[], machineId: string, workspace: Workspace | undefined, fallbackSession: SessionInfo | undefined, errorOwner: SessionBrowserErrorOwner): void {
+  private applyBulkSessionFailures(action: "archive" | "delete", failures: readonly string[], machineId: string, workspace: Workspace | undefined, fallbackSession: SessionInfo | undefined, errorOwner: SessionBrowserErrorOwner): void {
     if (failures.length === 0) return;
     this.reportWorkspaceOrSessionError(
       workspace,
       fallbackSession,
       machineId,
-      `${action} failed for ${String(failures.length)} session${failures.length === 1 ? "" : "s"}: ${failures.join("; ")}`,
+      new SessionFeedbackError(() => feedbackMessages.t(action === "archive" ? "archivePartialFailure" : "deletePartialFailure", {
+        count: failures.length,
+        details: failures.join("; "),
+      })),
       errorOwner,
     );
   }

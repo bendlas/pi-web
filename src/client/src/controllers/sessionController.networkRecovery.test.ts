@@ -54,7 +54,7 @@ describe("silent session read recovery", () => {
     await refresh;
 
     expect(h.snapshot).toHaveBeenCalledTimes(4);
-    expect(Object.values(h.getState().browserErrors)).toEqual([{
+    expect(Object.values(h.getState().browserErrors)).toMatchObject([{
       scope: sessionScope,
       message: "The conversation could not be refreshed. Check your connection and retry.",
       recovery: "session-refresh",
@@ -156,7 +156,7 @@ describe("workspace session-list recovery", () => {
     const refresh = h.controller.refreshCurrentWorkspaceSessions("local", { recoverNetwork: true });
     await vi.runAllTimersAsync();
     await refresh;
-    expect(Object.values(h.getState().browserErrors)).toEqual([{
+    expect(Object.values(h.getState().browserErrors)).toMatchObject([{
       scope: workspaceScope,
       message: "The session list could not be refreshed. Check your connection and retry.",
       recovery: "workspace-sessions-refresh",

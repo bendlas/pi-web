@@ -111,11 +111,11 @@ export class BrowserErrorReporter {
   }
 
   /** Retain semantic values in the callback so an existing banner follows live language changes. */
-  reportLocalized(scope: BrowserErrorScope, displayMessage: () => string): void {
+  reportLocalized(scope: BrowserErrorScope, displayMessage: () => string, recovery?: BrowserErrorRecovery): void {
     const message = displayMessage();
     this.setState({ browserErrors: {
       ...this.getState().browserErrors,
-      [browserErrorScopeKey(scope)]: { scope, message, displayMessage },
+      [browserErrorScopeKey(scope)]: { scope, message, displayMessage, ...(recovery === undefined ? {} : { recovery }) },
     } });
   }
 
