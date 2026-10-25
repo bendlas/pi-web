@@ -58,8 +58,12 @@ source "$SERVICE_TEST_LAUNCHER" "$SERVICE_TEST_ENTRY"
     expect(compose).toContain("pi-web-service node_modules/vite/bin/vite.js");
     expect(compose).not.toContain("npm run");
     const runtime = await readFile("docker/compose.yml", "utf8");
-    expect(runtime).toContain('["pi-web-service", "/usr/local/bin/pi-web-server"]');
-    expect(runtime).toContain('["pi-web-service", "/usr/local/bin/pi-web-sessiond"]');
+    // Public npm bins are shell launchers; the pinned Node wrapper needs JS.
+    const serverCommand = '["pi-web-service", "/usr/local/lib/node_modules/@jmfederico/pi-web/dist/server/index.js"]';
+    expect(runtime).toContain(serverCommand);
+    expect(runtime).toContain('["pi-web-service", "/usr/local/lib/node_modules/@jmfederico/pi-web/dist/server/sessiond.js"]');
+    const dockerfile = await readFile("docker/Dockerfile", "utf8");
+    expect(dockerfile).toContain(`CMD ${serverCommand}`);
   });
 
   it("requires a verified upstream Git index instead of silently using distro Git", async () => {
