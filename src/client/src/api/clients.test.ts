@@ -577,6 +577,18 @@ describe("session API compatibility", () => {
     expect(fetchCall(fetchMock, 0)[0]).toBe("https://pi.example.test/api/machines/local/sessions/s-1/transcript-snapshot?cwd=%2Frepo&media=reference");
   });
 
+  it("passes transcript cancellation to HTTP without adding transport options to the query", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockReturnValue(new Promise(() => undefined));
+    vi.stubGlobal("fetch", fetchMock);
+    const controller = new AbortController();
+    const pending = sessionsApi.transcriptSnapshot({ id: "s-1", cwd: "/repo" }, { limit: 25, signal: controller.signal, timeoutMs: 1000 });
+    controller.abort();
+    await expect(pending).rejects.toBe(controller.signal.reason);
+    expect(fetchCall(fetchMock, 0)[0]).toBe("https://pi.example.test/api/machines/local/sessions/s-1/transcript-snapshot?cwd=%2Frepo&limit=25&media=reference");
+    expect(fetchCall(fetchMock, 0)[1]?.signal?.aborted).toBe(true);
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
   it("rejects an incomplete transcript snapshot instead of returning a partial response", async () => {
     stubJsonFetch({ page: { messages: [], start: 0, total: 0 }, status: dialogStatusWire(), seq: 0 });
 

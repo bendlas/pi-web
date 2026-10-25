@@ -880,7 +880,7 @@ describe("PiWebApp plugin host", () => {
     const creation = deferred<SessionInfo>();
     const startSession = vi.fn(() => creation.promise);
     const connectedSessionIds: string[] = [];
-    const socket: SessionEventSocket = { connect: (session) => { connectedSessionIds.push(session.id); }, setHandler: () => undefined, close: () => undefined };
+    const socket: SessionEventSocket = { connect: (session) => { connectedSessionIds.push(session.id); }, setHandler: () => undefined, reconnect: () => undefined, close: () => undefined };
     const sessionKey = (id: string) => machineSessionKey("local", id);
     if (!Reflect.set(sessions, "socket", socket)
       || !Reflect.set(sessions, "notifications", undefined)
@@ -1590,6 +1590,7 @@ describe("PiWebApp plugin host", () => {
     const socket: SessionEventSocket = {
       connect: (_session, onEvent) => { handler = onEvent; },
       setHandler,
+      reconnect: () => undefined,
       close: () => { handler = undefined; },
     };
     const status = { sessionId: session.id, isStreaming: false, isCompacting: false, isBashRunning: false, pendingMessageCount: 0, queuedMessages: [], tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }, cost: 0 };
@@ -1688,7 +1689,7 @@ describe("PiWebApp plugin host", () => {
     let handler: ((event: SessionUiEvent) => void) | undefined;
     const connect = vi.fn<SessionEventSocket["connect"]>((_session, onEvent) => { handler = onEvent; });
     const close = vi.fn(() => { handler = undefined; });
-    const socket: SessionEventSocket = { connect, close, setHandler: (onEvent) => { handler = onEvent; } };
+    const socket: SessionEventSocket = { connect, close, reconnect: () => undefined, setHandler: (onEvent) => { handler = onEvent; } };
     Reflect.set(sessions, "socket", socket);
     const restoring = callAsyncAppMethod(app, "restoreRoute", false);
     await vi.waitFor(() => { expect(sessions.isChatLoadDeferred).toBe(true); });
@@ -4839,6 +4840,7 @@ async function installRuntimeRecoveryBoundaries(
   const socket: SessionEventSocket = {
     connect: () => undefined,
     setHandler: () => undefined,
+    reconnect: () => undefined,
     close: () => undefined,
   };
   if (!Reflect.set(sessions, "socket", socket)

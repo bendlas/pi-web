@@ -16,7 +16,7 @@ import { ChatTranscriptStore } from "../chatTranscriptStore";
 import { isHistoryTailSlice } from "../chatHistoryCache";
 import { isShellInput } from "../inputModes";
 import { fileCompletionInsertText } from "../promptCompletions";
-import { SessionSocket, type GlobalSessionEvent, type SessionUiEvent } from "../sessionSocket";
+import { SessionSocket, type GlobalSessionEvent, type SessionConnectionState, type SessionUiEvent } from "../sessionSocket";
 import { isArchivableSessionInfo, isTransientNewSessionInfo } from "../sessionPersistence";
 import { isSessionActive } from "../../../shared/activity";
 import type { PromptAttachmentDelivery, SessionNotificationInboxEvent, SessionStartupProgressEvent } from "../../../shared/apiTypes";
@@ -38,8 +38,10 @@ export interface SessionEventSocket {
     onReconnect?: () => void,
     machineId?: string,
     onInitialOpen?: () => void,
+    onConnectionState?: (state: SessionConnectionState) => void,
   ): void;
   setHandler(onEvent: (event: SessionUiEvent) => void): void;
+  reconnect(): void;
   close(): void;
 }
 
@@ -166,6 +168,7 @@ export class SessionController {
   // current, its loaded state/socket can outlive changes to the URL spelling.
   private selectedSessionJoinNavigation: NavigationFreshness | undefined;
   private disposed = false;
+  private sessionConnectionOpen = false;
   // Join-time stream watermark for the selected session. `seq` is the
   // `SessionEventHub` sequence captured together with the seeded partial by the
   // stream snapshot: buffered/live events with `seq <= seq` are already reflected
@@ -182,6 +185,7 @@ export class SessionController {
   private pendingTranscriptEvents: SessionUiEvent[] = [];
   private refreshEventBuffer: SelectedSessionRefreshBuffer | undefined;
   private selectedSessionRecoveryTarget: SelectedSessionRefreshTarget | undefined;
+  private selectedSessionReadAbort = new AbortController();
   private initialSnapshotReady: { selectionSeq: number; complete: () => void } | undefined;
   private pendingStatusBySession = new Map<string, SessionStatus>();
   private pendingActivityBySession = new Map<string, SessionActivity>();
@@ -226,6 +230,7 @@ export class SessionController {
 
   dispose() {
     this.disposed = true;
+    this.selectedSessionReadAbort.abort();
     this.selectedSessionLoadDeferred = false;
     if (this.getState().pendingTreeActions.length > 0) this.setState({ pendingTreeActions: [] });
     this.selectionSeq += 1;
@@ -235,6 +240,7 @@ export class SessionController {
   }
 
   clearActiveSession() {
+    this.cancelSelectedSessionReads();
     this.selectedSessionLoadDeferred = false;
     this.selectionSeq += 1;
     this.selectedSessionJoinNavigation = undefined;
@@ -246,7 +252,8 @@ export class SessionController {
     // session must not cancel the in-flight upload indicator of the session
     // that is still sending; the per-session entry is cleared by send()'s
     // finally block when the request settles.
-    this.setState({ selectedSession: undefined, messages: [], messagePageStart: 0, messagePageEnd: 0, messagePageTotal: 0, isLoadingEarlierMessages: false, status: undefined, activity: undefined, pendingDialogs: [], closedDialogs: [], availableThinkingLevels: [], treeDialog: undefined });
+    this.sessionConnectionOpen = false;
+    this.setState({ selectedSession: undefined, conversationSync: undefined, conversationRefreshedAt: undefined, messages: [], messagePageStart: 0, messagePageEnd: 0, messagePageTotal: 0, isLoadingEarlierMessages: false, status: undefined, activity: undefined, pendingDialogs: [], closedDialogs: [], availableThinkingLevels: [], treeDialog: undefined });
   }
 
   deselectSession(options?: { forgetRememberedSelection?: boolean | undefined; updateUrl?: boolean | undefined }) {
@@ -359,8 +366,10 @@ export class SessionController {
     const errorOwner = this.captureSessionErrorOwner(session);
     this.sessionSelection.rememberSession({ ...session, cwd: this.workspaceSelectionKey(session.cwd) });
     const seq = ++this.selectionSeq;
+    this.cancelSelectedSessionReads();
     this.selectedSessionJoinNavigation = options?.navigation;
     this.socket.close();
+    this.sessionConnectionOpen = false;
     this.streamWatermark = undefined;
     this.clearPendingUpdates();
     this.selectedSessionLoadDeferred = options?.deferChatLoading === true || !this.isChatVisible();
@@ -374,6 +383,8 @@ export class SessionController {
       : this.transcripts.cachedView(transcriptKey);
     this.setState({
       selectedSession: session,
+      conversationSync: session.archived === true ? undefined : "catching-up",
+      conversationRefreshedAt: undefined,
       ...cached,
       isLoadingEarlierMessages: false,
       ...(options?.preserveTreeDialog === true ? {} : { treeDialog: undefined }),
@@ -410,7 +421,10 @@ export class SessionController {
         },
         () => { void this.refreshSelectedSession(session.id, { recoverNetwork: true }); },
         machineId,
-        () => { void this.refreshSessionNotifications(session, machineId); },
+        () => { void this.refreshSelectedSession(session.id, { recoverNetwork: true }); },
+        (state) => {
+          if (this.isCurrentSessionSelection(session.id, machineId, seq)) this.updateSubscriptionState(state);
+        },
       );
       socketConnected = true;
       const refreshTarget: SelectedSessionRefreshTarget = {
@@ -1477,6 +1491,22 @@ export class SessionController {
     }
   }
 
+  resumeSelectedSession(options?: { reconnect?: boolean }): Promise<void> {
+    if (options?.reconnect !== false) {
+      const wasOpen = this.sessionConnectionOpen;
+      this.socket.reconnect();
+      // The normal open callback owns catch-up after reconnect. Do not queue
+      // another full read while the replacement connection is still opening.
+      if (wasOpen) return Promise.resolve();
+    }
+    return this.refreshSelectedSession(undefined, { recoverNetwork: true });
+  }
+
+  private updateSubscriptionState(state: SessionConnectionState): void {
+    this.sessionConnectionOpen = state === "open";
+    if (!this.sessionConnectionOpen && this.getState().conversationRefreshedAt !== undefined) this.setState({ conversationSync: "stale" });
+  }
+
   /**
    * Refresh the selected session's transcript, status, and in-flight partial.
    * `options.silent` marks a best-effort background trigger (the poll timer):
@@ -1498,6 +1528,8 @@ export class SessionController {
       errorOwner: this.captureSessionErrorOwner(session),
       ...(options?.recoverNetwork === true ? { recoverNetwork: true } : {}),
     };
+    const sync = this.getState().conversationSync;
+    if (options?.silent !== true && sync !== "stale" && sync !== "interrupted") this.setState({ conversationSync: "catching-up" });
     return this.requestSelectedSessionRefresh(target).catch((error: unknown) => {
       if (options?.recoverNetwork === true && !this.isCurrentRefreshTarget(target)) return;
       if (options?.silent === true) {
@@ -1583,19 +1615,33 @@ export class SessionController {
         if (this.selectedSessionRecoveryTarget === target) this.selectedSessionRecoveryTarget = undefined;
       }
     });
-    return transcriptRefresh;
+    return transcriptRefresh.catch((error: unknown) => {
+      if (this.isCurrentRefreshTarget(target)) this.setState({ conversationSync: "interrupted" });
+      throw error;
+    });
+  }
+
+  private cancelSelectedSessionReads(): void {
+    this.selectedSessionReadAbort.abort();
+    this.selectedSessionReadAbort = new AbortController();
   }
 
   private async readSelectedSessionSnapshot(target: SelectedSessionRefreshTarget, key: string): Promise<void> {
     const buffer = this.bufferRefreshEvents(target);
     const historyRevision = this.transcripts.historyRevision(key);
     const observeRuntime = this.observeSessionSnapshot?.(target.machineId, target.session.id);
+    const signal = this.selectedSessionReadAbort.signal;
     let appliedHistoryRevision: number;
+    let appliedStatus: SessionStatus;
     const recoveryError = this.browserErrors.captureRecovery(
       sessionBrowserErrorScope(target.machineId, target.session.id, target.errorOwner), "session-refresh",
     );
     try {
-      const snapshot = await this.api.transcriptSnapshot(target.session, { limit: MESSAGE_PAGE_SIZE }, target.machineId);
+      const snapshot = await this.api.transcriptSnapshot(target.session, {
+        limit: MESSAGE_PAGE_SIZE,
+        signal,
+        timeoutMs: 10_000,
+      }, target.machineId);
       if (!this.isCurrentRefreshTarget(target) || this.transcripts.historyRevision(key) !== historyRevision) return;
       this.browserErrors.clearRecovered(recoveryError);
       const { page, status } = snapshot;
@@ -1612,7 +1658,11 @@ export class SessionController {
         this.lastAppliedSelectedRefresh = { selectionSeq: target.selectionSeq, partialJson: selectedRefreshPartialJson(snapshot) };
       }
       appliedHistoryRevision = this.transcripts.historyRevision(key);
-      observeRuntime?.(status);
+      appliedStatus = status;
+    } catch (error) {
+      // Selection/disposal cancellation is not a failure of the retired session.
+      if (signal.aborted && error === signal.reason && !this.isCurrentRefreshTarget(target)) return;
+      throw error;
     } finally {
       if (this.refreshEventBuffer === buffer) this.refreshEventBuffer = undefined;
       // Release every attempt, including failed ones, before any retry delay.
@@ -1626,10 +1676,12 @@ export class SessionController {
     }
     // Replay may invalidate the just-read branch and enqueue its replacement.
     // Only a coherent snapshot surviving that replay can complete the join.
-    if (this.transcripts.historyRevision(key) === appliedHistoryRevision
-      && this.isCurrentRefreshTarget(target)
-      && this.initialSnapshotReady?.selectionSeq === target.selectionSeq) {
-      this.initialSnapshotReady.complete();
+    if (this.transcripts.historyRevision(key) === appliedHistoryRevision && this.isCurrentRefreshTarget(target)) {
+      this.setState({ conversationSync: this.sessionConnectionOpen ? "checked" : "stale", conversationRefreshedAt: Date.now() });
+      // Observers include rendered-completion acknowledgement. A snapshot
+      // invalidated by buffered branch changes must never certify unseen output.
+      observeRuntime?.(appliedStatus);
+      if (this.initialSnapshotReady?.selectionSeq === target.selectionSeq) this.initialSnapshotReady.complete();
     }
   }
 
@@ -1828,6 +1880,7 @@ export class SessionController {
   }
 
   private selectClientPendingStartSession(session: ClientPendingStartSessionInfo, options?: { updateUrl?: boolean | undefined; activity?: SessionActivity | undefined; sessions?: SessionInfo[] | undefined }): void {
+    this.cancelSelectedSessionReads();
     this.selectedSessionLoadDeferred = false;
     this.sessionSelection.rememberSession({ ...session, cwd: this.workspaceSelectionKey(session.cwd) });
     this.selectionSeq += 1;
@@ -1838,10 +1891,13 @@ export class SessionController {
     this.clearPendingUpdates();
     const state = this.getState();
     const pendingStart = this.pendingSessionStarts.get(session.id);
+    this.sessionConnectionOpen = false;
     const activity = options?.activity ?? state.sessionActivities[session.id] ?? (pendingStart !== undefined ? creatingPendingSessionActivity(session.id, pendingStart.queuedSends.length) : undefined);
     this.setState({
       sessions: options?.sessions ?? (state.sessions.some((candidate) => candidate.id === session.id) ? state.sessions : [session, ...state.sessions]),
       selectedSession: session,
+      conversationSync: undefined,
+      conversationRefreshedAt: undefined,
       messages: [],
       messagePageStart: 0,
       messagePageEnd: 0,

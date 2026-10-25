@@ -41,7 +41,7 @@ import { HttpRequestError } from "../api/http";
 import { sessionCleanupRequestKey } from "../sessionCleanupUi";
 import { sessionCleanupMessages } from "../sessionCleanupMessages";
 import { selectedNotificationView } from "../sessionNotifications";
-import { SessionUnreadController } from "../sessionUnread";
+import { SessionUnreadController, type SessionUnreadCompletion } from "../sessionUnread";
 import { initialSessionWarningVisibilityState, reconcileSessionWarningVisibility, toggleSessionWarnings } from "../sessionWarningVisibility";
 import { RealtimeSocket, type BrowserRealtimeEvent } from "../sessionSocket";
 import { serverNoticeMessage } from "../serverNoticeMessages";
@@ -82,6 +82,7 @@ import { sessionNavigationCandidates, unreadSessionCount } from "./SessionList";
 import "./SessionCleanupDialog";
 import "./SessionTreeNavigator";
 import "./ConversationLayout";
+import "./ConversationSyncNotice";
 import "./ChatView";
 import type { ChatView } from "./ChatView";
 import "./PromptEditor";
@@ -115,7 +116,7 @@ import { appStyles } from "./shared";
 
 
 const PI_WEB_STATUS_REFRESH_MS = 15 * 60 * 1000;
-const SELECTED_SESSION_REFRESH_MS = 5_000;
+const SELECTED_SESSION_REFRESH_MS = 30_000;
 const PI_WEB_STATUS_DEFER_MS = 750;
 const REMOTE_ROUTE_RESTORE_RETRY_DELAYS_MS = [1_000, 3_000, 8_000, 15_000, 30_000] as const;
 const WORKSPACE_DELETION_RECONCILE_RETRY_DELAYS_MS = [1_000, 2_000, 5_000, 10_000] as const;
@@ -198,6 +199,9 @@ export class PiWebApp extends LitElement {
   private unreadConnected = false;
   private committedChatIdentity: string | undefined;
   private chatWasVisible = false;
+  private renderedUnreadCompletion: SessionUnreadCompletion | undefined;
+  private unreadRenderGeneration = 0;
+  private requestedUnreadSnapshot: string | undefined;
   @state() private readyChatIdentity: string | undefined;
   /** Prevent a global scope invalidation from racing the picker’s own mutation response. */
   private modelDialogMutationInFlight = 0;
@@ -229,13 +233,19 @@ export class PiWebApp extends LitElement {
       isChatVisible: () => this.isChatVisible(),
       observeSessionSnapshot: (machineId, sessionId) => {
         const observe = this.sessionWorkTransitions.snapshotObserver(machineId, sessionId);
+        const discoveringWork = this.state.conversationRefreshedAt === undefined || !isSessionActive(this.state.status);
+        const session = this.state.selectedSession;
+        const generation = this.unreadRenderGeneration;
+        const completion = session?.id === sessionId ? this.sessionUnread.completion(machineId, session) : undefined;
         return (status) => {
           if (status.sessionId !== sessionId) return;
+          if (session !== undefined && completion !== undefined) {
+            void this.commitUnreadCompletionAfterRender(machineId, session, completion, generation);
+          }
           const idleSessionId = observe(status);
-          // Work may predate our socket subscription or finish while this read
-          // is in flight. Synchronize files when an active runtime is discovered,
-          // as well as when already-observed work becomes idle.
-          if (isSessionActive(status) || idleSessionId !== undefined) this.invalidateFilesForSessionActivity(machineId, sessionId);
+          // Synchronize newly discovered work and completion, not every periodic
+          // snapshot of an already-observed active runtime.
+          if ((discoveringWork && isSessionActive(status)) || idleSessionId !== undefined) this.invalidateFilesForSessionActivity(machineId, sessionId);
         };
       },
       automaticSessionCandidates: (sessions) => this.navigationPanel?.automaticSessionCandidates(sessions)
@@ -320,7 +330,7 @@ export class PiWebApp extends LitElement {
   private readonly appShell = new AppShellController(this);
   private readonly browserResume = new BrowserResumeController({
     onResumeSignal: () => { this.handleBrowserResumeSignal(); },
-    refreshAfterResume: () => this.refreshAfterBrowserResume(),
+    refreshAfterResume: (renewSubscription) => this.refreshAfterBrowserResume(renewSubscription),
     onRefreshError: (error) => { console.warn("Failed to refresh after browser resume", error); },
   });
   private readonly panelCollapse = new PanelCollapseController(this);
@@ -563,7 +573,31 @@ export class PiWebApp extends LitElement {
     if (session === undefined) return;
     const machineId = selectedMachineId(this.state);
     if (!this.isSessionSeen(machineId, session)) return;
-    void this.sessionUnread.acknowledge(machineId, session);
+    const completion = this.sessionUnread.completion(machineId, session);
+    if (completion === undefined) return;
+    const rendered = this.renderedUnreadCompletion;
+    if (rendered !== undefined && JSON.stringify(rendered) === JSON.stringify(completion)) {
+      void this.sessionUnread.acknowledgeRendered(machineId, session, rendered);
+      return;
+    }
+    // Global completion delivery can precede the selected chat's final frames.
+    // A snapshot requested after observing this order is the safe join boundary.
+    const requestKey = JSON.stringify([machineId, completion]);
+    if (this.requestedUnreadSnapshot === requestKey) return;
+    this.requestedUnreadSnapshot = requestKey;
+    void this.sessions.refreshSelectedSession(session.id, { silent: true });
+  }
+
+  private async commitUnreadCompletionAfterRender(
+    machineId: string, session: SessionInfo, completion: SessionUnreadCompletion, generation: number,
+  ): Promise<void> {
+    const messages = this.state.messages;
+    await this.updateComplete;
+    if (!this.unreadConnected || generation !== this.unreadRenderGeneration
+      || selectedChatIdentity(this.state) !== unreadChatIdentity(machineId, session)
+      || this.state.messages !== messages) return;
+    this.renderedUnreadCompletion = completion;
+    this.syncSelectedSessionReadState();
   }
 
   private markSessionsRead(sessions: readonly SessionInfo[]): void {
@@ -633,6 +667,9 @@ export class PiWebApp extends LitElement {
     this.unreadConnected = false;
     this.committedChatIdentity = undefined;
     this.readyChatIdentity = undefined;
+    this.renderedUnreadCompletion = undefined;
+    this.unreadRenderGeneration += 1;
+    this.requestedUnreadSnapshot = undefined;
     this.sessionUnread.retainMachines(new Set<string>());
     window.removeEventListener("popstate", this.onPopState);
     this.browserResume.disconnect();
@@ -678,6 +715,9 @@ export class PiWebApp extends LitElement {
     if (selectedChatIdentity(previous) !== selectedChatIdentity(this.state)) {
       this.committedChatIdentity = undefined;
       this.readyChatIdentity = undefined;
+      this.renderedUnreadCompletion = undefined;
+      this.unreadRenderGeneration += 1;
+      this.requestedUnreadSnapshot = undefined;
       this.displayedChatIdentity = undefined;
     }
     if (machineUnreadInputsChanged(previous, this.state)) this.syncSessionUnreadMachines();
@@ -731,10 +771,14 @@ export class PiWebApp extends LitElement {
     this.retryPendingRemoteRouteRestoreSoon();
   }
 
-  private async refreshAfterBrowserResume(): Promise<void> {
+  private async refreshAfterBrowserResume(renewSubscription = false): Promise<void> {
+    if (renewSubscription) {
+      this.realtime.reconnect();
+      for (const socket of this.machineRealtimeSockets.values()) socket.reconnect();
+    }
     await completeRefreshBatch([
       this.sessionUnread.refreshAll(),
-      this.sessions.refreshSelectedSession(undefined, { recoverNetwork: true }),
+      this.sessions.resumeSelectedSession({ reconnect: renewSubscription }),
       this.sessions.refreshCurrentWorkspaceSessions(selectedMachineId(this.state), { recoverNetwork: true }),
       this.refreshMachineStatusSnapshots(),
       this.refreshWorkspaceDeletionRuns(),
@@ -744,7 +788,7 @@ export class PiWebApp extends LitElement {
     ]);
   }
 
-  /** Poll idle external sessions without overlapping work or waking hidden tabs. */
+  /** One slow reconciliation loop; live events remain the normal update path. */
   private scheduleSelectedSessionRefresh(): void {
     if (this.selectedSessionRefreshTimer !== undefined) window.clearTimeout(this.selectedSessionRefreshTimer);
     this.selectedSessionRefreshTimer = window.setTimeout(() => {
@@ -755,9 +799,7 @@ export class PiWebApp extends LitElement {
 
   private async refreshSelectedTranscript(): Promise<void> {
     const session = this.state.selectedSession;
-    const status = this.state.status;
     if (session === undefined || session.archived === true || !this.isChatVisible() || document.visibilityState !== "visible") return;
-    if (status?.isStreaming === true || status?.isCompacting === true || status?.isBashRunning === true || (status?.pendingMessageCount ?? 0) > 0) return;
     await this.sessions.refreshSelectedSession(session.id, { silent: true });
   }
 
@@ -4106,6 +4148,7 @@ export class PiWebApp extends LitElement {
           ${deprecatedAgentInputsBanner(deprecatedAgentInputsWarnings(state.machines, state.machineRuntimes))}
           <div class="mobile-navigation-panel">${this.appShell.isMobileNavigationLayout ? this.renderNavigationPanel() : null}</div>
           ${state.selectedSession && !this.sessions.isChatLoadDeferred && (this.isChatVisible() || this.displayedChatIdentity === selectedChatIdentity(state)) ? html`
+            ${this.isChatVisible() ? html`<conversation-sync-notice .state=${state.conversationSync} .onRetry=${() => { void this.sessions.resumeSelectedSession({ reconnect: true }); }}></conversation-sync-notice>` : null}
             <conversation-layout .status=${state.status} .activity=${state.activity} .sending=${state.sendingPrompts[state.selectedSession.id] === true} .visualEffects=${this.chatBehaviors.visualEffects}>
             ${this.renderChatView(state, state.selectedSession)}
             <div class="composer-area" slot="composer">

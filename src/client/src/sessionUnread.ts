@@ -17,6 +17,14 @@ export interface SessionUnreadControllerOptions {
   onBackgroundError?: ((operation: "snapshot" | "acknowledge", machineId: string, error: unknown) => void) | undefined;
 }
 
+/** Exact completion boundary captured before reading a coherent transcript snapshot. */
+export interface SessionUnreadCompletion {
+  catalogId: string;
+  sessionId: string;
+  cwd: string;
+  completionOrder: number;
+}
+
 export interface SessionUnreadProjectionView extends SessionUnreadCatalogSnapshot {
   status: SessionUnreadProjectionStatus;
 }
@@ -158,6 +166,27 @@ export class SessionUnreadController {
   async refreshAll(): Promise<void> {
     await Promise.all([...this.machines.values()]
       .map(async (state) => { await this.refresh(state.machineId); }));
+  }
+
+  completion(machineId: string, session: SessionRef): SessionUnreadCompletion | undefined {
+    const state = this.machines.get(machineId);
+    if (state?.status !== "fresh" || state.projection === undefined) return undefined;
+    const summary = state.projection.summariesByIdentity.get(sessionIdentityKey(session));
+    return summary === undefined ? undefined : {
+      catalogId: state.projection.catalogId,
+      sessionId: summary.sessionId,
+      cwd: summary.cwd,
+      completionOrder: summary.completionOrder,
+    };
+  }
+
+  /** Automatic reads must never substitute the latest catalog order for rendered output. */
+  acknowledgeRendered(machineId: string, session: SessionRef, rendered: SessionUnreadCompletion): Promise<void> {
+    const current = this.completion(machineId, session);
+    if (current?.catalogId !== rendered.catalogId
+      || current.sessionId !== rendered.sessionId || current.cwd !== rendered.cwd
+      || current.completionOrder !== rendered.completionOrder) return Promise.resolve();
+    return this.acknowledge(machineId, session);
   }
 
   acknowledge(machineId: string, session: SessionRef): Promise<void> {

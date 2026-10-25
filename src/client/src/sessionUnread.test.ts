@@ -3,6 +3,41 @@ import type { SessionRef, SessionUnreadCatalogSnapshot, SessionUnreadEvent, Sess
 import { SessionUnreadController, type SessionUnreadApi } from "./sessionUnread";
 
 describe("SessionUnreadController", () => {
+  it("acknowledges only the exact rendered epoch, order, and session identity", async () => {
+    const acknowledgeUnread = vi.fn().mockResolvedValue(snapshot("catalog-a", 3, []));
+    const controller = new SessionUnreadController({ api: fakeApi({ acknowledgeUnread }) });
+    const session = ref("session-1");
+    controller.applyEvent("local", unreadEvent("catalog-a", 1, summary(session.id, 1)));
+    const rendered = controller.completion("local", session);
+    if (rendered === undefined) throw new Error("Expected completion token");
+    await controller.acknowledgeRendered("local", { ...session, cwd: "/other" }, rendered);
+    controller.applyEvent("local", unreadEvent("catalog-a", 2, summary(session.id, 2)));
+    await controller.acknowledgeRendered("local", session, rendered);
+    expect(acknowledgeUnread).not.toHaveBeenCalled();
+    const latest = controller.completion("local", session);
+    if (latest === undefined) throw new Error("Expected latest completion token");
+    await controller.acknowledgeRendered("local", session, { ...latest, catalogId: "previous-epoch" });
+    expect(acknowledgeUnread).not.toHaveBeenCalled();
+    await controller.acknowledgeRendered("local", session, latest);
+    expect(acknowledgeUnread).toHaveBeenCalledWith(session, "catalog-a", 2, "local");
+  });
+
+  it("does not capture or acknowledge rendered boundaries from a stale projection", async () => {
+    const response = deferred<SessionUnreadCatalogSnapshot>();
+    const acknowledgeUnread = vi.fn();
+    const controller = new SessionUnreadController({ api: fakeApi({ unreadCatalog: () => response.promise, acknowledgeUnread }) });
+    const session = ref("session-1");
+    controller.applyEvent("local", unreadEvent("catalog-a", 1, summary(session.id, 1)));
+    const rendered = controller.completion("local", session);
+    if (rendered === undefined) throw new Error("Expected completion token");
+    const refreshing = controller.refresh("local");
+    expect(controller.completion("local", session)).toBeUndefined();
+    await controller.acknowledgeRendered("local", session, rendered);
+    expect(acknowledgeUnread).not.toHaveBeenCalled();
+    response.resolve(snapshot("catalog-a", 1, [summary(session.id, 1)]));
+    await refreshing;
+  });
+
   it("restores the durable server snapshot for a new browser controller", async () => {
     const api = fakeApi({ snapshots: [snapshot("catalog-a", 2, [summary("session-2", 2), summary("session-1", 1)])] });
     const controller = new SessionUnreadController({ api });

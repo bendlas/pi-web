@@ -74,6 +74,7 @@ function panelToggle(app: PiWebApp, label: string): HTMLButtonElement {
 
 afterEach(async () => {
   document.body.replaceChildren();
+  vi.useRealTimers();
   await localization.setPreferences({ language: "en", formatLocale: "en" });
   clearStagedAttachments(machineSessionKey("local", session.id));
   localStorage.clear();
@@ -84,6 +85,27 @@ afterEach(async () => {
 });
 
 describe("application rendering boundaries", () => {
+  it("places sustained stale-chat feedback above the conversation, outside the composer, and hides it after recovery", async () => {
+    vi.useFakeTimers();
+    const app = await mountApp({ selectedWorkspace: workspace, selectedSession: session, sessions: [session], mainView: "chat", conversationSync: "stale" });
+    await settle(app);
+    const notice = app.shadowRoot?.querySelector("conversation-sync-notice");
+    const layout = app.shadowRoot?.querySelector("conversation-layout");
+    const composer = app.shadowRoot?.querySelector("prompt-editor");
+    if (!(notice instanceof LitElement) || layout === null || layout === undefined) throw new Error("Expected conversation and notice");
+    expect(notice.nextElementSibling).toBe(layout);
+    expect(notice.parentElement).toBe(layout.parentElement);
+    expect(app.shadowRoot?.querySelector(".composer-area conversation-sync-notice")).toBeNull();
+    expect(notice.shadowRoot?.querySelector("[role], button")).toBeNull();
+    await vi.advanceTimersByTimeAsync(2_000);
+    await notice.updateComplete;
+    expect(notice.shadowRoot?.textContent).toContain("Chat may be out of date.");
+    patchState(app, { conversationSync: "checked" });
+    await settle(app);
+    expect(notice.shadowRoot?.querySelector("[role], button")).toBeNull();
+    expect(app.shadowRoot?.querySelector("prompt-editor")).toBe(composer);
+  });
+
   it("does not mount a restored mobile transcript until Chat is opened, and retains an already displayed chat across tabs", async () => {
     const app = new RenderOnlyApp();
     const shell: unknown = Reflect.get(app, "appShell");

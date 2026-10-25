@@ -20,6 +20,10 @@ export interface AppState {
   workspaces: Workspace[];
   sessions: SessionInfo[];
   messages: ChatLine[];
+  /** Selected conversation delivery/freshness, independent of runtime activity. */
+  conversationSync?: "catching-up" | "checked" | "stale" | "interrupted" | undefined;
+  /** Time of the last accepted history snapshot, not a guarantee of live delivery. */
+  conversationRefreshedAt?: number | undefined;
   messagePageStart: number;
   messagePageEnd: number;
   messagePageTotal: number;
