@@ -1,3 +1,6 @@
+import type { ServerNoticePresentation } from "./shared/serverNoticePresentation.js";
+export type { ServerNoticePresentation } from "./shared/serverNoticePresentation.js";
+
 import type {
   PluginBackend,
   JsonObject,
@@ -125,6 +128,8 @@ export type ServerPluginNoticeScope =
 
 /** Plugin-authored notice data. The host supplies the immutable source identity. */
 export interface ServerPluginNoticeInput {
+  /** Optional PI WEB-generated presentation; unknown metadata retains the raw message. Diagnostic detail is limited to 4096 code units. */
+  readonly presentation?: ServerNoticePresentation;
   readonly severity: ServerPluginNoticeSeverity;
   /** Non-empty human-readable text, limited to 4 KiB of UTF-8. */
   readonly message: string;

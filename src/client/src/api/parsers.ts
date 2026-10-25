@@ -2,6 +2,7 @@ import { PI_WEB_PLUGIN_LIFECYCLE_VERSION, ASK_USER_COMMENT_MAX_LENGTH, ASK_USER_
 import { parseMachineStatusSnapshot, type MachineStatusSnapshot, type MachineStatusUiEvent } from "../../../shared/machineStatus";
 import type { JsonValue, PiPackageInfo, PiPackageInstallableSuggestion, PiPackageMutationAction, PiPackageMutationResponse, PiPackageScope, PiPackagesResponse, SessionActivity, SessionStartupProgressEvent, SessionTreeForkResult, SessionTreeNavigateResult, SessionTreeNode, SessionTreeNodeKind, SessionTreeSnapshot, WorkspaceProviderDiagnostic, WorkspaceProviderDiagnosticCode, WorkspaceProviderResolution, WorkspaceProviderResolutionStatus, WorkspaceProviderTier } from "../../../shared/apiTypes";
 
+import { parseServerNoticePresentation } from "../../../shared/serverNoticePresentation";
 import { parseWorkspaceRemovalLocalization } from "../../../shared/workspaceRemovalPresentation";
 import { parseCommandResultPresentation } from "../../../shared/commandResultPresentation";
 import { parseCommandOutputPresentation } from "../../../shared/commandOutputPresentation";
@@ -856,6 +857,7 @@ export function parseServerNoticeEvent(value: unknown): ServerNoticeEvent {
 
 function parseServerNotice(value: unknown): ServerNotice {
   const record = requireRecord(value);
+  const presentation = parseServerNoticePresentation(record["presentation"]);
   const createdAt = requireNonEmptyString(record, "createdAt");
   if (!Number.isFinite(Date.parse(createdAt))) throw new Error("Invalid server notice creation time");
   const source = optionalString(record, "source");
@@ -864,6 +866,7 @@ function parseServerNotice(value: unknown): ServerNotice {
   return {
     id: requireNonEmptyString(record, "id"),
     severity: parseServerNoticeSeverity(record["severity"]),
+    ...optionalField("presentation", presentation),
     message: requireString(record, "message"),
     createdAt,
     ...optionalField("source", source),

@@ -1,3 +1,4 @@
+import type { ServerNoticePresentation } from "./serverNoticePresentation.js";
 import type { CommandResultPresentation } from "./commandResultPresentation.js";
 import type { CommandOutputPresentation } from "./commandOutputPresentation.js";
 import type { SessionNotificationPresentation } from "./sessionNotificationPresentation.js";
@@ -483,6 +484,8 @@ export type ServerNoticeScope =
 
 /** One independent server-created event retained until dismissal, eligible plugin eviction, or daemon end. */
 export interface ServerNotice {
+  /** Optional generated presentation; message remains the English/raw fallback. */
+  presentation?: ServerNoticePresentation;
   id: string;
   severity: ServerNoticeSeverity;
   message: string;

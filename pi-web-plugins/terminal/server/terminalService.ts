@@ -62,6 +62,7 @@ export type CreateTerminalOptions = TerminalScope & {
 }
 
 export interface TerminalCommandFailureNotice {
+  readonly presentation?: { kind: "workspaceRemovalCommandFailed" };
   readonly message: string;
   readonly context: Readonly<Record<string, string>>;
 }
@@ -440,6 +441,7 @@ export class TerminalService {
       this.recordNotice?.({
         severity: "error",
         message: failureNotice.message,
+        ...(failureNotice.presentation === undefined ? {} : { presentation: failureNotice.presentation }),
         ...(completed.scope === "maintenance" ? {} : { scope: { projectId: completed.projectId } }),
         context: { ...failureNotice.context, commandRunId: completed.id },
       });
@@ -573,7 +575,12 @@ function parseFailureNotice(value: TerminalCommandFailureNotice | undefined): Te
   if (!isRecord(value.context) || !Object.values(value.context).every((item) => typeof item === "string")) {
     throw new Error("failureNotice context must contain only strings");
   }
-  return Object.freeze({ message: value.message, context: Object.freeze({ ...value.context }) });
+  return Object.freeze({
+    message: value.message,
+    context: Object.freeze({ ...value.context }),
+    ...(value.presentation?.kind === "workspaceRemovalCommandFailed"
+      ? { presentation: Object.freeze({ kind: "workspaceRemovalCommandFailed" as const }) } : {}),
+  });
 }
 
 function matchesCommandRunFilter(run: TerminalCommandRun, filter: TerminalCommandRunFilter): boolean {

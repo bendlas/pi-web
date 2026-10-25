@@ -3,6 +3,7 @@ import type { TerminalCommandRun } from "../../shared/apiTypes.js";
 import { REQUIRED_TERMINAL_PLUGIN_ID } from "../../shared/requiredTerminalPlugin.js";
 
 export interface RequiredTerminalCommandFailureNotice {
+  readonly presentation?: { kind: "workspaceRemovalCommandFailed" };
   readonly message: string;
   readonly context: Readonly<Record<string, string>>;
 }

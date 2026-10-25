@@ -1,4 +1,6 @@
 // @vitest-environment happy-dom
+import { render } from "lit";
+import type { ServerNotice } from "../../../shared/apiTypes";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AppState } from "../appState";
 import type { AppAction } from "../actions";
@@ -261,6 +263,35 @@ describe("PiWebApp workspace removal browser error boundary", () => {
       await localization.setPreferences({ language, formatLocale: "en" });
       expect(error?.displayMessage?.()).toBe(appFeedbackMessages.t("workspaceRemovalRefreshFailed", { detail: failure.message }));
     }
+  });
+
+  it("renders retained generated server notices live, keeps raw plugin messages and dismisses the original id", async () => {
+    const app = createApp();
+    const controller: unknown = Reflect.get(app, "serverNotices");
+    if (!(controller instanceof ServerNoticesController)) throw new Error("Missing notices");
+    const diagnostic = "raw <img> /repo {value}";
+    const notices: ServerNotice[] = [
+      { id: "start", severity: "error", message: `Workspace removal failed: ${diagnostic}`, presentation: { kind: "workspaceRemovalFailed", detail: diagnostic }, createdAt: "2026-08-01T00:00:00.000Z" },
+      { id: "exit", severity: "warning", message: "Workspace removal failed. See terminal output.", presentation: { kind: "workspaceRemovalCommandFailed" }, createdAt: "2026-08-01T00:00:00.000Z" },
+      { id: "plugin", severity: "info", message: "Workspace removal failed. See terminal output.", source: "plugin:custom", createdAt: "2026-08-01T00:00:00.000Z" },
+    ];
+    vi.spyOn(controller, "projection").mockReturnValue({ machineId: "local", status: "fresh", daemonInstanceId: "daemon", revision: 1, notices });
+    const dismiss = vi.spyOn(controller, "dismiss").mockResolvedValue();
+    const container = document.createElement("div");
+    document.body.append(container);
+    for (const language of ["en", "en-XA", "ar-XB"]) {
+      await localization.setPreferences({ language, formatLocale: "en" });
+      render(invoke(app, "renderServerNoticeBanners"), container);
+      const banners = container.querySelectorAll(".error-text");
+      expect(banners).toHaveLength(3);
+      expect(banners[0]?.textContent).toContain(diagnostic);
+      expect(banners[0]?.textContent === notices[0]?.message).toBe(language === "en");
+      expect(banners[1]?.textContent === notices[1]?.message).toBe(language === "en");
+      expect(banners[2]?.textContent).toBe(notices[2]?.message);
+      expect(container.querySelector("img")).toBeNull();
+    }
+    container.querySelector("button")?.click();
+    expect(dismiss).toHaveBeenCalledWith("local", "start");
   });
 
   it("does not add a browser fallback when a matching server notice is fresh", async () => {

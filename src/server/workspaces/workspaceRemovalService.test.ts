@@ -117,6 +117,7 @@ describe("WorkspaceRemovalService", () => {
       },
       failureNotice: {
         message: "Workspace removal failed. See terminal output.",
+        presentation: { kind: "workspaceRemovalCommandFailed" },
         context: { targetWorkspaceId: target.id },
       },
     }]);
@@ -236,6 +237,7 @@ describe("WorkspaceRemovalService", () => {
     expect(records).toEqual([{
       severity: "error",
       message: "Workspace removal failed: workspace has unsubmitted changes",
+      presentation: { kind: "workspaceRemovalFailed", detail: "workspace has unsubmitted changes" },
       source: "workspace.delete",
       scope: { projectId: project.id },
       context: { targetWorkspaceId: target.id },

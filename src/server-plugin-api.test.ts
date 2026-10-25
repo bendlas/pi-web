@@ -391,7 +391,7 @@ describe("public server plugin API", () => {
     expectTypeOf<keyof WorkspaceProviderIntegration>().toEqualTypeOf<"reconcile" | "acceptNotification">();
     expectTypeOf<ReadonlyKeys<ServerPluginWorkspaceNotifications>>().toEqualTypeOf<"command">();
     expectTypeOf<keyof ServerPluginNoticeReporterV1>().toEqualTypeOf<"version" | "record">();
-    expectTypeOf<keyof ServerPluginNoticeInput>().toEqualTypeOf<"severity" | "message" | "scope" | "context">();
+    expectTypeOf<keyof ServerPluginNoticeInput>().toEqualTypeOf<"severity" | "message" | "scope" | "context" | "presentation">();
     expectTypeOf<keyof PiWebServerPlugin>().toEqualTypeOf<"apiVersion" | "name" | "requires" | "activate">();
     expectTypeOf<keyof PluginCapability>().toEqualTypeOf<"pluginId" | "id" | "version" | "parse">();
     expectTypeOf<keyof PluginCapabilityProvision>().toEqualTypeOf<"capability" | "value">();

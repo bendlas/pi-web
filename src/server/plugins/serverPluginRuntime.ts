@@ -1,3 +1,4 @@
+import { parseServerNoticePresentation } from "../../shared/serverNoticePresentation.js";
 import { mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
 import { isPiWebPluginId } from "../../shared/pluginIds.js";
@@ -1483,10 +1484,11 @@ function parseServerPluginNoticeInput(value: unknown): ServerPluginNoticeInput {
   if ("source" in value) throw new Error("Server plugin notices cannot set their source");
   for (const key in value) {
     if (!Object.hasOwn(value, key)) continue;
-    if (key !== "severity" && key !== "message" && key !== "scope" && key !== "context") {
+    if (key !== "severity" && key !== "message" && key !== "scope" && key !== "context" && key !== "presentation") {
       throw new Error(`Unsupported server plugin notice field: ${key}`);
     }
   }
+  const presentation = parseServerNoticePresentation(value["presentation"]);
   const severity = value["severity"];
   if (severity !== "info" && severity !== "warning" && severity !== "error") {
     throw new Error("Server plugin notice severity must be info, warning, or error");
@@ -1514,6 +1516,7 @@ function parseServerPluginNoticeInput(value: unknown): ServerPluginNoticeInput {
   return Object.freeze({
     severity,
     message,
+    ...(presentation === undefined ? {} : { presentation: Object.freeze(presentation) }),
     ...(scope === undefined ? {} : { scope }),
     ...(context === undefined ? {} : { context }),
   });

@@ -191,6 +191,7 @@ export class WorkspaceRemovalService {
             metadata: workspaceDeletionMetadata(target),
             failureNotice: {
               message: "Workspace removal failed. See terminal output.",
+              presentation: { kind: "workspaceRemovalCommandFailed" },
               context: { targetWorkspaceId: target.id },
             },
           });
@@ -209,6 +210,7 @@ export class WorkspaceRemovalService {
       if (!isAbortError(failure)) this.notices?.record({
         severity: "error",
         message: `Workspace removal failed: ${errorMessage(failure)}`,
+        presentation: { kind: "workspaceRemovalFailed", detail: errorMessage(failure) },
         source: workspaceDeleteOperation,
         scope: { projectId: project.id },
         context: { targetWorkspaceId: workspaceId },

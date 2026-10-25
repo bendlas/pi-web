@@ -1033,6 +1033,15 @@ describe("server plugin runtime", () => {
       }]);
     }).toThrow("cannot set their source");
     expect(records).toHaveLength(2);
+    const presentation = { kind: "workspaceRemovalFailed" as const, detail: "raw diagnostic" };
+    terminalReporter.record({ severity: "error", message: "Fallback", presentation });
+    presentation.detail = "mutated";
+    expect(records[2]?.input.presentation).toEqual({ kind: "workspaceRemovalFailed", detail: "raw diagnostic" });
+    expect(Object.isFrozen(records[2]?.input.presentation)).toBe(true);
+    for (const metadata of [{ kind: "future" }, { kind: "workspaceRemovalFailed", detail: 42 }]) {
+      Reflect.apply(terminalReporter.record, terminalReporter, [{ severity: "error", message: "Raw fallback", presentation: metadata }]);
+      expect(records.at(-1)?.input).toEqual({ severity: "error", message: "Raw fallback" });
+    }
 
     await runtime.stop();
   });
