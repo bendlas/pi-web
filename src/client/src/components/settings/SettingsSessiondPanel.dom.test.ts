@@ -313,6 +313,7 @@ describe("SettingsSessiondPanel DOM", () => {
     panel.shadowRoot?.querySelector<HTMLButtonElement>("#session-naming-model")?.click();
     await panel.updateComplete;
     expect(panel.shadowRoot?.querySelector("command-picker")).not.toBeNull();
+    panel.targetId = "another-machine";
     panel.targetLabel = "Another machine";
     await panel.updateComplete;
     expect(panel.shadowRoot?.querySelector("command-picker")).toBeNull();

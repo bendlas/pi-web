@@ -265,6 +265,7 @@ export class SettingsDialog extends LitElement {
           .error=${this.sessiondError}
           .savedMessage=${this.savedSection === "sessiond" ? this.savedMessage : ""}
           .targetLabel=${settingsMachineTargetLabel(this.settingsTarget())}
+          .targetId=${this.settingsTarget().id}
           .onReload=${() => this.reloadSessiondState()}
           .onSave=${(config: PiWebConfigValues) => this.saveSessiondConfig(config)}
         ></settings-sessiond-panel>
