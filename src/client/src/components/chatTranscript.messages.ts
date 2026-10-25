@@ -1,6 +1,8 @@
 import { message } from "../localization/service";
 
 export default {
+  modelAuthRemoved: message<{ provider: string; model: string }>("Authentication for {provider}/{model} was removed. Use /model to select another model.", "Active model lost authentication. Provider/model identifiers and the /model command stay unchanged"),
+  sessionNamingFailed: message<{ detail: string }>("Session created, but naming failed: {detail}", "Related session was created successfully but could not be named; detail is an untranslated diagnostic"),
   modelFailure: message<{ detail: string; detailed: string }>("{detailed, select, yes {Model response failed: {detail}} other {Model response failed: The model returned an error.}}", "Model failure notice. Detail is an untranslated provider diagnostic, rendered as plain text"),
   imagePlaceholder: message("[image]", "Placeholder for malformed or unavailable inline image data"),
   shellExcluded: message("excluded from context", "Shell execution omitted from the model context"),

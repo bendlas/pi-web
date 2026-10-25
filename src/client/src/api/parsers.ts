@@ -2,6 +2,7 @@ import { PI_WEB_PLUGIN_LIFECYCLE_VERSION, ASK_USER_COMMENT_MAX_LENGTH, ASK_USER_
 import { parseMachineStatusSnapshot, type MachineStatusSnapshot, type MachineStatusUiEvent } from "../../../shared/machineStatus";
 import type { JsonValue, PiPackageInfo, PiPackageInstallableSuggestion, PiPackageMutationAction, PiPackageMutationResponse, PiPackageScope, PiPackagesResponse, SessionActivity, SessionStartupProgressEvent, SessionTreeForkResult, SessionTreeNavigateResult, SessionTreeNode, SessionTreeNodeKind, SessionTreeSnapshot, WorkspaceProviderDiagnostic, WorkspaceProviderDiagnosticCode, WorkspaceProviderResolution, WorkspaceProviderResolutionStatus, WorkspaceProviderTier } from "../../../shared/apiTypes";
 
+import { parseCommandOutputPresentation } from "../../../shared/commandOutputPresentation";
 import { parseSessionNotificationPresentation } from "../../../shared/sessionNotificationPresentation";
 import { parseKnownPiWebCapabilities } from "../../../shared/capabilities";
 import { parseDeprecatedAgentInputs } from "../../../shared/piWebStatusParsing";
@@ -820,6 +821,7 @@ function parseCommandOutputEvent(record: Record<string, unknown>): Extract<Sessi
     type: "command.output",
     level,
     message: requireString(record, "message"),
+    ...optionalField("presentation", parseCommandOutputPresentation(record["presentation"])),
   };
 }
 

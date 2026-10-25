@@ -1,6 +1,20 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RealtimeSocket, SessionSocket, parseRealtimeSocketEvent, parseSessionSocketEvent } from "./sessionSocket";
 
+it("validates optional command-output provenance without inferring it from English messages", () => {
+  const base = { type: "command.output", level: "error", message: "Authentication for raw/model was removed. Use /model to select another model." };
+  for (const presentation of [
+    { kind: "modelAuthRemoved", provider: "raw", model: "<model>" },
+    { kind: "sessionNamingFailed", detail: "<raw diagnostic>" },
+  ]) {
+    expect(parseSessionSocketEvent({ ...base, presentation })).toEqual({ ...base, presentation });
+  }
+  expect(parseSessionSocketEvent(base)).toEqual(base);
+  for (const presentation of [null, [], { kind: "future" }, { kind: "modelAuthRemoved", provider: 3, model: "id" }, { kind: "sessionNamingFailed" }]) {
+    expect(parseSessionSocketEvent({ ...base, presentation })).toEqual(base);
+  }
+});
+
 function notification(order = 1) {
   return {
     id: `daemon-a:${String(order)}`,

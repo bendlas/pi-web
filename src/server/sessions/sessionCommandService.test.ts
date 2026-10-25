@@ -243,6 +243,23 @@ describe("SessionCommandService", () => {
     expect(events.publish).toHaveBeenCalledWith("forked", { type: "session.name", sessionId: "forked", name: "Build auth — Fork 2" });
   });
 
+  it("retains raw naming diagnostics with explicit generated command-output provenance", async () => {
+    const active = activeSession({ sessionName: "Source" });
+    const detail = "<img src=x> raw naming diagnostic";
+    const forked = activeSession({ sessionId: "forked", setSessionName: () => { throw new Error(detail); } }).runtime.session;
+    vi.mocked(active.runtime.fork).mockImplementationOnce(() => {
+      active.runtime.session = forked;
+      return Promise.resolve({ cancelled: false });
+    });
+    const events = eventPublisher();
+    const service = new SessionCommandService(() => getActive(active), vi.fn(), events);
+    await expect(service.run("s1", "/clone")).resolves.toMatchObject({ type: "done", session: { id: "forked" } });
+    expect(events.publish).toHaveBeenCalledWith("forked", {
+      type: "command.output", level: "error", message: `Session created, but naming failed: ${detail}`,
+      presentation: { kind: "sessionNamingFailed", detail },
+    });
+  });
+
   it("names cloned sessions as copies of the source title", async () => {
     const active = activeSession({ sessionName: "Build auth — Fork 1" });
     const cloned = activeSession({ sessionId: "copy", sessionName: undefined }).runtime.session;

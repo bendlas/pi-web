@@ -1,3 +1,4 @@
+import type { CommandOutputPresentation } from "./commandOutputPresentation.js";
 import type { SessionNotificationPresentation } from "./sessionNotificationPresentation.js";
 import type { RuntimeActivityPresentation } from "./sessionActivityPresentation.js";
 import type { MachineStatusUiEvent } from "./machineStatus.js";
@@ -1454,7 +1455,7 @@ type SessionUiEventBody =
   | { type: "message.end"; message?: unknown }
   | { type: "status.update"; status: SessionStatus }
   | { type: "activity.update"; activity: SessionActivity }
-  | { type: "command.output"; level: "info" | "success" | "error"; message: string }
+  | { type: "command.output"; level: "info" | "success" | "error"; message: string; presentation?: CommandOutputPresentation }
   | SessionNotificationInboxEvent
   | { type: "session.error"; message: string }
   /** Technical details for the browser console, never transcript or notification content. */

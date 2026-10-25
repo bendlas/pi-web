@@ -4907,6 +4907,7 @@ export class PiSessionService implements SessionRouteService {
       type: "command.output",
       level: "error",
       message: `Authentication for ${model.provider}/${model.id} was removed. Use /model to select another model.`,
+      presentation: { kind: "modelAuthRemoved", provider: model.provider, model: model.id },
     });
   }
 

@@ -279,7 +279,7 @@ export class SessionCommandService<TSession extends CommandSession = CommandSess
       this.publishSessionName(session);
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
-      this.events.publish(session.sessionId, { type: "command.output", level: "error", message: `Session created, but naming failed: ${message}` });
+      this.events.publish(session.sessionId, { type: "command.output", level: "error", message: `Session created, but naming failed: ${message}`, presentation: { kind: "sessionNamingFailed", detail: message } });
     }
   }
 

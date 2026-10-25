@@ -12,6 +12,7 @@ import { imagePresentation, settleImage } from "./imagePresentation.testSupport"
 import { summarizeChatGroup } from "../chatGroups";
 import { localizedChatGroupSummary } from "./chat/transcriptLabels";
 import { normalizeMessages } from "../chatMessages";
+import { applyTranscriptEvent } from "../chatTranscript";
 import { localizedChatText, localizedArgumentSummary } from "../localizedChatPresentation";
 import type { ToolExecutionView } from "./ToolExecutionView";
 import type { ChatLine } from "../chatTypes";
@@ -124,6 +125,41 @@ it("resolves normalized generated prose live without translating source or repla
     expect(generated.querySelector("img")).toBeNull();
     expect(tool.shadowRoot?.querySelector(".generated-summary")?.textContent).toBe(localizedArgumentSummary({ kind: "arguments", args: { edits: [1, 2] } }));
     expect(Array.from(root.querySelectorAll("formatted-text")).some((node) => "text" in node && node.text === raw)).toBe(true);
+  }
+});
+
+it("localizes retained generated command feedback while identical extension text stays raw", async () => {
+  const auth = "Authentication for raw/<model> was removed. Use /model to select another model.";
+  const naming = "Session created, but naming failed: <img src=x> diagnostic";
+  const view = new ChatView();
+  view.behaviors = { ...view.behaviors, followTail: false, rememberPosition: false };
+  let lines: ChatLine[] = [];
+  for (const event of [
+    { type: "command.output", level: "error", message: auth, presentation: { kind: "modelAuthRemoved", provider: "raw", model: "<model>" } },
+    { type: "command.output", level: "error", message: naming, presentation: { kind: "sessionNamingFailed", detail: "<img src=x> diagnostic" } },
+    { type: "command.output", level: "error", message: auth },
+    { type: "command.output", level: "error", message: naming },
+  ] as const) lines = required(applyTranscriptEvent(lines, event));
+  view.messages = lines;
+  document.body.append(view); await view.updateComplete;
+  const root = required(view.shadowRoot);
+  for (const group of root.querySelectorAll<HTMLDetailsElement>(".event-group")) {
+    group.open = true; group.dispatchEvent(new Event("toggle"));
+  }
+  await view.updateComplete;
+  const generated = Array.from(root.querySelectorAll(".generated-text"));
+  expect(generated).toHaveLength(2);
+  for (const locale of ["en", "en-XA", "ar-XB"]) {
+    await language(view, locale);
+    expect(Array.from(root.querySelectorAll(".generated-text"))).toEqual(generated);
+    expect(generated[0]?.textContent).toBe(messages.t("modelAuthRemoved", { provider: "raw", model: "<model>" }));
+    expect(generated[1]?.textContent).toBe(messages.t("sessionNamingFailed", { detail: "<img src=x> diagnostic" }));
+    expect(root.querySelector("img, model")).toBeNull();
+    const raw = Array.from(root.querySelectorAll("formatted-text")).map((node) => "text" in node ? node.text : undefined);
+    expect(raw).toContain(auth); expect(raw).toContain(naming);
+    expect(view.messages).toBe(lines);
+    expect(lines[0]?.parts[0]).toMatchObject({ text: auth });
+    expect(lines[1]?.parts[0]).toMatchObject({ text: naming });
   }
 });
 
