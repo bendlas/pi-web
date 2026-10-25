@@ -202,6 +202,8 @@ export class PiWebApp extends LitElement {
   private renderedUnreadCompletion: SessionUnreadCompletion | undefined;
   private unreadRenderGeneration = 0;
   private requestedUnreadSnapshot: string | undefined;
+  /** An explicit reminder stays unread for the remainder of this selection. */
+  private manuallyUnreadChatIdentity: string | undefined;
   @state() private readyChatIdentity: string | undefined;
   /** Prevent a global scope invalidation from racing the picker’s own mutation response. */
   private modelDialogMutationInFlight = 0;
@@ -572,7 +574,8 @@ export class PiWebApp extends LitElement {
     const session = this.state.selectedSession;
     if (session === undefined) return;
     const machineId = selectedMachineId(this.state);
-    if (!this.isSessionSeen(machineId, session)) return;
+    if (this.manuallyUnreadChatIdentity === unreadChatIdentity(machineId, session)
+      || !this.isSessionSeen(machineId, session)) return;
     const completion = this.sessionUnread.completion(machineId, session);
     if (completion === undefined) return;
     const rendered = this.renderedUnreadCompletion;
@@ -602,7 +605,23 @@ export class PiWebApp extends LitElement {
 
   private markSessionsRead(sessions: readonly SessionInfo[]): void {
     const machineId = selectedMachineId(this.state);
-    for (const session of sessions) void this.sessionUnread.acknowledge(machineId, session);
+    for (const session of sessions) {
+      if (this.manuallyUnreadChatIdentity === unreadChatIdentity(machineId, session)) this.manuallyUnreadChatIdentity = undefined;
+      void this.sessionUnread.acknowledge(machineId, session);
+    }
+  }
+
+  private async markSessionUnread(session: SessionInfo): Promise<void> {
+    const machineId = selectedMachineId(this.state);
+    const identity = unreadChatIdentity(machineId, session);
+    // Set the guard before HTTP: the broadcast can arrive before its response.
+    if (selectedChatIdentity(this.state) === identity) this.manuallyUnreadChatIdentity = identity;
+    try {
+      await this.sessionUnread.markUnread(machineId, session);
+    } catch (error: unknown) {
+      if (this.manuallyUnreadChatIdentity === identity) this.manuallyUnreadChatIdentity = undefined;
+      this.browserErrors.reportLocalized(machineBrowserErrorScope(machineId), () => appFeedback.t("actionFailed", { detail: errorMessage(error) }));
+    }
   }
 
   private async commitReadyChatAfterRender(machineId: string, session: SessionInfo): Promise<void> {
@@ -713,6 +732,7 @@ export class PiWebApp extends LitElement {
       this.state = { ...this.state, modelDialog: undefined };
     }
     if (selectedChatIdentity(previous) !== selectedChatIdentity(this.state)) {
+      this.manuallyUnreadChatIdentity = undefined;
       this.committedChatIdentity = undefined;
       this.readyChatIdentity = undefined;
       this.renderedUnreadCompletion = undefined;
@@ -2121,6 +2141,7 @@ export class PiWebApp extends LitElement {
     startSession: () => this.startSessionFromNavigation(),
     selectSession: (session: SessionInfo) => this.selectNavigationItem("sessions", "chat", () => this.selectSessionFromNavigation(session)),
     markSessionRead: (session: SessionInfo) => { this.markSessionsRead([session]); },
+    markSessionUnread: (session: SessionInfo) => { void this.markSessionUnread(session); },
     markSessionsRead: (sessions: SessionInfo[]) => { this.markSessionsRead(sessions); },
     archiveSession: (session: SessionInfo) => this.sessions.archiveSession(session),
     archiveSessionWithDescendants: (session: SessionInfo) => this.sessions.archiveSessionWithDescendants(session),
@@ -2244,6 +2265,7 @@ export class PiWebApp extends LitElement {
         .onStartSession=${this.navigationActions.startSession}
         .onSelectSession=${this.navigationActions.selectSession}
         .onMarkSessionRead=${this.navigationActions.markSessionRead}
+        .onMarkSessionUnread=${this.navigationActions.markSessionUnread}
         .onMarkSessionsRead=${this.navigationActions.markSessionsRead}
         .onArchiveSession=${this.navigationActions.archiveSession}
         .onArchiveSessionWithDescendants=${this.navigationActions.archiveSessionWithDescendants}

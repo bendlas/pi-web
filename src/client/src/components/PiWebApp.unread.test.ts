@@ -260,6 +260,40 @@ describe("PiWebApp session unread wiring", () => {
     expect(navigationUnreadSessionIds(app).size).toBe(0);
   });
 
+  it("keeps a manually unread selected chat unread until leaving and returning", async () => {
+    const selected = session("selected");
+    const other = session("other");
+    const marked = { catalogId: "catalog-a", catalogRevision: 1, sessions: [unreadSummary(selected, 1)] };
+    const response = deferred<typeof marked>();
+    const fetchMock = vi.fn<typeof fetch>()
+      .mockImplementationOnce(async () => new Response(JSON.stringify(await response.promise), { status: 200 }))
+      .mockResolvedValue(new Response(JSON.stringify({ catalogId: "catalog-a", catalogRevision: 2, sessions: [] }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const app = createApp();
+    enableUnread(app);
+    setAppState(app, { ...initialAppState(), sessions: [selected, other], selectedSession: selected, mainView: "chat" });
+    exposeSelectedChat(app);
+    const mark = navigationPanelValue(app, ".onMarkSessionUnread=");
+    if (!isMarkSessionRead(mark)) throw new Error("Expected mark-unread callback");
+    mark(selected);
+    // Socket delivery precedes the HTTP response and must not trigger auto-read.
+    handleRealtimeEvent(app, unreadEvent(1, unreadSummary(selected, 1)));
+    await incorporateSelectedCompletion(app, selected);
+    response.resolve(marked);
+    await vi.waitFor(() => { expect([...navigationUnreadSessionIds(app)]).toEqual([selected.id]); });
+    invokeUpdated(app);
+    await Promise.resolve();
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("https://pi.example.test/api/machines/local/sessions/selected/unread");
+    setState(app, { selectedSession: other });
+    setState(app, { selectedSession: selected });
+    exposeSelectedChat(app);
+    await incorporateSelectedCompletion(app, selected);
+    await vi.waitFor(() => { expect(fetchMock).toHaveBeenCalledTimes(2); });
+    expect(fetchMock.mock.calls[1]?.[0]).toBe("https://pi.example.test/api/machines/local/sessions/selected/unread/acknowledge");
+    await vi.waitFor(() => { expect(navigationUnreadSessionIds(app).size).toBe(0); });
+  });
+
   it("acknowledges a session explicitly marked as read from navigation", async () => {
     const fetchMock = stubJsonFetch({ catalogId: "catalog-a", catalogRevision: 2, sessions: [] });
     const app = createApp();

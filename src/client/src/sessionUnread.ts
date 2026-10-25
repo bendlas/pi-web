@@ -8,6 +8,7 @@ export type SessionUnreadProjectionStatus = "loading" | "fresh" | "stale";
 
 export interface SessionUnreadApi {
   unreadCatalog(machineId: string): Promise<SessionUnreadCatalogSnapshot>;
+  markUnread(session: SessionRef, machineId: string): Promise<SessionUnreadCatalogSnapshot>;
   acknowledgeUnread(session: SessionRef, catalogId: string, throughCompletionOrder: number, machineId: string): Promise<SessionUnreadCatalogSnapshot>;
 }
 
@@ -63,6 +64,7 @@ interface ProjectionTransition {
 
 const defaultApi: SessionUnreadApi = {
   unreadCatalog: (machineId) => sessionsApi.unreadCatalog(machineId),
+  markUnread: (session, machineId) => sessionsApi.markUnread(session, machineId),
   acknowledgeUnread: (session, catalogId, throughCompletionOrder, machineId) => (
     sessionsApi.acknowledgeUnread(session, catalogId, throughCompletionOrder, machineId)
   ),
@@ -187,6 +189,20 @@ export class SessionUnreadController {
       || current.sessionId !== rendered.sessionId || current.cwd !== rendered.cwd
       || current.completionOrder !== rendered.completionOrder) return Promise.resolve();
     return this.acknowledge(machineId, session);
+  }
+
+  /** Manual writes use the same event replay boundary as catalog reads. Errors belong to the caller. */
+  async markUnread(machineId: string, session: SessionRef): Promise<void> {
+    const state = this.machine(machineId);
+    const generation = state.generation;
+    const observer = this.beginNetworkObservation(state, generation);
+    try {
+      const snapshot = await this.api.markUnread(session, machineId);
+      if (!this.isCurrent(state, generation)) return;
+      if (this.applyNetworkSnapshot(state, snapshot, observer)) void this.refresh(machineId);
+    } finally {
+      state.observers.delete(observer);
+    }
   }
 
   acknowledge(machineId: string, session: SessionRef): Promise<void> {

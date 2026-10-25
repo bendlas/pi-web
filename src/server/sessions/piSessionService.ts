@@ -1268,6 +1268,7 @@ export class PiSessionService implements SessionRouteService {
   /** Last idle-poll transcript file resolution per runtime, throttled; entries die with their runtime. */
   private readonly idleSessionFileResolutions = new WeakMap<PiAgentSession, { at: number; path: string | undefined }>();
   private readonly unreadStore: SessionUnreadStore;
+  private unreadEligibilityRevision = 0;
   private readonly pendingExtensionDialogStore: PendingExtensionDialogStore;
   private readonly extensionDialogsTimeoutMs: number;
   /** The parked extension Promise resolvers behind the store's open dialogs. */
@@ -1377,6 +1378,7 @@ export class PiSessionService implements SessionRouteService {
   }
 
   async reconcileUnreadWorkspaces(cwds: Iterable<string>): Promise<void> {
+    this.unreadEligibilityRevision += 1;
     await this.publishUnreadMutations(this.unreadStore.reconcileWorkspaces(cwds));
   }
 
@@ -1391,6 +1393,21 @@ export class PiSessionService implements SessionRouteService {
       cwd: canonicalizeStoredCwd(request.cwd),
     });
     await this.publishUnreadMutations(result.mutations);
+    return this.unreadStore.durableCatalogSnapshot();
+  }
+
+  async markUnread(sessionId: string, cwd: string): Promise<SessionUnreadCatalogSnapshot> {
+    const canonicalCwd = canonicalizeStoredCwd(cwd);
+    const eligibilityRevision = this.unreadEligibilityRevision;
+    const rows = await this.list(canonicalCwd);
+    const row = rows.find((candidate) => candidate.id === sessionId && cwdPathsEqual(candidate.cwd, canonicalCwd));
+    // Validation performs I/O. A concurrent archive/delete/rebind must not let
+    // its stale result recreate state after lifecycle cleanup has removed it.
+    if (eligibilityRevision !== this.unreadEligibilityRevision
+      || row === undefined || row.archived === true || row.persisted !== true || row.agentSubsession === true) {
+      throw new Error("Session is not eligible to be marked unread");
+    }
+    await this.publishUnreadMutations(this.unreadStore.markUnread(sessionId, canonicalCwd));
     return this.unreadStore.durableCatalogSnapshot();
   }
 
@@ -4514,6 +4531,7 @@ export class PiSessionService implements SessionRouteService {
     this.unreadStore.forgetActivity(previous.sessionId, previousCwd);
     const nextCwd = canonicalizeStoredCwd(next.sessionManager.getCwd());
     if (previous.sessionId === next.sessionId && cwdPathsEqual(previousCwd, nextCwd)) return;
+    this.unreadEligibilityRevision += 1;
     await this.publishUnreadMutations(this.unreadStore.forgetSession(previous.sessionId, previousCwd));
   }
 
@@ -4525,6 +4543,7 @@ export class PiSessionService implements SessionRouteService {
   }
 
   private async forgetUnreadSessions(identities: readonly { sessionId: string; cwd: string }[]): Promise<void> {
+    if (identities.length > 0) this.unreadEligibilityRevision += 1;
     const mutations: SessionUnreadMutation[] = [];
     for (const identity of identities) {
       mutations.push(...this.unreadStore.forgetSession(

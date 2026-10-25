@@ -3,6 +3,27 @@ import type { SessionRef, SessionUnreadCatalogSnapshot, SessionUnreadEvent, Sess
 import { SessionUnreadController, type SessionUnreadApi } from "./sessionUnread";
 
 describe("SessionUnreadController", () => {
+  it("marks unread and replays a newer clear arriving before the response", async () => {
+    const response = deferred<SessionUnreadCatalogSnapshot>();
+    const markUnread = vi.fn(() => response.promise);
+    const controller = new SessionUnreadController({ api: fakeApi({ markUnread }) });
+    const session = ref("session-1");
+    controller.applyEvent("remote", unreadEvent("catalog-a", 1, summary(session.id, 1)));
+    const request = controller.markUnread("remote", session);
+    controller.applyEvent("remote", unreadEvent("catalog-a", 2, null, session));
+    response.resolve(snapshot("catalog-a", 1, [summary(session.id, 1)]));
+    await request;
+    expect(markUnread).toHaveBeenCalledWith(session, "remote");
+    expect(controller.isUnread("remote", session)).toBe(false);
+  });
+
+  it("surfaces failed manual unread writes without changing the projection", async () => {
+    const error = new Error("Write failed");
+    const controller = new SessionUnreadController({ api: fakeApi({ markUnread: () => Promise.reject(error) }) });
+    await expect(controller.markUnread("local", ref("session-1"))).rejects.toBe(error);
+    expect(controller.isUnread("local", ref("session-1"))).toBe(false);
+  });
+
   it("acknowledges only the exact rendered epoch, order, and session identity", async () => {
     const acknowledgeUnread = vi.fn().mockResolvedValue(snapshot("catalog-a", 3, []));
     const controller = new SessionUnreadController({ api: fakeApi({ acknowledgeUnread }) });
@@ -279,6 +300,7 @@ interface FakeApiOptions {
   snapshots?: SessionUnreadCatalogSnapshot[] | undefined;
   unreadCatalog?: SessionUnreadApi["unreadCatalog"] | undefined;
   acknowledgeUnread?: SessionUnreadApi["acknowledgeUnread"] | undefined;
+  markUnread?: SessionUnreadApi["markUnread"] | undefined;
 }
 
 function fakeApi(options: FakeApiOptions = {}): SessionUnreadApi {
@@ -290,6 +312,7 @@ function fakeApi(options: FakeApiOptions = {}): SessionUnreadApi {
         ? Promise.reject(new Error("Unexpected unread snapshot request"))
         : Promise.resolve(next);
     }),
+    markUnread: options.markUnread ?? (() => Promise.reject(new Error("Unexpected mark unread"))),
     acknowledgeUnread: options.acknowledgeUnread ?? (() => (
       Promise.reject(new Error("Unexpected unread acknowledgement"))
     )),

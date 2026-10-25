@@ -105,6 +105,57 @@ describe("session action eligibility", () => {
 });
 
 describe("mark-as-read actions", () => {
+  it("offers Mark as unread for a read current session without selecting it or mutating unread state", async () => {
+    const read = session("read");
+    const list = sessionList([read], new Set());
+    list.selected = read;
+    list.onMarkUnread = vi.fn();
+    list.onMarkRead = vi.fn();
+    list.onSelect = vi.fn();
+
+    await openSessionMenu(list, read.id);
+    const markUnread = list.shadowRoot?.querySelector<HTMLButtonElement>('button[title="Mark session as unread"]');
+    expect(markUnread?.textContent).toBe("Mark as unread");
+    expect(list.shadowRoot?.querySelector('button[title="Mark session as read"]')).toBeNull();
+    markUnread?.click();
+    await list.updateComplete;
+
+    expect(list.onMarkUnread).toHaveBeenCalledExactlyOnceWith(read);
+    expect(list.onMarkRead).not.toHaveBeenCalled();
+    expect(list.onSelect).not.toHaveBeenCalled();
+    expect(list.unreadSessionIds.size).toBe(0);
+    expect(list.shadowRoot?.querySelector(".action-menu-panel")).toBeNull();
+
+    list.unreadSessionIds = new Set([read.id]);
+    await openSessionMenu(list, read.id);
+    expect(list.shadowRoot?.querySelector('button[title="Mark session as unread"]')).toBeNull();
+    expect(list.shadowRoot?.querySelector('button[title="Mark session as read"]')).not.toBeNull();
+  });
+
+  it.each([
+    ["cached", markCachedNewSessionInfo(session("ineligible"))],
+    ["transient", session("ineligible", { persisted: false })],
+    ["archived", session("ineligible", { archived: true })],
+    ["agent child", session("ineligible", { parentSessionPath: "/sessions/missing.jsonl", agentSubsession: true })],
+  ])("does not offer Mark as unread for a read %s session", async (_kind, ineligible) => {
+    const list = sessionList([ineligible], new Set());
+    document.body.append(list);
+    await list.updateComplete;
+    if (ineligible.archived === true) {
+      list.shadowRoot?.querySelector<HTMLButtonElement>(".subheading .section-toggle")?.click();
+      await list.updateComplete;
+    }
+    await openSessionMenu(list, ineligible.id);
+    expect(list.shadowRoot?.querySelector('button[title="Mark session as unread"]')).toBeNull();
+  });
+
+  it("offers Mark as unread for an ordinary fork, not just root sessions", async () => {
+    const fork = session("fork", { parentSessionPath: "/sessions/missing.jsonl" });
+    const list = sessionList([fork], new Set());
+    await openSessionMenu(list, fork.id);
+    expect(list.shadowRoot?.querySelector('button[title="Mark session as unread"]')).not.toBeNull();
+  });
+
   it("offers Mark as read in the menu of an unread current session and forwards it", async () => {
     const unread = session("unread");
     const list = sessionList([unread, session("read")], new Set([unread.id]));

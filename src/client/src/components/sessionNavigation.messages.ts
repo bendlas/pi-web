@@ -37,6 +37,8 @@ export default {
   deleteTransient: message("Delete transient new session", "Remove unsaved new session tooltip"),
   markReadTitle: message("Mark session as read", "Mark session as read tooltip"),
   markAsRead: message("Mark as read", "Mark session as read action"),
+  markUnreadTitle: message("Mark session as unread", "Mark session as unread tooltip"),
+  markAsUnread: message("Mark as unread", "Mark session as unread action"),
   archiveTitle: message("Archive session", "Archive session tooltip"),
   archiveDescendantsTitle: message("Archive this session and its descendants", "Archive a session subtree tooltip"),
   archiveDescendants: message<{ count: number }>("Archive with descendants ({count, number})", "Archive subtree action with descendant count"),

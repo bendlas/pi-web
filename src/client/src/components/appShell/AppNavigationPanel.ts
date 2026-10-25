@@ -91,6 +91,7 @@ export class AppNavigationPanel extends LitElement {
   @property({ attribute: false }) onDeleteArchivedSessions?: (sessions: SessionInfo[]) => void | Promise<void>;
   @property({ attribute: false }) onDetachParentSession?: (session: SessionInfo) => void | Promise<void>;
   @property({ attribute: false }) onMarkSessionRead?: (session: SessionInfo) => void | Promise<void>;
+  @property({ attribute: false }) onMarkSessionUnread?: (session: SessionInfo) => void | Promise<void>;
   @property({ attribute: false }) onMarkSessionsRead?: (sessions: SessionInfo[]) => void | Promise<void>;
   @property({ attribute: false }) onReloadSession?: (session: SessionInfo) => void | Promise<void>;
   @property({ attribute: false }) onCleanupSessions?: () => void | Promise<void>;
@@ -188,6 +189,7 @@ export class AppNavigationPanel extends LitElement {
     deleteArchivedSessions: (sessions: SessionInfo[]) => this.onDeleteArchivedSessions?.(sessions),
     detachParentSession: (session: SessionInfo) => this.onDetachParentSession?.(session),
     markSessionRead: (session: SessionInfo) => this.onMarkSessionRead?.(session),
+    markSessionUnread: (session: SessionInfo) => this.onMarkSessionUnread?.(session),
     markSessionsRead: (sessions: SessionInfo[]) => this.onMarkSessionsRead?.(sessions),
     reloadSession: (session: SessionInfo) => this.onReloadSession?.(session),
     cleanupSessions: () => this.onCleanupSessions?.(),
@@ -312,6 +314,7 @@ export class AppNavigationPanel extends LitElement {
         .onDeleteArchivedMany=${this.childCallbacks.deleteArchivedSessions}
         .onDetachParent=${this.childCallbacks.detachParentSession}
         .onMarkRead=${this.childCallbacks.markSessionRead}
+        .onMarkUnread=${this.childCallbacks.markSessionUnread}
         .onMarkReadMany=${this.childCallbacks.markSessionsRead}
         .onReload=${this.childCallbacks.reloadSession}
         .onCleanup=${this.childCallbacks.cleanupSessions}
