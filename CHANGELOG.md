@@ -1,5 +1,30 @@
 # @jmfederico/pi-web
 
+## 1.202610.7
+
+### Patch Changes
+
+- 3326a3f: Add optional comments to selected answers in Ask User forms. Preserve custom answers and comments when switching choices or reloading, and submit only active answers and comments left open.
+- 2a5b572: Choose interface language, regional formatting, time zone, and clock style independently in General settings, with live examples. Administrators can set installation-wide defaults, while each browser can override or inherit individual preferences. Show only installed languages and make inherited values clear.
+- c13214c: Keep session cleanup results visible above the dialog buttons instead of hiding them in the scrolling preview.
+- 3951ab8: Add optional, best-effort Bun support for installed PI WEB, including terminals and services, while keeping Node.js as the default and recommended production choice. Show the runtime actually used in version and health reports, and clearly report unsupported timeout settings. Existing services need `pi-web install` again to adopt the new launchers; native Pi extensions may not work with Bun.
+- 6ed0f05: Make controls consistently sized across mouse, touch, and pen input, keep attachment buttons compact, and make panel dividers easier to grab. Keep menus anchored and above surrounding content, improve dialog accessibility, and show the current model and selected sessions correctly from the start. Make nested-session labels less prominent and preserve drafts and completion behavior when switching sessions.
+- 417c1ed: Fix PI WEB commands and standalone services failing after installation through Pi. Reuse the existing Pi installation and allow Pi upgrades and downgrades without requiring a separate engine.
+- 0bce668: Refresh the product overview with desktop theme previews, tablet and phone screenshots, and a link to explore more device and theme combinations.
+- 86dc575: Keep bundled Relays and Workflows available after PI WEB upgrades while preserving resource selections and intentionally removed packages.
+- 380bdf0: Display formatted messages correctly when they return to view instead of leaving raw Markdown visible.
+- 7efc197: Add live interface translation across navigation, conversations, settings, sign-in, session management, and built-in tools, including Files, Git, Terminal, Updates, Workflows, and Relay. Apply regional formatting to dates, counts, sizes, and costs, and support right-to-left navigation. Preserve drafts, selections, open content, original messages, commands, and diagnostic output when the language changes.
+- 355a35e: Run updates in a dedicated maintenance terminal on the selected machine without requiring or using a project workspace. Show maintenance and workspace terminals together, allow update commands to be continued interactively, and avoid freezing when no project is selected. Keep terminal text fully visible and show selection and extra-key controls only on touch-capable devices.
+- ef2537f: Add “Mark as unread” to session menus. Marking the open session unread keeps its indicator until you leave and return; pinning remains unchanged.
+- 5a20cc1: Give installations recognizable names in Settings, including single-machine installations. Use remote installations' reported names unless locally overridden, and show the gateway name when installing PI WEB as an app.
+- 49ddf3f: Allow plugins and language packs to provide translations that update immediately when the interface language changes. Keep the interface usable with English fallback if a language pack is missing, slow, or broken, including across machines running different plugin versions.
+- 9333cec: Add an optional quiet conversation view under Settings → General → Chat display. Keep tool activity, thinking, results, and skill loads in one expandable live activity line instead of expanding each event while the agent works. Quiet mode is off by default and can also be set as an installation-wide default.
+- b5aec33: Show clear local and network addresses at startup so PI WEB is easier to open from another device.
+- c0c3b5c: Restore live conversation updates when returning to a browser tab and check visible conversations for missed updates. Preserve drafts and warn only when messages may be out of date or refreshing fails, avoiding warnings during brief reconnects.
+- ce8115b: Fix removing packages configured with relative paths in Settings, including stale entries whose files are no longer on disk.
+- 2fb19a0: Include optional Spanish and Swedish interface language packs. Enable a pack in PI WEB plugin settings, reload the browser, and choose its language under Language and region. Both packs are off by default and use English for missing translations.
+- 4280484: Offer Photos, Camera, and Files choices when attaching content on touch devices, while keeping direct file selection for mouse users. Restore Enter inserting a new line by default on wide touch devices such as iPads, including when the touch keyboard automatically capitalizes text.
+
 ## 1.202610.6
 
 ### Patch Changes
