@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { loadPiWebConfig, parseAgentConfig, parseAttachmentsConfig, parseSessionArchiveConfig, parseSessionNamingConfig, parseUploadsConfig, resolveEffectivePiWebConfig, savePiWebConfig, type AgentPathHost, type LoadOptions, type PiWebConfig } from "../config.js";
 import type { PiWebConfigEnvOverrides, PiWebConfigResponse, PiWebConfigValues } from "../shared/apiTypes.js";
 import { requireDefaultThemePreference } from "../shared/themePreference.js";
+import { requireDefaultLocalization } from "../shared/defaultLocalization.js";
 import { requireDefaultStreamingBehavior } from "../shared/streamingBehavior.js";
 import { isPiWebPluginId } from "../shared/pluginIds.js";
 import { requireInstallationName } from "../shared/installationName.js";
@@ -153,6 +154,7 @@ function parseConfigRequest(value: unknown, agentPathHost: AgentPathHost = "curr
   if (allowedHosts !== undefined) config.allowedHosts = parseAllowedHostsRequest(allowedHosts);
   if (shortcuts !== undefined) config.shortcuts = parseShortcutsRequest(shortcuts);
   if (value["defaultTheme"] !== undefined) config.defaultTheme = requireDefaultThemePreference(value["defaultTheme"], "request");
+  if (value["defaultLocalization"] !== undefined) config.defaultLocalization = requireDefaultLocalization(value["defaultLocalization"], "request");
   if (value["defaultStreamingBehavior"] !== undefined) config.defaultStreamingBehavior = requireDefaultStreamingBehavior(value["defaultStreamingBehavior"], "request");
   if (value["quietMode"] !== undefined) {
     if (typeof value["quietMode"] !== "boolean") throw new Error("PI WEB config quietMode must be a boolean");

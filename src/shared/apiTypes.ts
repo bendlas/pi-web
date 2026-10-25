@@ -6,6 +6,8 @@ import type { RuntimeActivityPresentation } from "./sessionActivityPresentation.
 import type { MachineStatusUiEvent } from "./machineStatus.js";
 import type { TerminalPluginMode } from "./requiredTerminalPlugin.js";
 import type { ThinkingLevel } from "./thinkingLevels.js";
+import type { PiWebDefaultLocalization } from "./defaultLocalization.js";
+export type { PiWebDefaultLocalization, LocalizationHourCycle } from "./defaultLocalization.js";
 import type {
   DeleteWorkspaceFileResponse,
   FileContentMediaType,
@@ -180,6 +182,8 @@ export interface PiWebConfigValues {
   installationName?: string;
   /** App-wide theme default; browser-local theme preferences take precedence. */
   defaultTheme?: PiWebThemePreference;
+  /** Gateway-wide localization defaults; browser-local preferences take precedence. */
+  defaultLocalization?: PiWebDefaultLocalization;
   /** Gateway-wide send behavior while streaming; defaults to steer. */
   defaultStreamingBehavior?: "steer" | "followUp";
   /**

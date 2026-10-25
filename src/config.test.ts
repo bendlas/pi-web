@@ -18,6 +18,30 @@ afterEach(async () => {
   await rm(tempDir, { recursive: true, force: true });
 });
 
+describe("default localization", () => {
+  it("round-trips, preserves, resets, and removes file defaults", async () => {
+    const defaultLocalization = { language: "de", formatLocale: "en-GB", timeZone: "UTC", hourCycle: "h24" } as const;
+    savePiWebConfig({ defaultLocalization }, testOptions());
+    expect(loadPiWebConfig(testOptions()).config.defaultLocalization).toEqual(defaultLocalization);
+    savePiWebConfig({ ...loadPiWebConfig(testOptions()).config, port: 9000 }, testOptions());
+    expect(effectivePiWebConfig(testOptions()).config.defaultLocalization).toEqual(defaultLocalization);
+    savePiWebConfig({ defaultLocalization: {} }, testOptions());
+    expect(loadPiWebConfig(testOptions()).config.defaultLocalization).toEqual({});
+    expect(JSON.parse(await readFile(configPath, "utf8"))).toHaveProperty("defaultLocalization", {});
+    savePiWebConfig({}, testOptions());
+    expect(loadPiWebConfig(testOptions()).config).not.toHaveProperty("defaultLocalization");
+    expect(JSON.parse(await readFile(configPath, "utf8"))).not.toHaveProperty("defaultLocalization");
+  });
+
+  it.each([null, { language: "en_US" }, { language: "en-XA" }, { timeZone: "invalid" }, { extra: true }])("rejects invalid file defaults %j on load and save", async (defaultLocalization) => {
+    await writeFile(configPath, JSON.stringify({ defaultLocalization }), "utf8");
+    expect(() => loadPiWebConfig(testOptions())).toThrow("PI WEB config defaultLocalization");
+    // The persistence boundary also validates runtime input from untyped callers.
+    // @ts-expect-error deliberately invalid config input
+    expect(() => savePiWebConfig({ defaultLocalization }, testOptions())).toThrow("PI WEB config defaultLocalization");
+  });
+});
+
 describe("installation name", () => {
   it("round-trips trimmed names and removes the saved identity", () => {
     savePiWebConfig({ installationName: "  Build lab  " }, testOptions());

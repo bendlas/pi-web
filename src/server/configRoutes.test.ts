@@ -27,6 +27,45 @@ afterEach(async () => {
 });
 
 describe("config routes", () => {
+  it("accepts canonical localization defaults and empty resets through the gateway API", async () => {
+    const response = await app.inject({ method: "PUT", url: "/api/config", payload: { config: {
+      defaultLocalization: { language: "EN-us", formatLocale: "de-de", timeZone: "utc", hourCycle: "h12" },
+    } } });
+    expect(response.statusCode).toBe(200);
+    const config = { defaultLocalization: { language: "en-US", formatLocale: "de-DE", timeZone: "UTC", hourCycle: "h12" } };
+    expect(savedConfig).toEqual(config);
+    expect(parsePiWebConfigResponseBody(response.json())).toMatchObject({ config, effectiveConfig: config });
+    const reset = await app.inject({ method: "PUT", url: "/api/config", payload: { config: { defaultLocalization: {} } } });
+    expect(reset.statusCode).toBe(200);
+    expect(savedConfig.defaultLocalization).toEqual({});
+  });
+
+  it.each([null, [], { language: "en_US" }, { language: "ar-XB" }, { formatLocale: "en-XA" }, { timeZone: "invalid" }, { hourCycle: "12" }, { extra: true }])("rejects invalid localization defaults %j in API updates and responses", async (defaultLocalization) => {
+    const config = { defaultLocalization };
+    const response = await app.inject({ method: "PUT", url: "/api/config", payload: { config } });
+    expect(response.statusCode).toBe(400);
+    expect(response.json<{ error: string }>().error).toContain("defaultLocalization");
+    expect(service.write).not.toHaveBeenCalled();
+    for (const field of ["config", "effectiveConfig"]) {
+      expect(() => parsePiWebConfigResponseBody({ ...responseFor({}, true), [field]: config })).toThrow("defaultLocalization");
+    }
+  });
+
+  it("isolates gateway localization defaults from selected-machine reads and writes", async () => {
+    const defaultLocalization = { language: "fr", timeZone: "UTC" };
+    savedConfig.defaultLocalization = defaultLocalization;
+    const read = await app.inject({ method: "GET", url: "/api/machines/local/config" });
+    expect(read.json<PiWebConfigResponse>().config).not.toHaveProperty("defaultLocalization");
+    expect(read.json<PiWebConfigResponse>().effectiveConfig).not.toHaveProperty("defaultLocalization");
+    const rejected = await app.inject({ method: "PUT", url: "/api/machines/local/config", payload: { config: { defaultLocalization: {} } } });
+    expect(rejected.statusCode).toBe(400);
+    expect(service.write).not.toHaveBeenCalled();
+    const accepted = await app.inject({ method: "PUT", url: "/api/machines/local/config", payload: { config: { askUser: false } } });
+    expect(accepted.statusCode).toBe(200);
+    expect(savedConfig.defaultLocalization).toEqual(defaultLocalization);
+    expect(accepted.json<PiWebConfigResponse>().config).not.toHaveProperty("defaultLocalization");
+  });
+
   it.each(["/api/config", "/api/machines/local/config"])("updates and clears installation identity through %s", async (url) => {
     const response = await app.inject({ method: "PUT", url, payload: { config: { installationName: "  Build lab  " } } });
     expect(response.statusCode).toBe(200);
