@@ -80,7 +80,7 @@ describe("Docker command assets", () => {
     expect(devDockerfile).toContain("COPY --chmod=0755 docker/internal/dev/sync-node-modules /usr/local/sbin/pi-web-dev-sync-node-modules");
     expect(devDockerfile).toContain("/opt/pi-web-dev-dependencies/node_modules");
     // The seed can be hidden by the host /opt mount; the CLI must use the active volume.
-    expect(devDockerfile).toContain("ln -sf /workspace/node_modules/.bin/pi /usr/local/bin/pi");
+    expect(devDockerfile).toContain("ln -sf /usr/local/lib/node_modules/@jmfederico/pi-web/node_modules/.bin/pi /usr/local/bin/pi");
     // Hooks can mutate the dependency seed, so its cache generation must be finalized afterward.
     expect(customImageHooksIndex).toBeGreaterThanOrEqual(0);
     expect(dependencyGenerationIndex).toBeGreaterThan(customImageHooksIndex);
@@ -113,6 +113,24 @@ describe("Docker command assets", () => {
     expect(devCompose).toContain("/usr/local/sbin/pi-web-dev-sync-node-modules");
     expect(devCompose).toContain("volumes: *pi-web-dev-init-volumes");
     expect(runtimeCompose).not.toContain("source: node_modules");
+  });
+
+  it("keeps the dev checkout at the runtime package registration path with a workspace compatibility alias", async () => {
+    const [runtimeDockerfile, devDockerfile, dependencySync] = await Promise.all([
+      readRepoFile("docker/Dockerfile"),
+      readRepoFile("docker/Dockerfile.dev"),
+      readRepoFile("docker/internal/dev/sync-node-modules"),
+    ]);
+    const packageDir = "/usr/local/lib/node_modules/@jmfederico/pi-web";
+
+    // Persisted local Pi package sources must resolve to the same package in both modes.
+    expect(runtimeDockerfile).toContain("NPM_CONFIG_PREFIX=/usr/local");
+    expect(runtimeDockerfile).toContain('npm install -g --omit=dev --no-audit --no-fund @earendil-works/pi-coding-agent "@jmfederico/pi-web@${PI_WEB_VERSION}"');
+    expect(runtimeDockerfile).toContain("COPY --from=package /usr/local/lib/node_modules /usr/local/lib/node_modules");
+    expect(devDockerfile).toContain(`WORKDIR ${packageDir}`);
+    expect(devDockerfile).toContain(`ln -s ${packageDir} /workspace`);
+    expect(devDockerfile).toContain(`ENV PATH=${packageDir}/node_modules/.bin:`);
+    expect(dependencySync).toContain(`workspace_dir=\${PI_WEB_DEV_WORKSPACE_DIR:-${packageDir}}`);
   });
 
   it("starts development web after data init and sessiond only after web health", async () => {

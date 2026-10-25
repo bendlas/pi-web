@@ -40,7 +40,7 @@ ENV NPM_CONFIG_UPDATE_NOTIFIER=false \
   LANG=C.UTF-8 \
   SHELL=/bin/bash \
   TERM=xterm-256color
-ENV PATH=/workspace/node_modules/.bin:/data/home/.local/share/mise/shims:/usr/local/share/pi-web/mise/shims:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ENV PATH=/usr/local/lib/node_modules/@jmfederico/pi-web/node_modules/.bin:/data/home/.local/share/mise/shims:/usr/local/share/pi-web/mise/shims:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 COPY --from=node-runtime /usr/local/ /usr/local/lib/pi-web-node/
 RUN ln -s /usr/local/lib/pi-web-node/bin/node /usr/local/bin/node \
@@ -49,7 +49,12 @@ RUN ln -s /usr/local/lib/pi-web-node/bin/node /usr/local/bin/node \
 COPY --chmod=0755 docker/internal/image/install-ubuntu-base /usr/local/sbin/install-pi-web-ubuntu-base
 RUN install-pi-web-ubuntu-base
 
-WORKDIR /workspace
+# Match the production npm installation so shared Pi package paths are valid in both images.
+RUN install -d -m 0777 /usr/local/lib/node_modules/@jmfederico/pi-web \
+  && rmdir /workspace \
+  && ln -s /usr/local/lib/node_modules/@jmfederico/pi-web /workspace
+
+WORKDIR /usr/local/lib/node_modules/@jmfederico/pi-web
 
 COPY package.json package-lock.json ./
 COPY scripts/install-git-hooks.mjs scripts/install-git-hooks.mjs
@@ -59,13 +64,13 @@ RUN npm ci \
   && node node_modules/playwright/cli.js install-deps \
   && install -d -m 0755 /opt/pi-web-dev-dependencies \
   && cp package.json package-lock.json /opt/pi-web-dev-dependencies/ \
-  && chmod -R a+rwX /workspace/node_modules \
-  && mv /workspace/node_modules /opt/pi-web-dev-dependencies/node_modules \
-  && ln -s /opt/pi-web-dev-dependencies/node_modules /workspace/node_modules \
-  && ln -sf /workspace/node_modules/.bin/pi /usr/local/bin/pi \
+  && chmod -R a+rwX /usr/local/lib/node_modules/@jmfederico/pi-web/node_modules \
+  && mv /usr/local/lib/node_modules/@jmfederico/pi-web/node_modules /opt/pi-web-dev-dependencies/node_modules \
+  && ln -s /opt/pi-web-dev-dependencies/node_modules /usr/local/lib/node_modules/@jmfederico/pi-web/node_modules \
+  && ln -sf /usr/local/lib/node_modules/@jmfederico/pi-web/node_modules/.bin/pi /usr/local/bin/pi \
   && npm cache clean --force \
   && chmod -R a+rwX /data \
-  && chmod 0777 /workspace
+  && chmod 0777 /usr/local/lib/node_modules/@jmfederico/pi-web
 
 # Runtime npm uses the selected Node installation's prefix, including mise.
 ENV NPM_CONFIG_PREFIX=""
@@ -88,9 +93,9 @@ RUN set -eux; \
   done; \
   rm -rf /tmp/pi-web-custom-image.d; \
   find /opt/pi-web-dev-dependencies/node_modules \( -type d ! -perm -0007 -o -type f ! -perm -0006 \) -exec chmod a+rwX {} +; \
-  test -L /workspace/node_modules; \
-  rm /workspace/node_modules; \
-  install -d -m 0777 /workspace/node_modules; \
+  test -L /usr/local/lib/node_modules/@jmfederico/pi-web/node_modules; \
+  rm /usr/local/lib/node_modules/@jmfederico/pi-web/node_modules; \
+  install -d -m 0777 /usr/local/lib/node_modules/@jmfederico/pi-web/node_modules; \
   apt-get clean; \
   rm -rf /var/lib/apt/lists/*; \
   pi-web-write-image-manifest

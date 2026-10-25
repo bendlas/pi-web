@@ -18,10 +18,12 @@ const cliEnv: NodeJS.ProcessEnv = {
 const composeAvailable = process.platform !== "win32"
   && spawnSync("sh", ["-c", ":"], { env: cliEnv, timeout: 5_000 }).status === 0
   && spawnSync("docker", ["compose", "version"], { env: cliEnv, timeout: 5_000 }).status === 0;
+const packageDir = "/usr/local/lib/node_modules/@jmfederico/pi-web";
 const hostProfiles = ["linux-native-docker", "mac-docker-desktop"];
 const devScenarios = hostProfiles.flatMap((profile) => [
   { profile, checkout: "absolute host path with spaces" },
   { profile, checkout: "/workspace" },
+  { profile, checkout: packageDir },
 ]);
 
 interface ComposeMount {
@@ -62,9 +64,9 @@ describe.skipIf(!composeAvailable)("Docker Compose mount ownership (requires POS
   });
 
   it.each(devScenarios)("preserves dev mounts after host override ($profile, $checkout)", async ({ profile, checkout }) => {
-    const hostCheckout = checkout === "/workspace" ? "/workspace" : checkoutDir;
+    const hostCheckout = checkout === "absolute host path with spaces" ? checkoutDir : checkout;
     const config = await effectiveComposeConfig("compose.dev.yml", profile, hostCheckout);
-    const checkoutTargets = [...new Set(["/workspace", hostCheckout])];
+    const checkoutTargets = [...new Set([packageDir, hostCheckout])];
     const dependencyTargets = checkoutTargets.map((target) => `${target}/node_modules`);
 
     // Compose config reports logical volume keys, not the project-prefixed engine volume name.
@@ -72,6 +74,7 @@ describe.skipIf(!composeAvailable)("Docker Compose mount ownership (requires POS
     for (const serviceName of ["web", "sessiond"]) {
       const mounts = serviceMounts(config, serviceName);
       expectUniqueTargets(mounts, serviceName);
+      expect(config).toHaveProperty(`services.${serviceName}.working_dir`, packageDir);
       for (const target of checkoutTargets) {
         expect(mounts.filter((mount) => mount.target === target)).toMatchObject([
           { type: "bind", source: hostCheckout, target },
@@ -94,10 +97,10 @@ describe.skipIf(!composeAvailable)("Docker Compose mount ownership (requires POS
     const initMounts = serviceMounts(config, "data-init");
     expectUniqueTargets(initMounts, "data-init");
     // Exact targets exclude broad host mounts and the host-path checkout/dependency aliases.
-    expect(initMounts.map((mount) => mount.target).sort()).toEqual(["/data", "/workspace", "/workspace/node_modules"]);
+    expect(initMounts.map((mount) => mount.target).sort()).toEqual(["/data", packageDir, `${packageDir}/node_modules`]);
     expect(initMounts).toEqual(expect.arrayContaining([
-      expect.objectContaining({ type: "bind", source: hostCheckout, target: "/workspace" }),
-      expect.objectContaining({ type: "volume", source: "node_modules", target: "/workspace/node_modules", volume: { nocopy: true } }),
+      expect.objectContaining({ type: "bind", source: hostCheckout, target: packageDir }),
+      expect.objectContaining({ type: "volume", source: "node_modules", target: `${packageDir}/node_modules`, volume: { nocopy: true } }),
       expect.objectContaining({ type: "bind", source: dataDir, target: "/data" }),
     ]));
   }, 15_000);
@@ -113,7 +116,7 @@ describe.skipIf(!composeAvailable)("Docker Compose mount ownership (requires POS
       expectUniqueTargets(mounts, serviceName);
       expect(mounts.filter((mount) => mount.type === "volume")).toEqual([]);
       const targets = mounts.map((mount) => mount.target);
-      for (const target of ["/workspace", "/workspace/node_modules", checkoutDir, join(checkoutDir, "node_modules")]) {
+      for (const target of ["/workspace", "/workspace/node_modules", packageDir, `${packageDir}/node_modules`, checkoutDir, join(checkoutDir, "node_modules")]) {
         expect(targets).not.toContain(target);
       }
       expect(mounts).toEqual(expect.arrayContaining([
