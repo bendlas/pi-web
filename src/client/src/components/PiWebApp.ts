@@ -104,6 +104,7 @@ import type { AppMobileMainTab } from "./appShell/AppMobileMainTabs";
 import { shouldShowMachinesSection, type AppNavigationPanel, type NavigationFocusTarget } from "./appShell/AppNavigationPanel";
 import "./appShell/AppPanelEdgeControl";
 import { appShellMessages as appShellText } from "../appShellMessages";
+import { appFeedbackMessages as appFeedback } from "../appFeedbackMessages";
 import { renderPanelToggleButton } from "./appShell/panelToggleButton";
 import "./appShell/AppRefreshControl";
 import { errorBanner } from "./errorBanner";
@@ -206,7 +207,7 @@ export class PiWebApp extends LitElement {
   private readonly navigationOrder = new NavigationOrderController(navigationOrderPort, {
     onChange: () => { this.navigationOrderVersion += 1; },
     onError: (scope, error) => {
-      this.browserErrors.report(machineBrowserErrorScope(scope.machineId), `Failed to load or save navigation order: ${errorMessage(error)}`);
+      this.browserErrors.reportLocalized(machineBrowserErrorScope(scope.machineId), () => appFeedback.t("navigationOrderFailed", { detail: errorMessage(error) }));
     },
   });
 
@@ -546,11 +547,11 @@ export class PiWebApp extends LitElement {
   private renderSessionActivityNotice(): TemplateResult | null {
     if (this.unacknowledgedActivitySessionKey() === undefined) return null;
     return html`
-      <section class="composer-activity-notice" role="alert" aria-label="Recent activity in another instance">
+      <section class="composer-activity-notice" role="alert" aria-label=${appFeedback.t("activityLabel")}>
         <div class="composer-activity-notice-text">
-          <p>Recently active in another PI-WEB instance. Avoid working on this session in both instances at once.</p>
+          <p>${appFeedback.t("activityNotice")}</p>
         </div>
-        <button type="button" @click=${this.handleDismissActivityNotice}>Dismiss and continue</button>
+        <button type="button" @click=${this.handleDismissActivityNotice}>${appFeedback.t("dismissActivity")}</button>
       </section>
     `;
   }
@@ -2257,7 +2258,7 @@ export class PiWebApp extends LitElement {
     if (!isCurrent()) return;
     const start = this.sessions.startSession().catch((error: unknown) => {
       if (workspace === undefined) return;
-      this.browserErrors.report(workspaceBrowserErrorScope(machineId, workspace.projectId, workspace.id), String(error));
+      this.browserErrors.reportLocalized(workspaceBrowserErrorScope(machineId, workspace.projectId, workspace.id), () => String(error));
     });
     void start;
   }
@@ -3153,7 +3154,7 @@ export class PiWebApp extends LitElement {
     const machineId = selectedMachineId(this.state);
     const scope = workspaceBrowserErrorScope(machineId, workspace.projectId, workspace.id);
     if (!canDeleteWorkspace(workspace)) {
-      this.browserErrors.report(scope, "Workspace removal is not available");
+      this.browserErrors.reportLocalized(scope, () => appFeedback.t("workspaceRemovalUnavailable"));
       return;
     }
     if (isWorkspaceDeletionPending(this.state, workspace)) return;
@@ -3185,7 +3186,7 @@ export class PiWebApp extends LitElement {
     // response have no sessiond-owned notice to rely on, so keep browser
     // feedback even when an older notice for this workspace is still visible.
     if (!(error instanceof HttpRequestError) || message.startsWith("Session daemon unavailable:")) {
-      this.browserErrors.report(scope, `Failed to start workspace removal: ${message}`);
+      this.browserErrors.reportLocalized(scope, () => appFeedback.t("workspaceRemovalFailed", { detail: errorMessage(error) }));
       return;
     }
 
@@ -3198,7 +3199,7 @@ export class PiWebApp extends LitElement {
         && context["targetWorkspaceId"] === workspace.id;
     });
     if (!hasNotice()) await this.serverNotices.refresh(machineId);
-    if (!hasNotice()) this.browserErrors.report(scope, `Failed to start workspace removal: ${message}`);
+    if (!hasNotice()) this.browserErrors.reportLocalized(scope, () => appFeedback.t("workspaceRemovalFailed", { detail: errorMessage(error) }));
   }
 
   private async workspaceForCommandRun(run: TerminalCommandRun, machineId: string): Promise<Workspace | undefined> {
@@ -3394,7 +3395,7 @@ export class PiWebApp extends LitElement {
           Math.min(attempt - 1, WORKSPACE_DELETION_RECONCILE_RETRY_DELAYS_MS.length - 1)
         ] ?? 10_000;
         this.workspaceDeletionReconcileRetries.set(runKey, { attempt, retryAt: Date.now() + delay });
-        this.browserErrors.report(errorScope, `Workspace removal succeeded, but refreshing the workspace list failed: ${errorMessage(error)}. Retrying…`);
+        this.browserErrors.reportLocalized(errorScope, () => appFeedback.t("workspaceRemovalRefreshFailed", { detail: errorMessage(error) }));
         return;
       }
       if (!this.workspaceDeletionRefreshIsCurrent(machineId, projectId, generation, controller)) return;
@@ -3428,7 +3429,7 @@ export class PiWebApp extends LitElement {
 
   private async removeMachine(machine: Machine | undefined = this.state.selectedMachine): Promise<void> {
     if (machine === undefined || machine.kind === "local") return;
-    if (!window.confirm(`Remove ${machine.name}?\n\nThis only removes it from this PI WEB gateway.`)) return;
+    if (!window.confirm(appFeedback.t("removeMachine", { name: machine.name }))) return;
     const wasSelected = this.state.selectedMachine?.id === machine.id;
     if (wasSelected) this.rememberCurrentMachineNavigation();
     const fallback = await this.machines.deleteMachine(machine, { selectFallback: !wasSelected });
@@ -3449,9 +3450,8 @@ export class PiWebApp extends LitElement {
     void Promise.resolve()
       .then(() => action.run())
       .catch((error: unknown) => {
-        const message = error instanceof Error ? error.message : String(error);
         console.warn(`Action failed: ${action.id}`, error);
-        this.browserErrors.report({ kind: "global" }, `Action failed: ${message}`);
+        this.browserErrors.reportLocalized({ kind: "global" }, () => appFeedback.t("actionFailed", { detail: errorMessage(error) }));
       });
   }
 
@@ -4116,7 +4116,7 @@ export class PiWebApp extends LitElement {
             ${state.modelDialog !== undefined ? html`<model-picker title=${pickerMessages.t("selectModel")} .options=${state.modelDialog.options} .catalog=${state.modelDialog.catalog} .defaultValue=${state.modelDialog.defaultValue} .defaultsLoading=${state.modelDialog.defaultsLoading === true} .onSetDefault=${this.handleSetDefaultModel} .selectedValue=${state.modelDialog.selectedValue} .onPick=${(value: string) => { void this.pickModel(value); }} .onToggleEnabled=${this.handleToggleModelEnabled} .onSetScope=${this.handleSetModelScope} .onCancel=${() => { this.setState({ modelDialog: undefined }); }}></model-picker>` : null}
             ${state.thinkingDialog !== undefined ? html`<command-picker title=${pickerMessages.t("selectThinking")} .options=${state.thinkingDialog.options} .defaultValue=${state.thinkingDialog.defaultValue} .defaultsLoading=${state.thinkingDialog.defaultsLoading === true} .onSetDefault=${this.handleSetDefaultThinking} .selectedValue=${state.thinkingDialog.selectedValue} .onPick=${(value: string) => { void this.pickThinking(value); }} .onCancel=${() => { this.setState({ thinkingDialog: undefined }); }}></command-picker>` : null}
           ` : state.selectedSession !== undefined && this.isChatVisible() && this.sessions.isChatLoadDeferred
-            ? html`<div class="empty" role="status">Loading conversation…</div>`
+            ? html`<div class="empty" role="status">${appFeedback.t("loadingConversation")}</div>`
             : html`<div class="empty">${this.sessionEmptyMessage()}</div>`}
         </main>
         ${this.renderWorkspacePanelEdgeControl()}

@@ -9,7 +9,11 @@ import type { Machine, Workspace } from "../api";
 import type { ParsedAppRoute } from "../route";
 import { PiWebApp } from "./PiWebApp";
 import { localization } from "../localization/browser";
-import { BrowserErrorReporter } from "../browserErrors";
+import { BrowserErrorReporter, type BrowserError } from "../browserErrors";
+import { navigationOrderPort } from "../api/navigationOrder";
+import { NavigationOrderController } from "../controllers/navigationOrderController";
+import { ProjectWorkspaceError, projectWorkspaceMessages } from "../controllers/projectWorkspaceMessages";
+import { appFeedbackMessages } from "../appFeedbackMessages";
 
 const workspace: Workspace = {
   id: "workspace-1",
@@ -88,7 +92,69 @@ afterEach(async () => {
   localStorage.clear();
 });
 
+function invoke(app: PiWebApp, name: string, ...args: unknown[]): unknown {
+  const method: unknown = Reflect.get(app, name);
+  if (typeof method !== "function") throw new Error(`Missing ${name}`);
+  return Reflect.apply(method, app, args);
+}
+
+async function expectLiveFeedback(error: BrowserError | undefined, detail?: string): Promise<void> {
+  if (error === undefined) throw new Error("Missing retained browser feedback");
+  const english = error.displayMessage?.();
+  expect(english).toBe(error.message);
+  for (const language of ["en-XA", "ar-XB"]) {
+    await localization.setPreferences({ language, formatLocale: "en" });
+    expect(error.displayMessage?.()).not.toBe(english);
+    if (detail !== undefined) expect(error.displayMessage?.()).toContain(detail);
+    expect(error.message).toBe(english);
+  }
+  await localization.setPreferences({ language: "en", formatLocale: "ar" });
+  expect(error.displayMessage?.()).toBe(english);
+}
+
 describe("PiWebApp browser error boundaries", () => {
+  it("retains machine-scoped navigation ordering failures through live language changes", async () => {
+    const app = createApp();
+    const failure = new Error("order.json / 日本語");
+    vi.spyOn(navigationOrderPort, "load").mockRejectedValue(failure);
+    const controller: unknown = Reflect.get(app, "navigationOrder");
+    if (!(controller instanceof NavigationOrderController)) throw new Error("Missing navigation order");
+    await expect(controller.ensure({ kind: "projects", machineId: "remote-1" })).rejects.toBe(failure);
+    const error = appState(app).browserErrors[browserErrorScopeKey(machineBrowserErrorScope("remote-1"))];
+    expect(error?.message).toBe("Failed to load or save navigation order: order.json / 日本語");
+    await expectLiveFeedback(error, failure.message);
+  });
+
+  it("localizes remote-machine confirmation at invocation without altering its name or removing a cancelled machine", async () => {
+    const app = createApp();
+    const confirm = vi.fn<typeof window.confirm>(() => false);
+    Object.assign(window, { confirm });
+    const remote: Machine = { id: "remote-1", name: "User machine/日本語", kind: "remote", createdAt: "now", updatedAt: "now" };
+    setState(app, { machines: [remote], selectedMachine: remote });
+    for (const language of ["en", "en-XA", "ar-XB"]) {
+      await localization.setPreferences({ language, formatLocale: "en" });
+      await invoke(app, "removeMachine", remote);
+      expect(confirm).toHaveBeenLastCalledWith(appFeedbackMessages.t("removeMachine", { name: remote.name }));
+      expect(confirm.mock.lastCall?.[0]).toContain(remote.name);
+      expect(appState(app).machines).toEqual([remote]);
+    }
+    expect(confirm).toHaveBeenCalledTimes(3);
+  });
+
+  it("keeps nested browser-owned action guidance live instead of freezing its language", async () => {
+    const app = createApp();
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const failure = new ProjectWorkspaceError(() => projectWorkspaceMessages.t("projectNotFound"));
+    privateRunAction(app)({ id: "test.action", title: "Test", run: () => { throw failure; } });
+    await vi.waitFor(() => { expect(Object.keys(appState(app).browserErrors)).toHaveLength(1); });
+    const error = appState(app).browserErrors[browserErrorScopeKey({ kind: "global" })];
+    for (const language of ["en-XA", "ar-XB"]) {
+      await localization.setPreferences({ language, formatLocale: "en" });
+      expect(error?.displayMessage?.()).toBe(appFeedbackMessages.t("actionFailed", { detail: failure.message }));
+      expect(error?.displayMessage?.()).not.toContain("Project not found");
+    }
+  });
+
   it("keeps remote route restore feedback on the affected machine", () => {
     const app = createApp();
     const remote: Machine = {
@@ -158,10 +224,45 @@ describe("PiWebApp browser error boundaries", () => {
     expect(appState(app).error).toBe("");
     expect(unexpectedWarnings).toEqual([]);
     expect(capturedWarnings).toEqual([["Action failed: test.action", failure]]);
+    await expectLiveFeedback(appState(app).browserErrors[browserErrorScopeKey({ kind: "global" })], failure.message);
   });
 });
 
 describe("PiWebApp workspace removal browser error boundary", () => {
+  it("retains unavailable-removal guidance without attempting provider removal", async () => {
+    const app = createApp();
+    setState(app, { selectedWorkspace: workspace });
+    await invoke(app, "deleteWorkspace", workspace);
+    const error = appState(app).browserErrors[browserErrorScopeKey(workspaceBrowserErrorScope("local", workspace.projectId, workspace.id))];
+    expect(error?.message).toBe("Workspace removal is not available");
+    await expectLiveFeedback(error);
+  });
+
+  it("retains completed-removal refresh feedback and nested browser guidance while scheduling a retry", async () => {
+    const app = createApp();
+    setState(app, { selectedProject: { id: workspace.projectId, name: "Repo", path: "/repo", createdAt: "now" } });
+    const controller = new AbortController();
+    Reflect.set(app, "workspaceDeletionRefreshAbort", controller);
+    const generation: unknown = Reflect.get(app, "workspaceDeletionRefreshGeneration");
+    const workspaces: unknown = Reflect.get(app, "workspaces");
+    if (typeof workspaces !== "object" || workspaces === null) throw new Error("Missing workspaces");
+    const failure = new ProjectWorkspaceError(() => projectWorkspaceMessages.t("projectNotFound"));
+    const refresh = vi.fn(() => Promise.reject(failure));
+    Reflect.set(workspaces, "refreshAfterWorkspaceDeleted", refresh);
+    await invoke(app, "handleCompletedWorkspaceDeletionRun", {
+      id: "run", projectId: workspace.projectId, status: "succeeded",
+      metadata: { "pi.operation": "workspace.delete", "target.workspaceId": workspace.id },
+    }, "local", workspace.projectId, generation, controller);
+    expect(refresh).toHaveBeenCalledOnce();
+    const scope = workspaceBrowserErrorScope("local", workspace.projectId, workspace.id);
+    const error = appState(app).browserErrors[browserErrorScopeKey(scope)];
+    expect(error?.message).toContain("Retrying");
+    for (const language of ["en-XA", "ar-XB"]) {
+      await localization.setPreferences({ language, formatLocale: "en" });
+      expect(error?.displayMessage?.()).toBe(appFeedbackMessages.t("workspaceRemovalRefreshFailed", { detail: failure.message }));
+    }
+  });
+
   it("does not add a browser fallback when a matching server notice is fresh", async () => {
     const app = createApp();
     setState(app, { selectedWorkspace: workspace });
@@ -203,6 +304,7 @@ describe("PiWebApp workspace removal browser error boundary", () => {
     expect(appState(app).browserErrors[browserErrorScopeKey(scope)]?.message).toBe("Failed to start workspace removal: workspace confirmation is stale");
     expect(hasNotice).toHaveBeenCalledTimes(2);
     expect(refresh).toHaveBeenCalledWith("local");
+    await expectLiveFeedback(appState(app).browserErrors[browserErrorScopeKey(scope)], "workspace confirmation is stale");
   });
 
   it("keeps browser feedback for the gateway's session-daemon-unavailable response", async () => {
@@ -218,5 +320,6 @@ describe("PiWebApp workspace removal browser error boundary", () => {
 
     expect(appState(app).browserErrors[browserErrorScopeKey(scope)]?.message).toBe("Failed to start workspace removal: Session daemon unavailable: connection refused");
     expect(hasNotice).not.toHaveBeenCalled();
+    await expectLiveFeedback(appState(app).browserErrors[browserErrorScopeKey(scope)], "Session daemon unavailable: connection refused");
   });
 });

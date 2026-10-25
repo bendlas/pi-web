@@ -36,6 +36,8 @@ import { NavigationDialog } from "./appShell/NavigationDialog";
 import { deepActiveElement } from "./modalLayerRegistry";
 import { AppShellController } from "../appShell/appShellController";
 import { configResponse } from "./SettingsDialog.testSupport";
+import { localization } from "../localization/browser";
+import { appFeedbackMessages } from "../appFeedbackMessages";
 
 // Exercise the real shell and child rendering without starting API/socket
 // orchestration. The inherited Lit controllers and update lifecycle still run.
@@ -70,8 +72,9 @@ function panelToggle(app: PiWebApp, label: string): HTMLButtonElement {
   throw new Error(`Expected ${label}`);
 }
 
-afterEach(() => {
+afterEach(async () => {
   document.body.replaceChildren();
+  await localization.setPreferences({ language: "en", formatLocale: "en" });
   clearStagedAttachments(machineSessionKey("local", session.id));
   localStorage.clear();
   sessionStorage.clear();
@@ -614,6 +617,47 @@ describe("application rendering boundaries", () => {
     expect(layout?.querySelector('[slot="status"]')).toBeInstanceOf(StatusBar);
     await layout?.updateComplete;
     expect(layout?.shadowRoot?.querySelector(".activity-text")?.textContent).toBe("running");
+  });
+
+  it("updates the cross-instance alert, accessible name and dismissal control live in both pseudo modes", async () => {
+    const app = await mountApp({ selectedSession: session, status: { ...sessionStatus(session.id), recentlyActiveElsewhere: true } });
+    await settle(app);
+    const editor = promptEditor(app);
+    const notice = app.shadowRoot?.querySelector(".composer-activity-notice");
+    if (notice == null) throw new Error("Missing activity alert");
+    const button = notice.querySelector("button");
+    if (button == null) throw new Error("Missing acknowledgement button");
+    for (const language of ["en-XA", "ar-XB"]) {
+      await localization.setPreferences({ language, formatLocale: "en" });
+      await settle(app);
+      expect(notice.getAttribute("aria-label")).toBe(appFeedbackMessages.t("activityLabel"));
+      expect(notice.querySelector("p")?.textContent).toBe(appFeedbackMessages.t("activityNotice"));
+      expect(button.textContent).toBe(appFeedbackMessages.t("dismissActivity"));
+      expect(button.textContent).not.toBe("Dismiss and continue");
+      expect(editor.disabled).toBe(true);
+    }
+    button.click();
+    await settle(app);
+    expect(app.shadowRoot?.querySelector(".composer-activity-notice")).toBeNull();
+    expect(editor.disabled).toBe(false);
+  });
+
+  it("updates deferred conversation-loading guidance live without mounting the transcript", async () => {
+    manualAnimationFrames();
+    const app = new RenderOnlyApp();
+    const controller: unknown = Reflect.get(app, "sessions");
+    if (!(controller instanceof SessionController)) throw new Error("Missing sessions");
+    vi.spyOn(controller, "isChatLoadDeferred", "get").mockReturnValue(true);
+    patchState(app, { selectedWorkspace: workspace, selectedSession: session, mainView: "chat" });
+    document.body.append(app);
+    await settle(app);
+    for (const language of ["en-XA", "ar-XB"]) {
+      await localization.setPreferences({ language, formatLocale: "en" });
+      await settle(app);
+      expect(app.shadowRoot?.querySelector('[role="status"]')?.textContent).toBe(appFeedbackMessages.t("loadingConversation"));
+      expect(app.shadowRoot?.querySelector('[role="status"]')?.textContent).not.toBe("Loading conversation…");
+      expect(app.shadowRoot?.querySelector("chat-view")).toBeNull();
+    }
   });
 
   it("keeps the activity notice in the blocked composer until dismissal without losing drafts or attachments", async () => {
