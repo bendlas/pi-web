@@ -6,7 +6,7 @@ import {
   pluginBackendScopeFromRoute,
   PLUGIN_BACKEND_CHANNEL_DATA_FRAME_MAX_BYTES,
 } from "../../shared/pluginBackendProtocol.js";
-import { mergeSelectedMachineConfig, parsePiWebConfigResponseBody, parseSelectedMachineConfigRequest, selectedMachineConfigResponse } from "../configRoutes.js";
+import { mergeSelectedMachineConfig, parsePiWebConfigResponseBody, parsePiWebConfigUpdate, parseSelectedMachineConfigRequest, selectedMachineConfigResponse } from "../configRoutes.js";
 import {
   type PluginBackendChannelProxyAdmissionPool,
   type PluginBackendChannelProxyScope,
@@ -146,7 +146,7 @@ async function proxyHttpRequest(
     const remotePath = remoteApiPath(machineId, requestUrl);
     if (spec.path === "/config") {
       const response = await proxySelectedMachineConfigRequest(client, machineId, method, remotePath, body, reply);
-      if (method === "PUT" && reply.statusCode < 300) machines.invalidateReportedName(machineId);
+      if ((method === "PUT" || method === "PATCH") && reply.statusCode < 300) machines.invalidateReportedName(machineId);
       return response;
     }
 
@@ -228,6 +228,11 @@ function proxySessionMediaResponse(reply: FastifyReply, upstream: MachineHttpRes
 async function proxySelectedMachineConfigRequest(client: MachineClient, machineId: string, method: string, remotePath: string, body: unknown, reply: FastifyReply): Promise<FastifyReply> {
   if (method === "GET") {
     return sendSelectedMachineConfigResponse(reply, await client.requestJson("GET", remotePath), machineId);
+  }
+
+  if (method === "PATCH") {
+    const update = parsePiWebConfigUpdate(body, true, "portable");
+    return sendSelectedMachineConfigResponse(reply, await client.requestJson("PATCH", remotePath, update), machineId);
   }
 
   if (method === "PUT") {
@@ -500,7 +505,7 @@ function destroyReadable(body: NodeJS.ReadableStream): void {
 }
 
 function isSelectedMachineConfigRequestError(error: unknown): boolean {
-  return error instanceof Error && error.message.startsWith("PI WEB selected-machine config");
+  return error instanceof Error && (error.message.startsWith("PI WEB selected-machine config") || error.message.startsWith("PI WEB config update"));
 }
 
 function errorMessage(error: unknown): string {

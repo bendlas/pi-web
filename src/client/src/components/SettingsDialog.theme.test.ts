@@ -24,7 +24,7 @@ afterEach(async () => {
 });
 
 describe("saving a theme default", () => {
-  it("uses fresh gateway config even with a remote machine selected, preserving other keys", async () => {
+  it("patches only the gateway theme even with a remote machine selected", async () => {
     const dialog = await mountDialog();
     const onSaved = vi.fn();
     dialog.onConfigSaved = onSaved;
@@ -33,12 +33,12 @@ describe("saving a theme default", () => {
     const current = { host: "127.0.0.1", shortcuts: { "core:view.chat": "mod+1" }, plugins: { info: { enabled: true } } };
     const defaultTheme = { themeId: "themes:pi-web-dark", auto: true };
     vi.mocked(configApi.config).mockResolvedValue(configResponse(current));
-    const save = vi.spyOn(configApi, "saveConfig").mockResolvedValue(configResponse({ ...current, defaultTheme }));
+    const save = vi.spyOn(configApi, "updateConfig").mockResolvedValue(configResponse({ ...current, defaultTheme }));
     vi.mocked(configApi.config).mockClear();
     button(themePanel(dialog), "Set gateway default").click();
-    await vi.waitFor(() => { expect(save).toHaveBeenCalledWith({ ...current, defaultTheme }); });
+    await vi.waitFor(() => { expect(save).toHaveBeenCalledWith({ set: { defaultTheme } }); });
     await vi.waitFor(() => { expect(onSaved).toHaveBeenCalledWith({ ...current, defaultTheme }); });
-    expect(vi.mocked(configApi.config).mock.calls).toContainEqual([]);
+    expect(vi.mocked(configApi.config).mock.calls).not.toContainEqual([]);
     expect(save.mock.calls).toHaveLength(1);
   });
 
@@ -46,7 +46,7 @@ describe("saving a theme default", () => {
     const dialog = await mountDialog();
     const onSaved = vi.fn();
     dialog.onConfigSaved = onSaved;
-    vi.spyOn(configApi, "saveConfig").mockRejectedValue(new Error("Disk is read-only"));
+    vi.spyOn(configApi, "updateConfig").mockRejectedValue(new Error("Disk is read-only"));
     button(themePanel(dialog), "Set gateway default").click();
     await vi.waitFor(() => { expect(generalPanel(dialog).error).toContain("Couldn't save the default theme: Disk is read-only"); });
     expect(onSaved).not.toHaveBeenCalled();

@@ -13,6 +13,7 @@ import { uiButtonStyles } from "../ui/controlStyles";
 import { uiFormStyles } from "../ui/formStyles";
 import { uiSettingsStyles } from "../ui/settingsStyles";
 import "./SettingsPanelFrame";
+import { enforcedSetting, settingControls, type ResetSettings } from "./settingsConfigUpdate";
 import type { SettingsNotice } from "./SettingsPanelFrame";
 
 const RECORD_SHORTCUT_LISTENER_OPTIONS = { capture: true } as const;
@@ -38,6 +39,7 @@ export class SettingsShortcutsPanel extends LitElement {
   @property() error = "";
   @property() savedMessage = "";
   @property({ attribute: false }) onReload?: () => void | Promise<void>;
+  @property({ attribute: false }) onReset?: ResetSettings;
   @property({ attribute: false }) onSave?: (config: PiWebConfigValues) => void | Promise<void>;
   @state() private drafts: Record<string, string> = {};
   @state() private localError: { kind: "parse"; input: string } | { kind: "invalidKey" | "singleChord" } | { kind: "save"; diagnostic: string } | undefined;
@@ -80,7 +82,7 @@ export class SettingsShortcutsPanel extends LitElement {
         ? this.shadowRoot?.activeElement : null;
       if (focused instanceof HTMLElement) this.focusAfterLocalization = focused;
     }
-    if (this.configResponse === undefined || this.loading || this.saving) this.stopRecording();
+    if (this.configResponse === undefined || this.loading || this.saving || enforcedSetting(this.configResponse, "/shortcuts") !== undefined) this.stopRecording();
     if (changed.has("configResponse") && this.configResponse !== undefined) {
       for (const [actionId, pending] of this.pendingSaves) {
         if (shortcutPreferenceForAction(pending.action, this.configResponse.config.shortcuts) !== pending.preference) continue;
@@ -138,13 +140,15 @@ export class SettingsShortcutsPanel extends LitElement {
             <div class="ui-settings-heading"><h3>${messages.t("sendBehavior")}</h3></div>
             <label class="shortcut-input-label ui-form-field">
               <span>${messages.t("sendWhileRunning")}</span>
-              <select class="ui-select" aria-label=${messages.t("sendWhileRunning")} .value=${live(this.configResponse?.config.defaultStreamingBehavior ?? "steer")} ?disabled=${this.loading || this.saving || this.configResponse === undefined} @change=${(event: Event) => { void this.saveSendBehavior(event); }}>
+              <select class="ui-select" aria-label=${messages.t("sendWhileRunning")} .value=${live(this.configResponse?.effectiveConfig.defaultStreamingBehavior ?? "steer")} ?disabled=${this.loading || this.saving || this.configResponse === undefined || enforcedSetting(this.configResponse, "/defaultStreamingBehavior") !== undefined} @change=${(event: Event) => { void this.saveSendBehavior(event); }}>
                 <option value="steer">${messages.t("steer")}</option>
                 <option value="followUp">${messages.t("followUp")}</option>
               </select>
             </label>
             <p>${messages.t("sendHelp")}</p>
+            ${settingControls(this.configResponse, "/defaultStreamingBehavior", this.loading || this.saving, this.onReset)}
           </section>
+          ${settingControls(this.configResponse, "/shortcuts", this.loading || this.saving, this.onReset)}
           ${groups.length === 0 ? html`<div class="loading-card ui-settings-path">${messages.t("noActions")}</div>` : repeat(groups, (group) => group.id, (group) => html`
             <section class="shortcut-group ui-settings-section">
               <div class="ui-settings-heading"><h3>${group.name}</h3></div>
@@ -161,7 +165,7 @@ export class SettingsShortcutsPanel extends LitElement {
   private async saveSendBehavior(event: Event): Promise<void> {
     const value = event.target instanceof HTMLSelectElement ? event.target.value : undefined;
     if (this.configResponse === undefined || (value !== "steer" && value !== "followUp")) return;
-    await this.onSave?.({ ...this.configResponse.config, defaultStreamingBehavior: value });
+    await this.onSave?.({ defaultStreamingBehavior: value });
   }
 
   private panelNotices(): readonly SettingsNotice[] {
@@ -177,7 +181,7 @@ export class SettingsShortcutsPanel extends LitElement {
   }
 
   private renderShortcutRow(action: AppAction, resolution: ShortcutBindingResolution | undefined): TemplateResult {
-    const shortcuts = this.configResponse?.config.shortcuts;
+    const shortcuts = this.configResponse?.effectiveConfig.shortcuts;
     const configured = shortcutPreferenceForAction(action, shortcuts);
     const state = shortcutState(action, shortcuts);
     const inputText = this.shortcutInputText(action);
@@ -188,7 +192,7 @@ export class SettingsShortcutsPanel extends LitElement {
     const displayState = hasDraft && inputText.trim() !== "" ? "custom" : state;
     const recordingHint = this.recordingHint(action.id);
     const conflictLabel = shortcutConflictLabel(resolution);
-    const controlsDisabled = this.loading || this.saving || this.configResponse === undefined;
+    const controlsDisabled = this.loading || this.saving || this.configResponse === undefined || enforcedSetting(this.configResponse, "/shortcuts") !== undefined;
     return html`
       <article class=${`ui-settings-row ${shortcutRowClass(resolution)}`}>
         <div class="shortcut-main">
@@ -234,8 +238,8 @@ export class SettingsShortcutsPanel extends LitElement {
 
   private shortcutInputText(action: AppAction): string {
     const draft = this.drafts[action.id];
-    if (draft !== undefined) return draft;
-    const configured = shortcutPreferenceForAction(action, this.configResponse?.config.shortcuts);
+    if (draft !== undefined && enforcedSetting(this.configResponse, "/shortcuts") === undefined) return draft;
+    const configured = shortcutPreferenceForAction(action, this.configResponse?.effectiveConfig.shortcuts);
     if (configured === null) return "";
     return configured ?? action.shortcut ?? "";
   }
@@ -281,13 +285,13 @@ export class SettingsShortcutsPanel extends LitElement {
   }
 
   private async saveShortcutPreference(action: AppAction, shortcut: string | null | undefined): Promise<void> {
-    if (this.configResponse === undefined || this.onSave === undefined) return;
-    const config: PiWebConfigValues = { ...this.configResponse.config };
+    if (this.configResponse === undefined || this.onSave === undefined || enforcedSetting(this.configResponse, "/shortcuts") !== undefined) return;
+    const config: PiWebConfigValues = this.configResponse.effectiveConfig.shortcuts === undefined ? {} : { shortcuts: this.configResponse.effectiveConfig.shortcuts };
     const currentShortcuts = config.shortcuts ?? {};
     const migratedShortcuts = withoutShortcutPreferences(currentShortcuts, [action.id, ...(action.shortcutAliases ?? [])]);
     const shortcuts = shortcut === undefined ? migratedShortcuts : { ...migratedShortcuts, [action.id]: shortcut };
     if (Object.keys(shortcuts).length === 0) {
-      delete config.shortcuts;
+      config.shortcuts = {};
     } else {
       config.shortcuts = shortcuts;
     }
@@ -315,8 +319,8 @@ export class SettingsShortcutsPanel extends LitElement {
   }
 
   private previewShortcutConfig(): PiWebShortcutConfig | undefined {
-    const shortcuts = { ...(this.configResponse?.config.shortcuts ?? {}) };
-    for (const [actionId, draft] of Object.entries(this.drafts)) {
+    const shortcuts = { ...(this.configResponse?.effectiveConfig.shortcuts ?? {}) };
+    for (const [actionId, draft] of Object.entries(enforcedSetting(this.configResponse, "/shortcuts") !== undefined ? {} : this.drafts)) {
       const trimmedDraft = draft.trim();
       if (trimmedDraft === "") continue;
       const parsed = parseShortcutInput(trimmedDraft);

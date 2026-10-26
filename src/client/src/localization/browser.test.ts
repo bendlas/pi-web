@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { html, LitElement, render } from "lit";
-import { initializeLocalization, inheritedLocalizationSetting, LocalizationController } from "./browser.js";
+import { configureLocalizationPolicy, initializeLocalization, inheritedLocalizationSetting, localizationPolicyFromConfig, LocalizationController } from "./browser.js";
 import { LocalizationService, message, type RichMessageTag } from "./service.js";
 
 afterEach(() => {
@@ -13,6 +13,33 @@ afterEach(() => {
 });
 
 describe("browser localization boundary", () => {
+  it("applies initial and refreshed gateway enforcement without persisting effective values", async () => {
+    const local = { language: "en", formatLocale: "de-DE", timeZone: "Europe/Berlin", hourCycle: "h12" as const };
+    localStorage.setItem("pi-web-localization", JSON.stringify(local));
+    const response = {
+      effectiveConfig: { defaultLocalization: { language: "fr", formatLocale: "fr-FR", timeZone: "UTC", hourCycle: "h23" as const } },
+      enforcedSettings: { "/defaultLocalization/formatLocale": "FORMAT_ENV", "/defaultLocalization/hourCycle": "HOUR_ENV" },
+      configSources: { "/defaultLocalization/formatLocale": "environment", "/defaultLocalization/language": "config" },
+    };
+    const service = new LocalizationService();
+    const dispose = await initializeLocalization(service, window, false, Promise.resolve(response.effectiveConfig.defaultLocalization), Promise.resolve(localizationPolicyFromConfig(response)));
+    try {
+      expect(service.preferences).toEqual({ ...local, formatLocale: "fr-FR", hourCycle: "h23" });
+      expect(localStorage.getItem("pi-web-localization")).toBe(JSON.stringify(local));
+      expect(service.preferenceSettingPolicy("formatLocale")).toEqual({ locked: true, enforcedBy: "FORMAT_ENV", source: "environment" });
+      expect(service.preferenceSettingPolicy("language")).toEqual({ locked: false, enforcedBy: undefined, source: "config" });
+      await service.setPreferenceOverrides({ ...service.preferences, timeZone: "UTC" });
+      const saved = { ...local, timeZone: "UTC" };
+      expect(JSON.parse(localStorage.getItem("pi-web-localization") ?? "null")).toEqual(saved);
+      await configureLocalizationPolicy({ ...response, effectiveConfig: { defaultLocalization: { formatLocale: "sv-SE", hourCycle: "h24" } } }, service);
+      expect(service.preferences).toEqual({ ...saved, formatLocale: "sv-SE", hourCycle: "h24" });
+      expect(JSON.parse(localStorage.getItem("pi-web-localization") ?? "null")).toEqual(saved);
+      await configureLocalizationPolicy({ effectiveConfig: {} }, service);
+      expect(service.preferences).toEqual(saved);
+      expect(service.preferenceSettingPolicy("formatLocale").locked).toBe(false);
+    } finally { dispose(); }
+  });
+
   it("restores separate preferences, updates document metadata and persists live changes", async () => {
     localStorage.setItem("pi-web-localization", JSON.stringify({ language: "ar", formatLocale: "de-DE", timeZone: "UTC" }));
     const service = new LocalizationService();
@@ -118,6 +145,24 @@ describe("browser localization boundary", () => {
     expect(service.preferenceOverrides).toEqual({ formatLocale: "sv-SE" });
     expect(JSON.parse(localStorage.getItem("pi-web-localization") ?? "null")).toEqual({ formatLocale: "sv-SE" });
     dispose();
+  });
+
+  it("keeps a browser edit made before enforcement arrives and restores it on unlock", async () => {
+    let resolveDefaults!: (defaults: { formatLocale: string }) => void;
+    const pending = new Promise<{ formatLocale: string }>((resolve) => { resolveDefaults = resolve; });
+    const service = new LocalizationService();
+    const initialization = initializeLocalization(service, window, false, pending, { enforcedFields: { formatLocale: "FORMAT_ENV" } });
+    await Promise.resolve();
+    await service.setPreferenceOverrides({ formatLocale: "de-DE" });
+    resolveDefaults({ formatLocale: "fr-FR" });
+    const dispose = await initialization;
+    try {
+      expect(service.preferences.formatLocale).toBe("fr-FR");
+      expect(service.preferenceOverrides).toEqual({ formatLocale: "de-DE" });
+      expect(JSON.parse(localStorage.getItem("pi-web-localization") ?? "null")).toEqual({ formatLocale: "de-DE" });
+      await configureLocalizationPolicy({ effectiveConfig: {} }, service);
+      expect(service.preferences.formatLocale).toBe("de-DE");
+    } finally { dispose(); }
   });
 
   it("uses updated gateway defaults on reload when no device choice exists", async () => {

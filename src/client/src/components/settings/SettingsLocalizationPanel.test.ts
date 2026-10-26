@@ -234,7 +234,7 @@ it.each([
   expect(control(panel, "timeZone").value).toBe("");
   expect(localization.preferences.formatLocale).toBe(region);
   expect(localization.preferences.timeZone).toBe(defaults.timeZone);
-  expect(JSON.parse(localStorage.getItem("pi-web-localization") ?? "null")).toEqual({ language: "en" });
+  expect(JSON.parse(localStorage.getItem("pi-web-localization") ?? "{}")).toEqual({});
   expect(panel.renderRoot.querySelector(".ui-form-field button")).toBeNull();
 });
 

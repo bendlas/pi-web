@@ -3,7 +3,7 @@
 import { LitElement } from "lit";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, configApi, piPackagesApi, pluginsApi, type PiWebConfigValues } from "../api";
-import { THEME_STORAGE_KEY } from "../theme";
+import { configureThemePolicy, THEME_STORAGE_KEY } from "../theme";
 import { PiWebApp } from "./PiWebApp";
 import { themeStylesheetFetch } from "./themeStylesheetFetch.testSupport";
 import { SettingsDialog } from "./SettingsDialog";
@@ -20,17 +20,20 @@ class ThemeSettingsApp extends PiWebApp {
 customElements.define("theme-settings-test-app", ThemeSettingsApp);
 
 let config: PiWebConfigValues;
+let enforcedSettings: Record<string, string>;
 const unexpectedRequest = vi.fn(() => Promise.reject(new Error("Theme tests must not make network requests")));
 
 beforeEach(() => {
   unexpectedRequest.mockClear();
   vi.stubGlobal("fetch", themeStylesheetFetch(unexpectedRequest));
   config = { defaultTheme: { themeId: "themes:pi-web-light", auto: false } };
+  enforcedSettings = {};
+  configureThemePolicy({ effectiveConfig: {} });
   window.history.replaceState(null, "", "/?settings=general");
-  vi.spyOn(configApi, "config").mockImplementation((machineId) => Promise.resolve(configResponse(machineId === undefined ? config : {})));
-  vi.spyOn(configApi, "saveConfig").mockImplementation((saved) => {
-    config = saved;
-    return Promise.resolve(configResponse(saved));
+  vi.spyOn(configApi, "config").mockImplementation((machineId) => Promise.resolve({ ...configResponse(machineId === undefined ? config : {}), enforcedSettings: machineId === undefined ? enforcedSettings : {} }));
+  vi.spyOn(configApi, "updateConfig").mockImplementation((update) => {
+    config = { ...config, ...update.set };
+    return Promise.resolve({ ...configResponse(config), enforcedSettings });
   });
   vi.spyOn(configApi, "namingModels").mockResolvedValue({ models: [] });
   vi.spyOn(pluginsApi, "plugins").mockResolvedValue(pluginsResponse([]));
@@ -49,6 +52,7 @@ beforeEach(() => {
 afterEach(() => {
   document.body.replaceChildren();
   localStorage.clear();
+  configureThemePolicy({ effectiveConfig: {} });
   sessionStorage.clear();
   document.documentElement.removeAttribute("data-pi-web-theme");
   document.documentElement.removeAttribute("style");
@@ -92,6 +96,25 @@ describe("app theme defaults and device overrides", () => {
     await app.updateComplete;
     expect(document.documentElement.dataset["piWebTheme"]).toBe("themes:classic");
     expect(JSON.parse(localStorage.getItem(THEME_STORAGE_KEY) ?? "null")).toEqual({ themeId: "themes:classic", auto: false });
+  });
+
+  it("applies refreshed enforcement without erasing the saved browser theme", async () => {
+    const saved = { themeId: "themes:classic", auto: false };
+    localStorage.setItem(THEME_STORAGE_KEY, JSON.stringify(saved));
+    config.defaultTheme = { themeId: "themes:pi-web-dark", auto: false };
+    enforcedSettings = { "/defaultTheme": "PI_WEB_DEFAULT_THEME" };
+    const app = await mountApp();
+    expect(document.documentElement.dataset["piWebTheme"]).toBe("themes:pi-web-dark");
+    expect(themePanel(app).shadowRoot?.querySelector("select")?.disabled).toBe(true);
+    expect(JSON.parse(localStorage.getItem(THEME_STORAGE_KEY) ?? "null")).toEqual(saved);
+
+    enforcedSettings = {};
+    const general = settings(app).shadowRoot?.querySelector("settings-general-panel");
+    const refresh = general?.shadowRoot?.querySelector("settings-panel-frame")?.shadowRoot?.querySelector<HTMLButtonElement>('button[title="Refresh settings"]');
+    expect(refresh).not.toBeNull();
+    refresh?.click();
+    await vi.waitFor(() => { expect(document.documentElement.dataset["piWebTheme"]).toBe("themes:classic"); });
+    expect(JSON.parse(localStorage.getItem(THEME_STORAGE_KEY) ?? "null")).toEqual(saved);
   });
 
   it("keeps an unavailable saved theme intact while displaying the fallback", async () => {

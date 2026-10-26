@@ -1,7 +1,7 @@
 import { queuedMessageRecallConfirmation, type QueuedMessageActionTarget } from "../queuedMessageActions";
 import { appActionMessages } from "../appActionMessages";
 import { chatActionMessages, HistoryActionError } from "../chatActionMessages";
-import { localization, LocalizationController } from "../localization/browser";
+import { configureLocalizationPolicy, localization, LocalizationController } from "../localization/browser";
 import { pickerMessages } from "../pickerMessages";
 import { LitElement, html, type TemplateResult } from "lit";
 import { customElement, property, query, state } from "lit/decorators.js";
@@ -48,7 +48,7 @@ import { serverNoticeMessage } from "../serverNoticeMessages";
 import { ServerNoticesController, visibleServerNotices } from "../serverNotices";
 import type { ServerNotice } from "../../../shared/apiTypes";
 import type { ApplicationPanelContext, MaintenanceTerminal, PluginNavigationPatchDestination, PluginNavigationOptions, ContributionQueryValue, PiWebPluginRegistration, PluginMachine, PluginPromptEditor, QualifiedContributionId, PluginRuntimeContext, SessionLabelContext, SessionLabelItem, WorkspaceFilesCapabilityV1, WorkspaceHost, WorkspaceInvalidation, WorkspaceLabelContext, WorkspaceLabelItem, WorkspacePanelContext, WorkspacePanelNavigationV1, WorkspacePanelTerminal, WorkspacePluginBinding, WorkspaceTerminalCommandInput } from "../plugins/types";
-import { CLASSIC_THEME_ID, applyPiWebTheme, clearStoredThemePreference, effectiveThemePreference, readStoredThemePreference, resolveThemePreference, writeStoredThemePreference, type ThemePreference, type ThemePreferenceResolution } from "../theme";
+import { CLASSIC_THEME_ID, applyPiWebTheme, clearStoredThemePreference, configureThemePolicy, effectiveThemePreference, getThemePolicy, readStoredThemePreference, resolveThemePreference, writeStoredThemePreference, type ThemePreference, type ThemePreferenceResolution } from "../theme";
 import { corePlugin } from "../plugins/core";
 import { themePackPlugin } from "../plugins/themes";
 import { pluginStyles, PluginStyleRuntime, stylesheetIntegrationCapability } from "../plugins/styles";
@@ -862,7 +862,12 @@ export class PiWebApp extends LitElement {
 
   private async loadClientConfig(): Promise<void> {
     try {
-      this.applyClientConfig((await configApi.config()).effectiveConfig);
+      const response = await configApi.config();
+      configureThemePolicy(response);
+      void configureLocalizationPolicy(response).catch((error: unknown) => {
+        console.warn("Failed to apply gateway localization policy", error);
+      });
+      this.applyClientConfig(response.effectiveConfig);
     } catch (error) {
       console.warn("Failed to load PI WEB config", error);
     }
@@ -3595,12 +3600,14 @@ export class PiWebApp extends LitElement {
   }
 
   private pickTheme(preference: ThemePreference): void {
+    if (getThemePolicy().enforcedBy !== undefined) return;
     if (!this.plugins.getThemes().some((theme) => theme.id === preference.themeId)) return;
     this.localThemePreference = { ...preference };
     this.applyPreferredTheme(true);
   }
 
   private useDefaultTheme(): void {
+    if (getThemePolicy().enforcedBy !== undefined) return;
     this.localThemePreference = undefined;
     clearStoredThemePreference();
     this.applyPreferredTheme(false);

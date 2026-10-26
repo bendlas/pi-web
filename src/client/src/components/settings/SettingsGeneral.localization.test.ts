@@ -19,7 +19,7 @@ function required<T>(value: T | null | undefined): T {
 const config: PiWebConfigResponse = {
   path: "/raw/<img>/config.json", exists: true, config: { port: 8504 },
   effectiveConfig: { port: 8504, allowedHosts: ["a.local", "b.local", "c.local"], pathAccess: { allowedPaths: ["/a", "/b", "/c"] } },
-  envOverrides: { host: true, port: false, allowedHosts: false, spawnSessions: false, subsessions: false, askUser: false },
+  envOverrides: { host: false, port: false, allowedHosts: true, spawnSessions: false, subsessions: false, askUser: false },
 };
 async function settle(panel: SettingsGeneralPanel): Promise<void> {
   await panel.updateComplete;
@@ -77,7 +77,7 @@ it("updates the entire General panel without resetting draft controls, focus or 
     expect(panel.renderRoot.querySelector("settings-panel-frame")?.heading).toBe(messages.t("heading"));
     expect(panel.renderRoot.querySelector("settings-panel-frame")?.actionLabel).toBe(messages.t("refresh"));
     expect(panel.renderRoot.querySelector("form")?.closest("section")?.getAttribute("aria-label")).toBe(messages.t("gatewayAria"));
-    expect(panel.renderRoot.querySelector(".override-badge")?.textContent).toBe(messages.t("override"));
+    expect(panel.renderRoot.textContent).toContain("PI_WEB_ALLOWED_HOSTS");
     expect(panel.renderRoot.textContent).toContain(localization.number(8504));
     expect(panel.renderRoot.textContent).toContain(localization.list(["a.local", "b.local", "c.local"]));
     expect(panel.renderRoot.textContent).toContain(localization.list(["/a", "/b", "/c"]));
@@ -92,7 +92,7 @@ it("updates the entire General panel without resetting draft controls, focus or 
   expect(name.value).toBe("Draft <img>");
   submit(panel, 1);
   await settle(panel);
-  expect(panel.onSaveMachineConfig).toHaveBeenCalledExactlyOnceWith({ installationName: "Draft <img>", pathAccess: { allowedPaths: ["~/Draft"] }, uploads: {}, attachments: {} });
+  expect(panel.onSaveMachineConfig).toHaveBeenCalledExactlyOnceWith({ installationName: "Draft <img>", pathAccess: { allowedPaths: ["~/Draft"] } });
 });
 
 it.each([

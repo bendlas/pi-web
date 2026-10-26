@@ -1,5 +1,5 @@
 import { css, html, LitElement, nothing, type TemplateResult } from "lit";
-import { customElement, state } from "lit/decorators.js";
+import { customElement, property, state } from "lit/decorators.js";
 import { live } from "lit/directives/live.js";
 import { inheritedLocalizationSetting, localization, LocalizationController } from "../../localization/browser";
 import type { LocalizationPreferences } from "../../localization/service";
@@ -8,6 +8,8 @@ import { uiButtonStyles } from "../ui/controlStyles";
 import { uiFormStyles } from "../ui/formStyles";
 import { uiSettingsStyles } from "../ui/settingsStyles";
 import source from "./settingsLocalization.messages";
+import type { PiWebConfigResponse } from "../../api";
+import { enforcedSetting, settingSource } from "./settingsConfigUpdate";
 
 export const localizationSettingsMessages = localization.registerMessages("core.settingsLocalization", source);
 const messages = localizationSettingsMessages;
@@ -45,6 +47,25 @@ function validateDraft(draft: Draft): Validation | undefined {
 /** Browser-owned preferences are independent of gateway/selected-machine config and availability. */
 @customElement("settings-localization-panel")
 export class SettingsLocalizationPanel extends LitElement {
+  @property({ attribute: false }) configResponse: PiWebConfigResponse | undefined;
+
+  private locked(field: Field): boolean {
+    return enforcedSetting(this.configResponse, `/defaultLocalization/${field}`) !== undefined || localization.preferenceSettingPolicy(field).locked;
+  }
+
+  private fieldSource(field: Field): ReturnType<typeof settingSource> {
+    const policy = localization.preferenceSettingPolicy(field);
+    return settingSource(enforcedSetting(this.configResponse, `/defaultLocalization/${field}`) ?? policy.enforcedBy,
+      this.configResponse?.configSources?.[`/defaultLocalization/${field}`] ?? policy.source);
+  }
+
+  private displayedPreferences(): Partial<LocalizationPreferences> {
+    const preferences = { ...localization.preferenceOverrides };
+    for (const field of ["language", "formatLocale", "timeZone", "hourCycle"] as const) {
+      if (this.locked(field)) Object.assign(preferences, { [field]: this.configResponse?.effectiveConfig.defaultLocalization?.[field] ?? localization.preferences[field] });
+    }
+    return preferences;
+  }
   private baseline = draftFromPreferences(localization.preferenceOverrides);
   @state() private draft = { ...this.baseline };
   @state() private validation: Validation | undefined;
@@ -60,10 +81,13 @@ export class SettingsLocalizationPanel extends LitElement {
   }
 
   protected override willUpdate(): void {
-    const incoming = draftFromPreferences(localization.preferenceOverrides);
+    const incoming = draftFromPreferences(this.displayedPreferences());
     if (!sameDraft(incoming, this.baseline)) {
       if (sameDraft(this.draft, this.baseline)) this.draft = incoming;
       this.baseline = incoming;
+    }
+    for (const field of ["language", "formatLocale", "timeZone", "hourCycle"] as const) {
+      if (this.locked(field)) this.draft[field] = incoming[field];
     }
   }
 
@@ -91,17 +115,19 @@ export class SettingsLocalizationPanel extends LitElement {
         <form class="ui-settings-fields" novalidate @submit=${(event: Event) => { event.preventDefault(); void this.apply(this.draft); }}>
           <label class="ui-form-field" for="language">
             <span>${messages.t("language")}</span>
-            <select id="language" class="ui-input" aria-describedby=${this.helpIds("language", "language-help")} aria-invalid=${this.validation?.field === "language" ? "true" : nothing} ?disabled=${this.applying}
+            <select id="language" class="ui-input" aria-describedby=${this.helpIds("language", "language-help")} aria-invalid=${this.validation?.field === "language" ? "true" : nothing} ?disabled=${this.applying || this.locked("language")}
               @change=${(event: Event) => { this.edit("language", event); }}>
               ${languages.map((code) => html`<option value=${code} ?selected=${code === selectedLanguage}>${messages.t("languageOption", { name: displayNames.of(code) ?? code, code })}</option>`)}
             </select>
+            ${this.fieldSource("language")}
             <small id="language-help">${messages.t("languageHelp")}</small>
           </label>
           <div class="ui-form-field">
             <label for="formatLocale">${messages.t("region")}</label>
             <input id="formatLocale" class="ui-input" dir="ltr" spellcheck="false" autocapitalize="off" .value=${live(this.draft.formatLocale)}
               placeholder=${messages.t("useDefault")} aria-describedby=${this.helpIds("formatLocale", "region-help region-default")} aria-invalid=${this.validation?.field === "formatLocale" ? "true" : nothing}
-              ?disabled=${this.applying} @input=${(event: Event) => { this.edit("formatLocale", event); }}>
+              ?disabled=${this.applying || this.locked("formatLocale")} @input=${(event: Event) => { this.edit("formatLocale", event); }}>
+            ${this.fieldSource("formatLocale")}
             <small id="region-help">${messages.t("regionHelp")}</small>
             <small id="region-default">${messages.rich(regionDefault.source === "server" ? "gatewayDefault" : "browserDefault", { value: regionDefault.value, isolate: (parts) => html`<bdi dir="ltr">${parts}</bdi>` })}</small>
           </div>
@@ -109,17 +135,19 @@ export class SettingsLocalizationPanel extends LitElement {
             <span>${messages.t("zone")}</span>
             <input id="timeZone" class="ui-input" dir="ltr" spellcheck="false" autocapitalize="off" .value=${live(this.draft.timeZone)}
               placeholder=${messages.t("useDefault")} aria-describedby=${this.helpIds("timeZone", "zone-help zone-default")} aria-invalid=${this.validation?.field === "timeZone" ? "true" : nothing}
-              ?disabled=${this.applying} @input=${(event: Event) => { this.edit("timeZone", event); }}>
+              ?disabled=${this.applying || this.locked("timeZone")} @input=${(event: Event) => { this.edit("timeZone", event); }}>
+            ${this.fieldSource("timeZone")}
             <small id="zone-help">${messages.t("zoneHelp")}</small>
             <small id="zone-default">${messages.rich(zoneDefault.source === "server" ? "gatewayDefault" : "browserDefault", { value: zoneDefault.value, isolate: (parts) => html`<bdi dir="ltr">${parts}</bdi>` })}</small>
           </label>
           <label class="ui-form-field" for="hourCycle">
             <span>${messages.t("hours")}</span>
-            <select id="hourCycle" class="ui-input" aria-describedby=${this.validation?.field === "hourCycle" ? "localization-validation" : nothing} aria-invalid=${this.validation?.field === "hourCycle" ? "true" : nothing} ?disabled=${this.applying} @change=${(event: Event) => { this.edit("hourCycle", event); }}>
+            <select id="hourCycle" class="ui-input" aria-describedby=${this.validation?.field === "hourCycle" ? "localization-validation" : nothing} aria-invalid=${this.validation?.field === "hourCycle" ? "true" : nothing} ?disabled=${this.applying || this.locked("hourCycle")} @change=${(event: Event) => { this.edit("hourCycle", event); }}>
               <option value="" ?selected=${selectedClockFormat === ""}>${messages.t(localization.preferenceDefaults.hourCycle === undefined ? "hoursDefault" : "hoursGatewayDefault")}</option>
               ${(["h12", "h23"] as const).map((cycle) => html`<option value=${cycle} ?selected=${cycle === selectedClockFormat}>${messages.t(cycle)}</option>`)}
             </select>
           </label>
+          ${this.fieldSource("hourCycle")}
           ${this.validation ? html`<p class="ui-form-error" id="localization-validation" role="alert">${messages.t(this.validation.key)}</p>` : nothing}
           ${this.failure !== undefined ? html`<p class="ui-form-error" role="alert">${messages.t("applyFailure", { diagnostic: this.failure })}</p>` : nothing}
           <div class="ui-settings-summary" aria-label=${messages.t("preview")}>
@@ -164,10 +192,14 @@ export class SettingsLocalizationPanel extends LitElement {
       this.renderRoot.querySelector<HTMLElement>(`#${this.validation.field}`)?.focus();
       return;
     }
-    const hourCycle = clockFormat(draft);
-    this.save({ language: availableLanguage(draft.language.trim()),
-      ...(draft.formatLocale.trim() ? { formatLocale: draft.formatLocale.trim() } : {}),
-      ...(draft.timeZone.trim() ? { timeZone: draft.timeZone.trim() } : {}), ...(hourCycle ? { hourCycle } : {}) });
+    const overrides = { ...localization.preferenceOverrides };
+    for (const field of ["language", "formatLocale", "timeZone", "hourCycle"] as const) {
+      if (this.locked(field) || draft[field] === this.baseline[field] && localization.preferenceOverrides[field] === undefined) continue;
+      const value = field === "language" ? availableLanguage(draft.language.trim()) : field === "hourCycle" ? clockFormat(draft) : draft[field].trim();
+      Reflect.deleteProperty(overrides, field);
+      if (value) Object.assign(overrides, { [field]: value });
+    }
+    this.save(overrides);
   }
 
   private save(overrides: Partial<LocalizationPreferences>): void {
@@ -178,8 +210,15 @@ export class SettingsLocalizationPanel extends LitElement {
     this.saved = false;
     try {
       // The choice commits synchronously. Catalog readiness must not block this form.
-      void localization.setPreferenceOverrides(overrides);
-      this.baseline = draftFromPreferences(localization.preferenceOverrides);
+      const writable = { ...overrides };
+      for (const field of ["language", "formatLocale", "timeZone", "hourCycle"] as const) {
+        if (!this.locked(field)) continue;
+        Reflect.deleteProperty(writable, field);
+        const saved = localization.preferenceOverrides[field];
+        if (saved !== undefined) Object.assign(writable, { [field]: saved });
+      }
+      void localization.setPreferenceOverrides(writable);
+      this.baseline = draftFromPreferences(this.displayedPreferences());
       this.draft = { ...this.baseline };
       this.saved = true;
     } catch (cause) {

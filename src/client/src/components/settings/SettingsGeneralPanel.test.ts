@@ -59,7 +59,7 @@ describe("General settings", () => {
     expect(save).not.toHaveBeenCalled();
   });
 
-  it("shows scope and environment priority without hiding saved values", async () => {
+  it("shows and locks the effective environment value without modifying the hidden saved value", async () => {
     const panel = await mountPanel();
     panel.targetLabel = "Lab Mac (remote machine)";
     panel.configResponse = { ...configResponse({ host: "saved.local" }), effectiveConfig: { host: "env.local" }, envOverrides: { ...configResponse({}).envOverrides, host: true } };
@@ -67,7 +67,10 @@ describe("General settings", () => {
     expect(panel.shadowRoot?.textContent).toContain("Save the machine name, file access, and upload defaults on Lab Mac (remote machine)");
     expect(panel.shadowRoot?.textContent).toContain("Environment overrides take priority.");
     expect(panel.shadowRoot?.textContent).toContain("env.local");
-    expect(input(panel, gatewayHostInput).value).toBe("saved.local");
+    expect(input(panel, gatewayHostInput).value).toBe("env.local");
+    expect(input(panel, gatewayHostInput).disabled).toBe(true);
+    expect(panel.configResponse.config.host).toBe("saved.local");
+    expect(panel.shadowRoot?.textContent).toContain("PI_WEB_HOST");
   });
 
   it("preserves dirty fields across refresh while updating untouched fields and save remainders", async () => {
@@ -84,7 +87,23 @@ describe("General settings", () => {
     panel.onSave = save;
     submit(panel, 0);
     await settle(panel);
-    expect(save).toHaveBeenCalledWith({ host: "draft.local", port: 9000, allowedHosts: [], plugins: { info: { enabled: false } } });
+    expect(save).toHaveBeenCalledWith({ host: "draft.local" });
+  });
+
+  it("combines cleared server overrides and changed values in one update", async () => {
+    const panel = await mountPanel();
+    panel.configResponse = { ...configResponse({ host: "saved.local", port: 8504 }), defaultsConfig: { host: "deployment.local" } };
+    await settle(panel);
+    edit(panel, gatewayHostInput, "");
+    edit(panel, gatewayHostInput + "[inputmode]", "9000");
+    const save = vi.fn((config: PiWebConfigValues) => {
+      panel.configResponse = { ...configResponse(config), effectiveConfig: { host: "deployment.local", ...config } };
+    });
+    panel.onSave = save;
+    submit(panel, 0);
+    await settle(panel);
+    expect(save).toHaveBeenCalledExactlyOnceWith({ port: 9000 }, ["/host"]);
+    expect(input(panel, gatewayHostInput).value).toBe("deployment.local");
   });
 
   it("acknowledges only the saved scope, including normalized values", async () => {
@@ -178,7 +197,7 @@ describe("General settings", () => {
     edit(panel, machineInput, "manual\\uploads/.");
     submit(panel, 1);
     await settle(panel);
-    expect(save).toHaveBeenCalledWith({ installationName: "", pathAccess: { allowedPaths: [] }, uploads: { defaultFolder: "manual/uploads" }, attachments: {} });
+    expect(save).toHaveBeenCalledWith({ uploads: { defaultFolder: "manual/uploads" } });
     expect(gatewaySave).not.toHaveBeenCalled();
   });
   it("reflects the saved quiet-mode setting and shows dialog save failures", async () => {

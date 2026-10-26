@@ -7,6 +7,8 @@ import source from "./settingsPlugins.messages";
 import type { PiWebConfigResponse, PiWebPluginInfo, PiWebPluginsResponse } from "../../api";
 import { PI_WEB_PLUGIN_RECOVERY_COMMANDS } from "../../../../shared/pluginRecoveryCommands";
 import { REQUIRED_TERMINAL_PLUGIN_ID } from "../../../../shared/requiredTerminalPlugin";
+import { uiButtonStyles } from "../ui/controlStyles";
+import { enforcedSetting, settingControls, settingPath } from "./settingsConfigUpdate";
 import { uiFormStyles } from "../ui/formStyles";
 import { uiSettingsStyles } from "../ui/settingsStyles";
 import "./SettingsPanelFrame";
@@ -36,6 +38,7 @@ export class SettingsPluginsPanel extends LitElement {
   @property() targetLabel = "";
   private get target(): string { return this.targetLabel || pluginsMessages.t("localTarget"); }
   @property({ attribute: false }) onReload?: () => void | Promise<void>;
+  @property({ attribute: false }) onResetPlugin?: (pluginId: string) => void | Promise<void>;
   @property({ attribute: false }) onTogglePlugin?: (pluginId: string, enabled: boolean) => void | Promise<void>;
 
   override render(): TemplateResult {
@@ -151,6 +154,7 @@ export class SettingsPluginsPanel extends LitElement {
   }
 
   private renderPlugin(plugin: SettingsPluginRow): TemplateResult {
+    const path = settingPath("plugins", plugin.id, "enabled");
     const configured = this.configResponse?.config.plugins?.[plugin.id];
     const configuredState = plugin.required === true
       ? pluginsMessages.t("requiredState")
@@ -163,13 +167,14 @@ export class SettingsPluginsPanel extends LitElement {
           <strong dir="auto">${plugin.id}</strong>
           <small>${plugin.configOnly ? pluginsMessages.t("configOnly") : pluginsMessages.t("provenance", { source: plugin.source, scope: plugin.scope, machine: plugin.machineSpecific ? "yes" : "no", required: plugin.required === true ? "yes" : "no", discovered: plugin.discovered ? "yes" : "no" })}</small>
           <small>${configuredState}</small>
+          ${settingControls(this.configResponse, path, this.loading || this.saving || !plugin.editable, this.onResetPlugin ? () => this.onResetPlugin?.(plugin.id) : undefined)}
           ${this.renderPluginStatuses(plugin)}
           ${plugin.server?.message === undefined ? nothing : html`<small class="diagnostic" dir="auto">${plugin.server.message}</small>`}
           ${plugin.server?.health?.message === undefined ? nothing : html`<small class="diagnostic">${pluginsMessages.t("healthDetail", { detail: plugin.server.health.message })}</small>`}
           ${plugin.server === undefined || plugin.required === true ? nothing : html`<small class="command">${pluginsMessages.rich("offlineDisable", { command: plugin.server.disableCommand, code })}</small>`}
         </div>
         <label class="toggle ui-checkbox-field">
-          <input type="checkbox" aria-label=${pluginsMessages.t(plugin.required === true ? "requiredAria" : "enableAria", { id: plugin.id })} .checked=${live(plugin.enabled)} ?disabled=${this.loading || this.saving || this.configResponse === undefined || !plugin.editable} @change=${(event: Event) => { void this.togglePlugin(plugin, event); }}>
+          <input type="checkbox" aria-label=${pluginsMessages.t(plugin.required === true ? "requiredAria" : "enableAria", { id: plugin.id })} .checked=${live(plugin.required === true || (this.configResponse?.effectiveConfig.plugins?.[plugin.id]?.enabled ?? plugin.enabled))} ?disabled=${this.loading || this.saving || this.configResponse === undefined || !plugin.editable || enforcedSetting(this.configResponse, path) !== undefined} @change=${(event: Event) => { void this.togglePlugin(plugin, event); }}>
           <span>${pluginsMessages.t(plugin.required === true ? "required" : "enable")}</span>
         </label>
       </article>
@@ -212,7 +217,7 @@ export class SettingsPluginsPanel extends LitElement {
     await this.onTogglePlugin?.(plugin.id, enabled);
   }
 
-  static override styles = [uiFormStyles, uiSettingsStyles, css`
+  static override styles = [uiButtonStyles, uiFormStyles, uiSettingsStyles, css`
     :host { display: block; overflow-wrap: anywhere; }
     .loading-card, .plugin-note { color: var(--pi-muted); }
     code { color: var(--pi-text); font: 12px var(--pi-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace); overflow-wrap: anywhere; }

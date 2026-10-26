@@ -1,6 +1,6 @@
 # Configuration architecture audit
 
-Assessment against [config-architecture.md](config-architecture.md). Source inspection only; no runtime behavior changed. Inventory covers core configuration, project/plugin settings, browser preferences, and runtime/bootstrap settings. Application state and Pi-owned settings are classified separately.
+Pre-implementation baseline assessment against [config-architecture.md](config-architecture.md). The inventory and gaps below describe the code before the architecture implementation; see [config.md](config.md) for current supported behavior. Inventory covers core configuration, project/plugin settings, browser preferences, and runtime/bootstrap settings. Application state and Pi-owned settings are classified separately.
 
 ## Approved decisions after this audit
 
@@ -8,10 +8,14 @@ The architecture now resolves the main choices below; migration cautions in this
 
 - Paths: introduce a base setting; retain existing paths as additions.
 - Plugins: explicit namespace with independently resolved enablement and top-level plugin-setting values; replace object/array values, not the entire plugin namespace.
-- Localization: explicit namespace with independently resolved fields; retain object representation.
+- Revised container decision: the shared schema registry declares `uploads.defaultFolder`, `attachments.defaultFolder`, `sessionNaming.model`/`maxTokens`/`thinkingLevel`/`timeoutMs`, `sessionArchive.directory`, `pathAccess.allowedPaths`, and `defaultLocalization.language`/`formatLocale`/`timeZone`/`hourCycle` as independent settings. Retain their object representations and scopes; resolve leaves across defaults, writable config, applicable project config, and environment policy.
+- Empty declared containers contribute no overrides; missing leaves inherit. This preserves the baseline project `uploads: {}` / `attachments: {}` folder inheritance, superseding the whole-object fallback concern below. Individual array/dictionary-valued settings replace completely; there is no generic recursive merge. `defaultTheme` remains one coherent atomic preference, `shortcuts` an atomic dictionary, and deprecated `agent` atomic.
+- Existing container JSON environment names enforce only supplied leaves, including `pathAccess.allowedPaths`. Source/enforcement metadata uses leaf pointers; the archive-directory alias maps to `/sessionArchive/directory`.
 - Environment lists: canonical JSON plus documented legacy shorthand per setting. Booleans: strict `true`/`false` (case-insensitive) or `1`/`0`; invalid explicit env fails startup.
-- Updates/reset: one `set`/`unset` operation; no magic persisted values or changed omission semantics.
+- Updates/reset: one `set`/`unset` operation; no magic persisted values or changed omission semantics. Known leaf pointers (including `/sessionNaming/model`) and root container resets are accepted. UI group resets remove only unlocked saved leaves in one request; API container resets overlapping enforced leaves are rejected to preserve hidden saved choices.
 - Project-capable settings: project config overrides writable machine config, below environment enforcement. Explicit path additions remain additive.
+
+The inventory and recommended migration order below remain historical baseline evidence. Their whole-object proposals for now-declared containers are superseded by these revised decisions, not current behavior.
 
 ## Summary
 

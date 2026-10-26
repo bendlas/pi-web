@@ -1502,7 +1502,20 @@ export function parsePiWebConfigResponse(value: unknown): PiWebConfigResponse {
     config: parsePiWebConfigValues(record["config"]),
     effectiveConfig: parsePiWebConfigValues(record["effectiveConfig"]),
     envOverrides: parsePiWebConfigEnvOverrides(record["envOverrides"]),
+    ...optionalField("enforcedSettings", optionalConfigSources(record["enforcedSettings"])),
+    ...optionalField("configSources", optionalConfigSources(record["configSources"])),
+    ...optionalField("defaultsConfig", record["defaultsConfig"] === undefined ? undefined : parsePiWebConfigValues(record["defaultsConfig"])),
+    ...optionalField("defaultsPath", optionalString(record, "defaultsPath")),
   };
+}
+
+function optionalConfigSources(value: unknown): Record<string, string> | undefined {
+  if (value === undefined) return undefined;
+  const record = requireRecord(value);
+  return Object.fromEntries(Object.entries(record).map(([key, source]) => {
+    if (typeof source !== "string") throw new Error(`Invalid configuration source for ${key}`);
+    return [key, source];
+  }));
 }
 
 function parsePiWebConfigValues(value: unknown): PiWebConfigValues {
@@ -1518,6 +1531,7 @@ function parsePiWebConfigValues(value: unknown): PiWebConfigValues {
     ...optionalField("defaultLocalization", record["defaultLocalization"] === undefined ? undefined : requireDefaultLocalization(record["defaultLocalization"], "response")),
     ...optionalField("quietMode", optionalBoolean(record, "quietMode")),
     ...optionalField("plugins", optionalPlugins(record["plugins"])),
+    ...optionalField("basePaths", optionalStringArray(record["basePaths"], "basePaths")),
     ...optionalField("pathAccess", optionalPathAccess(record["pathAccess"])),
     ...optionalField("uploads", optionalUploads(record["uploads"])),
     ...optionalField("attachments", optionalAttachments(record["attachments"])),
@@ -1526,6 +1540,8 @@ function parsePiWebConfigValues(value: unknown): PiWebConfigValues {
     ...optionalField("spawnSessions", optionalBoolean(record, "spawnSessions")),
     ...optionalField("subsessions", optionalBoolean(record, "subsessions")),
     ...optionalField("askUser", optionalBoolean(record, "askUser")),
+    ...optionalField("environmentFacts", optionalBoolean(record, "environmentFacts")),
+    ...optionalField("extensionDialogsTimeoutMs", optionalNumber(record, "extensionDialogsTimeoutMs")),
     ...optionalField("sessionNaming", optionalSessionNaming(record["sessionNaming"])),
     ...optionalField("sessionArchive", optionalSessionArchive(record["sessionArchive"])),
   };

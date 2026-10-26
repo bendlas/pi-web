@@ -105,10 +105,11 @@ async function resolveWorkspacesWithEffectiveConfig(
 }
 
 async function workspaceEffectiveConfig(projectPath: string, config?: Pick<PiWebConfigService, "read">): Promise<WorkspaceEffectiveConfig> {
-  const globalConfig = config === undefined ? {} : (await config.read()).effectiveConfig;
+  const response = await config?.read();
+  const globalConfig = response?.effectiveConfig ?? {};
   return {
-    uploads: await loadEffectiveProjectUploadsConfig(projectPath, globalConfig),
-    attachments: await loadEffectiveProjectAttachmentsConfig(projectPath, globalConfig),
+    uploads: await loadEffectiveProjectUploadsConfig(projectPath, globalConfig, response?.enforcedSettings),
+    attachments: await loadEffectiveProjectAttachmentsConfig(projectPath, globalConfig, response?.enforcedSettings),
   };
 }
 

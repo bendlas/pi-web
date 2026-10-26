@@ -121,6 +121,7 @@ function pluginsPath(machineId?: string): string {
 export const configApi = {
   namingModels: (machineId = "local") => request(`${machinePrefix(machineId)}/models`, parseModelSelectionResponse),
   config: (machineId?: string) => request(configPath(machineId), parsePiWebConfigResponse),
+  updateConfig: (update: { set?: PiWebConfigValues; unset?: string[] }, machineId?: string) => request(configPath(machineId), parsePiWebConfigResponse, { method: "PATCH", body: JSON.stringify(update) }),
   saveConfig: (config: PiWebConfigValues, machineId?: string) => request(configPath(machineId), parsePiWebConfigResponse, { method: "PUT", body: JSON.stringify({ config }) }),
 };
 

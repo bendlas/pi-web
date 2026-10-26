@@ -3,6 +3,8 @@ import { themeMessages as messages } from "./settingsAppearanceMessages";
 import { stylesheetIntegrationCapability } from "../../plugins/styles";
 import { css, html, LitElement, type PropertyValues, type TemplateResult } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
+import type { PiWebConfigResponse } from "../../api";
+import { enforcedSetting, settingControls, type ResetSettings } from "./settingsConfigUpdate";
 import type { QualifiedThemeContribution } from "../../plugins/types";
 import { DEFAULT_THEME_PREFERENCE, type ThemePreference } from "../../theme";
 import { uiButtonStyles } from "../ui/controlStyles";
@@ -17,6 +19,8 @@ export class SettingsThemePanel extends LitElement {
     stylesheetIntegrationCapability.createController(this);
   }
 
+  @property({ attribute: false }) configResponse: PiWebConfigResponse | undefined;
+  @property({ attribute: false }) onReset?: ResetSettings;
   @property({ attribute: false }) themes: readonly QualifiedThemeContribution[] = [];
   @property({ attribute: false }) preference: ThemePreference = DEFAULT_THEME_PREFERENCE;
   @property({ attribute: false }) defaultPreference: ThemePreference = DEFAULT_THEME_PREFERENCE;
@@ -31,6 +35,7 @@ export class SettingsThemePanel extends LitElement {
 
   protected override willUpdate(changed: PropertyValues<this>): void {
     if (changed.has("preference")) this.draft = { ...this.preference };
+    if (enforcedSetting(this.configResponse, "/defaultTheme") !== undefined) this.draft = { ...(this.configResponse?.effectiveConfig.defaultTheme ?? this.preference) };
   }
 
   protected override updated(): void {
@@ -41,7 +46,7 @@ export class SettingsThemePanel extends LitElement {
 
   override render(): TemplateResult {
     const selectedAvailable = this.themes.some((theme) => theme.id === this.draft.themeId);
-    const busy = this.loading || this.saving;
+    const busy = this.loading || this.saving || enforcedSetting(this.configResponse, "/defaultTheme") !== undefined;
     return html`
       <section class="theme-card ui-settings-section" aria-labelledby="theme-heading">
         <header class="ui-settings-heading">
@@ -74,6 +79,7 @@ export class SettingsThemePanel extends LitElement {
           <button class="ui-button ui-button--action" ?disabled=${busy || !selectedAvailable} @click=${() => { void this.onSetDefault?.({ ...this.draft }); }}>${messages.t("setDefault")}</button>
           <button class="ui-button ui-button--action" ?disabled=${busy || !this.hasLocalOverride} @click=${() => this.onUseDefault?.()}>${messages.t("useDefault")}</button>
         </div>
+        ${settingControls(this.configResponse, "/defaultTheme", this.loading || this.saving, this.onReset)}
         <p class="hint" id="theme-scope-help">${messages.t("scope")}</p>
       </section>
     `;

@@ -28,6 +28,35 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
+describe("localization deployment policy", () => {
+  it.each(["language", "formatLocale", "timeZone", "hourCycle"] as const)("locks only %s, preserves hidden choices and restores them when unlocked", async (field) => {
+    const service = new LocalizationService();
+    const local = { language: "en", formatLocale: "de-DE", timeZone: "Europe/Berlin", hourCycle: "h12" as const };
+    const defaults = { language: "fr", formatLocale: "fr-FR", timeZone: "UTC", hourCycle: "h23" as const };
+    await service.setPreferenceOverrides(local);
+    await service.setPreferenceDefaults(defaults, { enforcedFields: { [field]: "DEPLOYMENT_ENV" }, sources: { [field]: "environment" } });
+    expect(service.preferences).toEqual({ ...local, [field]: defaults[field] });
+    expect(service.preferenceOverrides).toEqual(local);
+    expect(service.preferenceSettingPolicy(field)).toEqual({ locked: true, enforcedBy: "DEPLOYMENT_ENV", source: "environment" });
+    // A broad reset removes unlocked overrides only, not the saved value hidden by policy.
+    await service.setPreferenceOverrides({});
+    expect(service.preferenceOverrides).toEqual({ [field]: local[field] });
+    expect(service.preferences).toEqual(defaults);
+    await service.setPreferenceDefaults(defaults, {});
+    expect(service.preferences).toEqual({ ...defaults, [field]: local[field] });
+    expect(service.preferenceSettingPolicy(field).locked).toBe(false);
+  });
+
+  it("retains enforcement when ordinary defaults are updated without new metadata", async () => {
+    const service = new LocalizationService({ preferences: { language: "en", formatLocale: "de-DE" } });
+    await service.setPreferenceDefaults({ language: "en", formatLocale: "fr-FR" }, { enforcedFields: { formatLocale: "FORMAT_ENV" } });
+    await service.setPreferenceDefaults({ language: "en", formatLocale: "sv-SE" });
+    await service.setPreferences({ language: "en", formatLocale: "en-GB" });
+    expect(service.preferences.formatLocale).toBe("sv-SE");
+    expect(service.preferenceOverrides.formatLocale).toBe("de-DE");
+  });
+});
+
 describe("localization", () => {
   it("lists installed catalog languages without loading, deduplicates, and removes released languages", async () => {
     const { service } = setup();

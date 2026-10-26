@@ -13,6 +13,7 @@ import { piWebRuntimeIdentity } from "../shared/piWebRuntime.js";
 import { parsePiWebRuntimeComponent } from "../shared/piWebStatusParsing.js";
 import { SessionDaemonClient } from "../sessiond/sessionDaemonClient.js";
 import { isHostAbsoluteAgentDir, loadPiWebConfig, PI_CODING_AGENT_DIR_ENV, type LoadedPiWebConfig } from "../config.js";
+import { versionChecksDisabled } from "../shared/versionCheckPolicy.js";
 import { createPiWebReleaseLookupCache, type PiWebReleaseLookup } from "./piWebReleaseLookupCache.js";
 
 const PI_WEB_PACKAGE_NAME = "@jmfederico/pi-web";
@@ -655,10 +656,7 @@ function optionalMessageCommand(command: string | undefined): Pick<PiWebStatusMe
 }
 
 function skipVersionCheck(): boolean {
-  return ["PI_WEB_SKIP_VERSION_CHECK", "PI_WEB_OFFLINE", "PI_SKIP_VERSION_CHECK", "PI_OFFLINE"].some((key) => {
-    const value = process.env[key];
-    return value !== undefined && value !== "";
-  });
+  return versionChecksDisabled(process.env);
 }
 
 function isInstalledVersionNewer(installedVersion: string | undefined, runtimeVersion: string | undefined): boolean {
