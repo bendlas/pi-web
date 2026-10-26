@@ -96,7 +96,7 @@ export class AppContextBar extends LitElement {
             </button>
           </li>
         </ol>
-        ${this.hasContextActions() ? html`<div class="context-actions">${this.onShowNavigation === undefined ? null : html`<button type="button" class=${`context-action-button${this.hiddenActiveDestination ? " selected" : ""}`} data-navigation-trigger title=${m.t("navigation")} aria-label=${m.t("navigation")} aria-haspopup="dialog" @click=${this.onShowNavigation}>${renderNavigationMenuIcon()}</button>`}${this.renderActionsButton()}${this.refreshControl}</div>` : null}
+        ${this.hasContextActions() ? html`<div class="context-actions">${this.onShowNavigation === undefined ? null : html`<button type="button" class=${`context-action-button${this.hiddenActiveDestination ? " selected" : ""}`} data-navigation-trigger title=${m.t("navigation")} aria-label=${m.t("navigation")} aria-haspopup="dialog" @click=${this.onShowNavigation}>${renderNavigationMenuIcon()}</button>`}${this.refreshControl}${this.renderActionsButton()}</div>` : null}
       </nav>
     `;
   }
