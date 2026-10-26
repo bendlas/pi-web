@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
-import { afterEach, describe, expect, it } from "vitest";
+import { html } from "lit";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Machine } from "../../api";
 import { AppContextBar, machineContextDetail } from "./AppContextBar";
 
@@ -19,6 +20,22 @@ it("omits folder workspace selection while preserving project and session select
   bar.workspaceSelectionVisible = true;
   await bar.updateComplete;
   expect(bar.shadowRoot?.querySelector('button[aria-label^="Workspace:"]')).not.toBeNull();
+});
+
+it.each([false, true])("places reload before actions with navigation toggle: %s", async (showNavigation) => {
+  const bar = new AppContextBar();
+  bar.refreshControl = html`<button aria-label="Full page reload">Reload</button>`;
+  bar.onShowActions = vi.fn();
+  if (showNavigation) bar.onShowNavigation = vi.fn();
+  document.body.append(bar);
+  await bar.updateComplete;
+
+  const labels = Array.from(bar.shadowRoot?.querySelectorAll(".context-actions button") ?? [], (button) => button.getAttribute("aria-label"));
+  expect(labels).toEqual([
+    ...(showNavigation ? ["Navigation"] : []),
+    "Full page reload",
+    "Show Actions",
+  ]);
 });
 
 describe("machineContextDetail", () => {
