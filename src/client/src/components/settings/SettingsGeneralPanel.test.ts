@@ -10,6 +10,55 @@ afterEach(() => {
 });
 
 describe("General settings", () => {
+  it("shows effective machine base roots without claiming external access is denied", async () => {
+    const panel = await mountPanel();
+    panel.onResetMachine = vi.fn();
+    panel.machineConfigResponse = {
+      ...configResponse({ basePaths: ["/saved-root"] }),
+      effectiveConfig: { basePaths: ["/effective-root"] },
+      enforcedSettings: { "/basePaths": "PI_WEB_BASE_PATHS" },
+    };
+    await settle(panel);
+    const summary = required(panel.shadowRoot?.querySelector('[aria-label="Effective selected machine file access and upload summary"]'));
+    expect(summary.textContent).toContain("/effective-root");
+    expect(summary.textContent).not.toContain("/saved-root");
+    expect(summary.textContent).not.toContain("No machine-wide external roots");
+    expect(summary.textContent).not.toContain("External paths denied");
+    expect(summary.textContent).toContain("PI_WEB_BASE_PATHS");
+    expect(summary.textContent).toContain("project additions are not shown here");
+    expect(summary.querySelector("button")).toBeNull();
+    expect(required(panel.shadowRoot?.querySelector<HTMLTextAreaElement>('textarea[placeholder^="~/SDKs"]')).value).toBe("");
+
+    panel.machineConfigResponse = {
+      ...configResponse({ basePaths: ["/file-root"] }),
+      configSources: { "/basePaths": "user config" },
+    };
+    await settle(panel);
+    expect(summary.textContent).toContain("user config");
+    expect(summary.textContent).not.toContain("PI_WEB_BASE_PATHS");
+    expect(summary.querySelector("button")).toBeNull();
+  });
+
+  it("lists base roots separately from global additions and does not save base roots with edits", async () => {
+    const panel = await mountPanel();
+    panel.machineConfigResponse = configResponse({ basePaths: ["/base"], pathAccess: { allowedPaths: ["/additional"] } });
+    await settle(panel);
+    const summary = required(panel.shadowRoot?.querySelector('[aria-label="Effective selected machine file access and upload summary"]'));
+    const rows = Array.from(summary.querySelectorAll("dl > div"));
+    expect(rows[0]?.querySelector("dt")?.textContent).toBe("Machine base roots");
+    expect(rows[0]?.querySelector("dd")?.textContent).toContain("/base");
+    expect(rows[0]?.textContent).not.toContain("/additional");
+    expect(rows[1]?.querySelector("dt")?.textContent).toBe("Global additions");
+    expect(rows[1]?.querySelector("dd")?.textContent).toBe("/additional");
+    expect(summary.textContent).not.toContain("No machine-wide external roots");
+    const save = vi.fn();
+    panel.onSaveMachineConfig = save;
+    edit(panel, machineInput, "manual/uploads");
+    submit(panel, 1);
+    await settle(panel);
+    expect(save).toHaveBeenCalledExactlyOnceWith({ uploads: { defaultFolder: "manual/uploads" } });
+  });
+
   it("edits and clears the selected machine name through the machine config save", async () => {
     const panel = await mountPanel();
     panel.machineConfigResponse = configResponse({ installationName: "Studio" });

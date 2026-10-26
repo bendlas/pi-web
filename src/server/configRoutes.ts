@@ -1,11 +1,12 @@
 import type { FastifyInstance } from "fastify";
 import { loadPiWebConfig, overlayPiWebConfig, piWebConfigEnforcedSettings, piWebConfigSources, parsePiWebConfig, resolveEffectivePiWebConfig, savePiWebConfig, type AgentPathHost, type LoadOptions, type PiWebConfig } from "../config.js";
-import { CONFIG_KEYS, parseConfigPointer, removeConfigOverrides, validateConfigUpdate, type PiWebConfigUpdate } from "./configUpdates.js";
+import { CONFIG_KEYS, parseConfigPointer, preserveEnforcedConfigOverrides, removeConfigOverrides, validateConfigUpdate, type PiWebConfigUpdate } from "./configUpdates.js";
 import type { PiWebConfigEnvOverrides, PiWebConfigResponse, PiWebConfigValues } from "../shared/apiTypes.js";
 
 export interface PiWebConfigService {
   read: () => PiWebConfigResponse | Promise<PiWebConfigResponse>;
   write: (config: PiWebConfigValues) => PiWebConfigResponse | Promise<PiWebConfigResponse>;
+  replace?: (config: PiWebConfigValues, selectedMachine: boolean) => PiWebConfigResponse | Promise<PiWebConfigResponse>;
   update?: (update: PiWebConfigUpdate) => PiWebConfigResponse | Promise<PiWebConfigResponse>;
 }
 
@@ -34,6 +35,12 @@ export function createFilePiWebConfigService(options: LoadOptions = {}): PiWebCo
     read: () => currentPiWebConfigResponse(options),
     write: (config) => {
       savePiWebConfig(config, options);
+      return currentPiWebConfigResponse(options);
+    },
+    replace: (config, selectedMachine) => {
+      const current = currentPiWebConfigResponse(options);
+      const replacement = selectedMachine ? mergeSelectedMachineConfig(current.config, config) : config;
+      savePiWebConfig(preserveEnforcedConfigOverrides(current.config, replacement, current.enforcedSettings), options);
       return currentPiWebConfigResponse(options);
     },
     update: (update) => {
@@ -80,7 +87,7 @@ export function registerConfigRoutes(app: FastifyInstance, service: PiWebConfigS
 
   app.put<{ Body: { config?: unknown } | undefined }>("/api/config", async (request, reply) => {
     try {
-      return await service.write(parseConfigRequest(request.body?.config));
+      return await replaceConfigService(service, parseConfigRequest(request.body?.config));
     } catch (error) {
       const status = isConfigValidationError(error) ? 400 : 500;
       return reply.code(status).send({ error: errorMessage(error) });
@@ -107,9 +114,8 @@ export function registerLocalMachineConfigRoutes(app: FastifyInstance, service: 
 
   app.put<{ Body: { config?: unknown } | undefined }>("/api/machines/local/config", async (request, reply) => {
     try {
-      const current = await service.read();
       const patch = parseSelectedMachineConfigRequest(request.body?.config);
-      return selectedMachineConfigResponse(await service.write(mergeSelectedMachineConfig(current.config, patch)));
+      return selectedMachineConfigResponse(await replaceConfigService(service, patch, true));
     } catch (error) {
       const status = isConfigValidationError(error) ? 400 : 500;
       return reply.code(status).send({ error: errorMessage(error) });
@@ -137,6 +143,13 @@ export function parsePiWebConfigUpdate(value: unknown, selectedMachine = false, 
 export function applyPiWebConfigUpdate(current: PiWebConfigResponse, update: PiWebConfigUpdate): PiWebConfig {
   validateConfigUpdate(update, current.enforcedSettings);
   return parseConfigRequest(removeConfigOverrides(overlayPiWebConfig(current.config, update.set ?? {}), update.unset ?? []));
+}
+
+async function replaceConfigService(service: PiWebConfigService, config: PiWebConfigValues, selectedMachine = false): Promise<PiWebConfigResponse> {
+  if (service.replace !== undefined) return service.replace(config, selectedMachine);
+  const current = await service.read();
+  const replacement = selectedMachine ? mergeSelectedMachineConfig(current.config, config) : config;
+  return service.write(preserveEnforcedConfigOverrides(current.config, replacement, current.enforcedSettings));
 }
 
 async function updateConfigService(service: PiWebConfigService, update: PiWebConfigUpdate): Promise<PiWebConfigResponse> {
@@ -216,23 +229,7 @@ function parseConfigRequest(value: unknown, agentPathHost: AgentPathHost = "curr
 }
 
 function pickSelectedMachineConfig(config: PiWebConfigValues): PiWebConfig {
-  return {
-    ...(config.installationName !== undefined ? { installationName: config.installationName } : {}),
-    ...(config.plugins !== undefined ? { plugins: config.plugins } : {}),
-    ...(config.pathAccess !== undefined ? { pathAccess: config.pathAccess } : {}),
-    ...(config.basePaths !== undefined ? { basePaths: config.basePaths } : {}),
-    ...(config.uploads !== undefined ? { uploads: config.uploads } : {}),
-    ...(config.attachments !== undefined ? { attachments: config.attachments } : {}),
-    ...(config.maxUploadBytes !== undefined ? { maxUploadBytes: config.maxUploadBytes } : {}),
-    ...(config.sessionNaming !== undefined ? { sessionNaming: config.sessionNaming } : {}),
-    ...(config.spawnSessions !== undefined ? { spawnSessions: config.spawnSessions } : {}),
-    ...(config.subsessions !== undefined ? { subsessions: config.subsessions } : {}),
-    ...(config.askUser !== undefined ? { askUser: config.askUser } : {}),
-    ...(config.environmentFacts !== undefined ? { environmentFacts: config.environmentFacts } : {}),
-    ...(config.extensionDialogsTimeoutMs !== undefined ? { extensionDialogsTimeoutMs: config.extensionDialogsTimeoutMs } : {}),
-    ...(config.sessionArchive !== undefined ? { sessionArchive: config.sessionArchive } : {}),
-    ...(config.agent !== undefined ? { agent: config.agent } : {}),
-  };
+  return Object.fromEntries(Object.entries(config).filter(([key, value]) => value !== undefined && SELECTED_MACHINE_CONFIG_KEY_SET.has(key)));
 }
 
 function selectedMachineConfigErrorMessage(error: unknown): string {

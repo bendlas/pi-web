@@ -70,6 +70,20 @@ Admins may enforce the base, additions, or both through environment variables. E
 - Resolve environment overrides consistently in web/API and session-daemon consumers. Document required reloads or restarts.
 - Server security restrictions must be enforced server-side. Browser preference enforcement controls normal application behavior, not user modifications to their browser.
 
+## Plugin contract
+
+Server plugins use host-supplied `context.settings` and optional `context.resolveProjectSettings(project, signal)`. They do not read PI WEB config files or parse its environment overrides. The host parses JSON, resolves layers, and supplies frozen snapshots; plugins own defaults and semantic validation of their setting keys/values. No settings UI or registered schema is required. Browser-only plugins do not yet have equivalent generic delivery. Do not build a schema framework or automatic form generator for this contract.
+
+## Adding a core setting
+
+1. Add its type to `PiWebConfigValues` and input kind to `PI_WEB_CONFIG_DEFINITIONS`. For a container field, update its namespace field list; individual array/dictionary values remain atomic.
+2. Add explicit validation in `parsePiWebConfig` or a feature validator. Known container keys must be checked before projecting values; malformed policy must never become an empty override. Serialization and known-key removal derive from the definitions.
+3. Decide gateway/machine scope and activation timing. Add machine-safe keys to `SELECTED_MACHINE_CONFIG_KEYS`; add project support explicitly only when appropriate.
+4. Update the client response parser if browser consumers need the value. Add an editor only when useful; reuse the shared source/lock/reset helpers.
+5. Test file/env validation, layer precedence, persistence/reset, and enforcement at the narrowest owning boundary. Update `docs/config.md`, its HTML reference, and the release fragment.
+
+Keep feature-specific composition explicit. Do not introduce generic deep merging, reflection-driven forms, or a second plugin-owned config reader.
+
 ## Boundaries and migration
 
 Application state (sessions and registries) is not configuration. Keep credentials protected and Pi-owned configuration under Pi's supported mechanisms. Config-file selection and process startup wiring require explicit bootstrap handling rather than circular resolution through the selected files. `serverPlugins.safeStart` remains separately loaded offline recovery state: it must work before plugin discovery and preserve fail-closed repair of malformed recovery values.

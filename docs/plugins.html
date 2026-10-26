@@ -131,6 +131,8 @@ Here's what I want:
               <h3 id="pi-packages-extensions-and-plugins">Packages, extensions, and plugins</h3>
               <span id="packages-vs-plugins"></span><span id="pi-packages"></span>
               <p>A <strong>Pi package</strong> is an installable bundle. A <strong>Pi extension</strong> changes agent behavior; a <strong>PI WEB plugin</strong> adds web tools. One package can include both. Disabling its web plugin leaves its extensions, skills, and prompts available.</p>
+              <h3 id="plugin-configuration">Plugin configuration</h3>
+              <p>Server plugins receive resolved settings from PI WEB without reading config files or parsing environment variables themselves. No settings UI is required; plugins validate their own values. Settings currently edits enablement, not arbitrary plugin settings. See the <a href="plugins.md#plugin-configuration-without-a-settings-ui">plugin configuration contract</a> for delivery, project overrides, and browser-only limitations. Generic settings are not a secret store.</p>
               <h3 id="remote-machines">Remote machines</h3>
               <span id="remote-machine-plugins"></span>
               <p>Installation and settings apply to the machine selected in Settings. A remote plugin runs its server work there and shows its UI in your browser. Keep gateway and remote PI WEB versions compatible.</p>

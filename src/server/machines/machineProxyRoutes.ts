@@ -6,6 +6,7 @@ import {
   pluginBackendScopeFromRoute,
   PLUGIN_BACKEND_CHANNEL_DATA_FRAME_MAX_BYTES,
 } from "../../shared/pluginBackendProtocol.js";
+import { preserveEnforcedConfigOverrides } from "../configUpdates.js";
 import { mergeSelectedMachineConfig, parsePiWebConfigResponseBody, parsePiWebConfigUpdate, parseSelectedMachineConfigRequest, selectedMachineConfigResponse } from "../configRoutes.js";
 import {
   type PluginBackendChannelProxyAdmissionPool,
@@ -241,7 +242,7 @@ async function proxySelectedMachineConfigRequest(client: MachineClient, machineI
     if (!isSuccessfulStatus(currentResponse.statusCode)) return sendUpstreamJsonResponse(reply, currentResponse, machineId);
 
     const current = parsePiWebConfigResponseBody(currentResponse.body, "Remote machine config response");
-    const merged = mergeSelectedMachineConfig(current.config, patch);
+    const merged = preserveEnforcedConfigOverrides(current.config, mergeSelectedMachineConfig(current.config, patch), current.enforcedSettings);
     return sendSelectedMachineConfigResponse(reply, await client.requestJson("PUT", remotePath, { config: merged }), machineId);
   }
 

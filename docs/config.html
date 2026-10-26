@@ -145,7 +145,7 @@
   "set": { "quietMode": true },
   "unset": ["/defaultTheme", "/defaultLocalization/timeZone", "/plugins/git/settings/workspaceDiscoveryHooks"]
 }</code></pre>
-<p><code>unset</code> accepts known leaf pointers such as <code>/sessionNaming/model</code>, <code>/uploads/defaultFolder</code>, and <code>/pathAccess/allowedPaths</code>, as well as container resets such as <code>/sessionNaming</code>. Atomic settings reset at their top-level pointer, such as <code>/defaultTheme</code>. UI container-group resets remove only unlocked saved leaves in one request. An API container reset overlapping any enforced leaf is rejected, preserving saved choices hidden by enforcement. In pointer segments, escape <code>~</code> as <code>~0</code> and <code>/</code> as <code>~1</code>: setting <code>a/b~c</code> uses <code>/plugins/git/settings/a~1b~0c</code>. Conflicting set/unset targets and enforced changes are rejected. There is no null reset sentinel: <code>null</code> keeps its schema meaning, such as disabling a shortcut. Existing <code>PUT</code> endpoints retain their save behavior.</p>
+<p><code>unset</code> accepts known leaf pointers such as <code>/sessionNaming/model</code>, <code>/uploads/defaultFolder</code>, and <code>/pathAccess/allowedPaths</code>, as well as container resets such as <code>/sessionNaming</code>. Atomic settings reset at their top-level pointer, such as <code>/defaultTheme</code>. UI container-group resets remove only unlocked saved leaves in one request. An API container reset overlapping any enforced leaf is rejected, preserving saved choices hidden by enforcement. In pointer segments, escape <code>~</code> as <code>~0</code> and <code>/</code> as <code>~1</code>: setting <code>a/b~c</code> uses <code>/plugins/git/settings/a~1b~0c</code>. Conflicting set/unset targets and enforced changes are rejected. There is no null reset sentinel: <code>null</code> keeps its schema meaning, such as disabling a shortcut. Existing <code>PUT</code> endpoints retain replacement semantics for unenforced settings. Omitted enforced settings preserve their hidden saved values; explicitly changing an enforced saved value is rejected, while unchanged values may round-trip. A legacy save cannot create a saved override for an enforced setting when none exists. Federated protection requires enforcement metadata from the target; upgrade older peers before relying on it.</p>
 </details>
 <div class="table-scroll" role="region" aria-label="Project-local behavior" tabindex="0">
 <table class="reference-table ">
@@ -442,7 +442,7 @@
 <th scope="row"><span id="extension-dialogs" class="reference-anchor"></span>Extension dialog timeout<br><code>extensionDialogsTimeoutMs</code></th>
 <td>Machine</td>
 <td><code>300000</code> (5 min)</td>
-<td>Cancel unanswered extension dialogs after this interval; <code>0</code> waits forever.</td>
+<td>Cancel unanswered extension dialogs after this interval; <code>0</code> waits forever. Accepts integers through <code>2147483647</code> milliseconds; larger values are rejected to prevent timer overflow.</td>
 <td>Sessiond restart</td>
 </tr>
 <tr>
@@ -835,7 +835,7 @@
 </section>
 <section id="environment"><h2>Environment overrides</h2>
 <p>Every nondeprecated runtime core key has a <code>PI_WEB_&lt;SNAKE_CASE_KEY&gt;</code> override. These enforce values over machine, supported project, and applicable browser choices. Look up the setting above for scope and restart requirements. Offline plugin recovery state is managed separately by the recovery CLI.</p>
-<p>Strings/numbers use scalar values; object/array settings use JSON. Container JSON variables retain their existing names and enforce only supplied namespace leaves, including <code>pathAccess.allowedPaths</code> and plugin leaves; <code>{}</code> enforces none. Atomic settings lock the whole value. Boolean inputs accept only <code>true</code>/<code>false</code> (case-insensitive) or <code>1</code>/<code>0</code>. Invalid supplied policy fails startup rather than being ignored.</p>
+<p>Strings/numbers use scalar values; object/array settings use JSON. Container JSON variables retain their existing names and enforce only supplied namespace leaves, including <code>pathAccess.allowedPaths</code> and plugin leaves; <code>{}</code> enforces none. Atomic settings lock the whole value. Boolean inputs accept only <code>true</code>/<code>false</code> (case-insensitive) or <code>1</code>/<code>0</code>. Invalid supplied policy fails startup rather than being ignored. Unknown fields in declared core containers, including misspellings in <code>pathAccess</code>, <code>uploads</code>, and <code>attachments</code>, are errors. Plugin environment envelopes accept only <code>enabled</code> and <code>settings</code>; keys inside <code>settings</code> remain plugin-owned.</p>
 <pre><code>PI_WEB_INSTALLATION_NAME='Build lab'
 PI_WEB_BASE_PATHS='["/opt/reference"]'
 PI_WEB_UPLOADS='{"defaultFolder":"manual/uploads"}'
@@ -908,7 +908,7 @@ PI_WEB_PLUGINS='{"git":{"settings":{"workspaceDiscoveryHooks":false}}}'</code></
 </tr>
 <tr><th scope="row"><code>quietMode</code></th><td><code>PI_WEB_QUIET_MODE</code></td><td><code>0 | 1 | true | false</code></td></tr>
 <tr><th scope="row"><code>defaultStreamingBehavior</code></th><td><code>PI_WEB_DEFAULT_STREAMING_BEHAVIOR</code></td><td><code>steer</code> or <code>followUp</code></td></tr>
-<tr><th scope="row"><code>extensionDialogsTimeoutMs</code></th><td><code>PI_WEB_EXTENSION_DIALOGS_TIMEOUT_MS</code></td><td>Nonnegative integer milliseconds; <code>0</code> waits forever</td></tr>
+<tr><th scope="row"><code>extensionDialogsTimeoutMs</code></th><td><code>PI_WEB_EXTENSION_DIALOGS_TIMEOUT_MS</code></td><td>Integer milliseconds from <code>0</code> through <code>2147483647</code>; <code>0</code> waits forever</td></tr>
 <tr><th scope="row"><code>basePaths</code></th><td><code>PI_WEB_BASE_PATHS</code></td><td>JSON string array</td></tr>
 <tr><th scope="row"><code>pathAccess</code></th><td><code>PI_WEB_PATH_ACCESS</code></td><td>JSON object, e.g. <code>{"allowedPaths":[]}</code></td></tr>
 <tr><th scope="row"><code>uploads</code></th><td><code>PI_WEB_UPLOADS</code></td><td>JSON object with <code>defaultFolder</code></td></tr>

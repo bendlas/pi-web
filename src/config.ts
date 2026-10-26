@@ -10,7 +10,7 @@ import { requireDefaultStreamingBehavior } from "./shared/streamingBehavior.js";
 import { isKnownThinkingLevel } from "./shared/thinkingLevels.js";
 import { requireInstallationName } from "./shared/installationName.js";
 
-import { PI_WEB_CONFIG_DEFINITIONS, overlayPiWebConfig, parsePiWebEnvBoolean, piWebConfigEnvName, piWebConfigSettingPointers } from "./shared/configResolution.js";
+import { PI_WEB_CONFIG_DEFINITIONS, overlayPiWebConfig, parsePiWebEnvBoolean, piWebConfigEnvName, piWebConfigNamespaceFields, piWebConfigSettingPointers } from "./shared/configResolution.js";
 import { versionChecksDisabled } from "./shared/versionCheckPolicy.js";
 export { overlayPiWebConfig } from "./shared/configResolution.js";
 
@@ -78,6 +78,7 @@ export const DEFAULT_ATTACHMENT_FOLDER = ".pi-web/attachments";
  * enabled.
  */
 export const DEFAULT_EXTENSION_DIALOGS_TIMEOUT_MS = 300_000;
+const MAX_TIMER_TIMEOUT_MS = 2_147_483_647;
 
 export const PI_WEB_AGENT_COMMAND_ENV = "PI_WEB_AGENT_COMMAND";
 export const PI_WEB_AGENT_DIR_ENV = "PI_WEB_AGENT_DIR";
@@ -244,30 +245,7 @@ export function savePiWebConfig(config: PiWebConfig, options: LoadOptions = {}):
   effectiveAgentConfig(env, normalized);
   const existing = readExistingConfigObject(path);
   if (existing["agent"] !== undefined) parseAgentConfig(existing["agent"], path);
-  delete existing["installationName"];
-  delete existing["host"];
-  delete existing["port"];
-  delete existing["allowedHosts"];
-  delete existing["shortcuts"];
-  delete existing["defaultTheme"];
-  delete existing["defaultLocalization"];
-  delete existing["defaultStreamingBehavior"];
-  delete existing["quietMode"];
-  delete existing["plugins"];
-  delete existing["basePaths"];
-  delete existing["pathAccess"];
-  delete existing["uploads"];
-  delete existing["attachments"];
-  delete existing["maxUploadBytes"];
-  delete existing["sessionNaming"];
-  delete existing["sessionArchive"];
-  delete existing["spawnSessions"];
-  delete existing["subsessions"];
-  delete existing["askUser"];
-  delete existing["respectProjectTrust"];
-  delete existing["environmentFacts"];
-  delete existing["extensionDialogsTimeoutMs"];
-  delete existing["agent"];
+  for (const key of [...Object.keys(PI_WEB_CONFIG_DEFINITIONS), "agent", "respectProjectTrust"]) Reflect.deleteProperty(existing, key);
   const merged = { ...existing, ...piWebConfigRecord(normalized) };
   writeWritableConfig(path, merged);
   return loadPiWebConfig(options);
@@ -320,6 +298,11 @@ function piWebConfigEnvOverrides(env: NodeJS.ProcessEnv): { config: PiWebConfig;
     else if (kind === "number") parsed = value === "" ? NaN : Number(value);
     else if (kind === "allowedHosts") parsed = parseAllowedHostsEnv(value);
     else parsed = value;
+    if (key === "plugins" && isRecord(parsed)) {
+      for (const [id, plugin] of Object.entries(parsed)) {
+        if (isRecord(plugin)) requireKnownConfigKeys(plugin, ["enabled", "settings"], `plugins.${id}`, name);
+      }
+    }
     const override = parsePiWebConfig({ [key]: parsed }, name);
     config = overlayPiWebConfig(config, override);
     for (const pointer of piWebConfigSettingPointers(override)) enforced[pointer] = name;
@@ -359,31 +342,16 @@ function readExistingConfigObject(path: string): Record<string, unknown> {
 }
 
 function piWebConfigRecord(config: PiWebConfig): Record<string, unknown> {
-  return {
-    ...(config.installationName !== undefined ? { installationName: config.installationName } : {}),
-    ...(config.host !== undefined ? { host: config.host } : {}),
-    ...(config.port !== undefined ? { port: config.port } : {}),
-    ...(config.allowedHosts !== undefined ? { allowedHosts: config.allowedHosts } : {}),
-    ...(config.shortcuts !== undefined ? { shortcuts: config.shortcuts } : {}),
-    ...(config.defaultTheme !== undefined ? { defaultTheme: config.defaultTheme } : {}),
-    ...(config.defaultLocalization !== undefined ? { defaultLocalization: config.defaultLocalization } : {}),
-    ...(config.defaultStreamingBehavior !== undefined ? { defaultStreamingBehavior: config.defaultStreamingBehavior } : {}),
-    ...(config.quietMode !== undefined ? { quietMode: config.quietMode } : {}),
-    ...(config.plugins !== undefined ? { plugins: config.plugins } : {}),
-    ...(config.basePaths !== undefined ? { basePaths: config.basePaths } : {}),
-    ...(config.pathAccess !== undefined ? { pathAccess: config.pathAccess } : {}),
-    ...(config.uploads !== undefined ? { uploads: config.uploads } : {}),
-    ...(config.attachments !== undefined ? { attachments: config.attachments } : {}),
-    ...(config.maxUploadBytes !== undefined ? { maxUploadBytes: config.maxUploadBytes } : {}),
-    ...(config.sessionNaming !== undefined ? { sessionNaming: config.sessionNaming } : {}),
-    ...(config.sessionArchive !== undefined ? { sessionArchive: config.sessionArchive } : {}),
-    ...(config.spawnSessions !== undefined ? { spawnSessions: config.spawnSessions } : {}),
-    ...(config.subsessions !== undefined ? { subsessions: config.subsessions } : {}),
-    ...(config.askUser !== undefined ? { askUser: config.askUser } : {}),
-    ...(config.environmentFacts !== undefined ? { environmentFacts: config.environmentFacts } : {}),
-    ...(config.extensionDialogsTimeoutMs !== undefined ? { extensionDialogsTimeoutMs: config.extensionDialogsTimeoutMs } : {}),
-    ...(config.agent !== undefined ? { agent: config.agent } : {}),
-  };
+  return Object.fromEntries(Object.entries(config).filter(([key, value]) => value !== undefined && (Object.hasOwn(PI_WEB_CONFIG_DEFINITIONS, key) || key === "agent")));
+}
+
+function requireKnownConfigKeys(value: Record<string, unknown>, allowed: readonly string[], key: string, path: string): void {
+  const unknown = Object.keys(value).find((name) => !allowed.includes(name));
+  if (unknown !== undefined) throw new Error(`PI WEB config ${key} has unknown key ${JSON.stringify(unknown)}: ${path}`);
+}
+
+function requireNamespaceKeys(value: Record<string, unknown>, key: string, path: string): void {
+  requireKnownConfigKeys(value, piWebConfigNamespaceFields(key) ?? [], key, path);
 }
 
 export function parsePiWebConfig(value: Record<string, unknown>, path = "request", pathHost: AgentPathHost = "current"): PiWebConfig {
@@ -416,8 +384,7 @@ export function parsePiWebConfig(value: Record<string, unknown>, path = "request
 
 export function parseSessionArchiveConfig(value: unknown, path: string): NonNullable<PiWebConfigValues["sessionArchive"]> {
   if (!isRecord(value)) throw new Error(`PI WEB config sessionArchive must be an object: ${path}`);
-  const unknownKey = Object.keys(value).find((key) => key !== "directory");
-  if (unknownKey !== undefined) throw new Error(`PI WEB config sessionArchive has unknown key ${JSON.stringify(unknownKey)}: ${path}`);
+  requireNamespaceKeys(value, "sessionArchive", path);
   const directory = value["directory"];
   if (directory === undefined) return {};
   if (typeof directory !== "string" || directory.trim() === "" || directory.includes("\u0000")) {
@@ -428,8 +395,7 @@ export function parseSessionArchiveConfig(value: unknown, path: string): NonNull
 
 export function parseSessionNamingConfig(value: unknown, path: string): NonNullable<PiWebConfigValues["sessionNaming"]> {
   if (!isRecord(value)) throw new Error(`PI WEB config sessionNaming must be an object: ${path}`);
-  const unknownKey = Object.keys(value).find((key) => key !== "model" && key !== "maxTokens" && key !== "thinkingLevel" && key !== "timeoutMs");
-  if (unknownKey !== undefined) throw new Error(`PI WEB config sessionNaming has unknown key ${JSON.stringify(unknownKey)}: ${path}`);
+  requireNamespaceKeys(value, "sessionNaming", path);
   const model = value["model"];
   const maxTokens = value["maxTokens"];
   const thinkingLevel = value["thinkingLevel"];
@@ -443,7 +409,7 @@ export function parseSessionNamingConfig(value: unknown, path: string): NonNulla
   if (thinkingLevel !== undefined && (typeof thinkingLevel !== "string" || !isKnownThinkingLevel(thinkingLevel))) {
     throw new Error(`PI WEB config sessionNaming.thinkingLevel must be a known thinking level: ${path}`);
   }
-  if (timeoutMs !== undefined && (typeof timeoutMs !== "number" || !Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 2147483647)) {
+  if (timeoutMs !== undefined && (typeof timeoutMs !== "number" || !Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > MAX_TIMER_TIMEOUT_MS)) {
     throw new Error(`PI WEB config sessionNaming.timeoutMs must be an integer from 1 to 2147483647: ${path}`);
   }
   return {
@@ -501,8 +467,8 @@ function parseAskUser(value: unknown, path: string): boolean {
 }
 
 function parseExtensionDialogsTimeoutMs(value: unknown, path: string): number {
-  if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
-    throw new Error(`PI WEB config extensionDialogsTimeoutMs must be a non-negative integer: ${path}`);
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 0 || value > MAX_TIMER_TIMEOUT_MS) {
+    throw new Error(`PI WEB config extensionDialogsTimeoutMs must be a non-negative integer no greater than ${String(MAX_TIMER_TIMEOUT_MS)}: ${path}`);
   }
   return value;
 }
@@ -649,6 +615,7 @@ function parseAllowedHostsEnv(value: string): string[] | true {
 
 export function parsePathAccessConfig(value: unknown, path: string): NonNullable<PiWebConfigValues["pathAccess"]> {
   if (!isRecord(value)) throw new Error(`PI WEB config pathAccess must be an object: ${path}`);
+  requireNamespaceKeys(value, "pathAccess", path);
   const allowedPaths = value["allowedPaths"];
   return {
     ...(allowedPaths !== undefined ? { allowedPaths: parseAllowedPaths(allowedPaths, path) } : {}),
@@ -667,6 +634,7 @@ function parseAllowedPaths(value: unknown, path: string): string[] {
 
 export function parseUploadsConfig(value: unknown, path: string): NonNullable<PiWebConfigValues["uploads"]> {
   if (!isRecord(value)) throw new Error(`PI WEB config uploads must be an object: ${path}`);
+  requireNamespaceKeys(value, "uploads", path);
   const defaultFolder = value["defaultFolder"];
   return {
     ...(defaultFolder !== undefined ? { defaultFolder: parseWorkspaceRelativeFolder(defaultFolder, "uploads.defaultFolder", path) } : {}),
@@ -675,6 +643,7 @@ export function parseUploadsConfig(value: unknown, path: string): NonNullable<Pi
 
 export function parseAttachmentsConfig(value: unknown, path: string): NonNullable<PiWebConfigValues["attachments"]> {
   if (!isRecord(value)) throw new Error(`PI WEB config attachments must be an object: ${path}`);
+  requireNamespaceKeys(value, "attachments", path);
   const defaultFolder = value["defaultFolder"];
   return {
     ...(defaultFolder !== undefined ? { defaultFolder: parseWorkspaceRelativeFolder(defaultFolder, "attachments.defaultFolder", path) } : {}),

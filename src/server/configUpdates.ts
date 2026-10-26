@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util";
 import type { PiWebConfigValues } from "../shared/apiTypes.js";
 import { PI_WEB_CONFIG_DEFINITIONS, piWebConfigNamespaceFields, piWebConfigSettingPointers } from "../shared/configResolution.js";
 
@@ -39,6 +40,40 @@ export function validateConfigUpdate(update: PiWebConfigUpdate, enforced: Readon
     const policy = Object.entries(enforced).find(([pointer]) => overlappingConfigPointers(pointer, target));
     if (policy !== undefined) fail(`${target} is enforced by ${policy[1]}`);
   }
+}
+
+/** Legacy replacement may omit locked settings, but must not change hidden saved overrides. */
+export function preserveEnforcedConfigOverrides(current: PiWebConfigValues, replacement: PiWebConfigValues, enforced: Readonly<Record<string, string>> = {}): PiWebConfigValues {
+  const result: Record<string, unknown> = structuredClone({ ...replacement });
+  for (const [pointer, source] of Object.entries(enforced)) {
+    const parts = parseConfigPointer(pointer);
+    const saved = valueAt(current, parts);
+    const supplied = valueAt(replacement, parts);
+    if (supplied !== undefined && !isDeepStrictEqual(supplied, saved)) fail(`${pointer} is enforced by ${source}`);
+    if (saved === undefined) continue;
+    let record = result;
+    for (const part of parts.slice(0, -1)) {
+      const child = Object.hasOwn(record, part) ? record[part] : undefined;
+      if (isRecord(child)) {
+        record = child;
+      } else {
+        const envelope: Record<string, unknown> = {};
+        Object.defineProperty(record, part, { value: envelope, enumerable: true, writable: true, configurable: true });
+        record = envelope;
+      }
+    }
+    const key = parts.at(-1);
+    if (key !== undefined) Object.defineProperty(record, key, { value: structuredClone(saved), enumerable: true, writable: true, configurable: true });
+  }
+  return result;
+}
+
+function valueAt(value: unknown, parts: readonly string[]): unknown {
+  for (const part of parts) {
+    if (!isRecord(value) || !Object.hasOwn(value, part)) return undefined;
+    value = value[part];
+  }
+  return value;
 }
 
 /** Remove only saved overrides; prune empty namespace envelopes to restore inheritance. */

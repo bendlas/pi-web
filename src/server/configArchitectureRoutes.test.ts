@@ -30,6 +30,39 @@ function start(env: NodeJS.ProcessEnv = {}): void {
 }
 
 describe("layered config updates", () => {
+  it.each(["/api/config", "/api/machines/local/config"])("protects hidden overrides during legacy PUT through %s", async (url) => {
+    writeFileSync(defaults, "{}");
+    const saved = { installationName: "Hidden", sessionNaming: { model: "provider/hidden", maxTokens: 64 }, askUser: false, quietMode: true };
+    writeFileSync(writable, JSON.stringify(saved));
+    start({ PI_WEB_INSTALLATION_NAME: "Enforced", PI_WEB_SESSION_NAMING: '{"model":"provider/enforced"}' });
+    const read = await app.inject({ method: "GET", url });
+    const roundtrip = await app.inject({ method: "PUT", url, payload: { config: read.json<PiWebConfigResponse>().config } });
+    expect(roundtrip.statusCode).toBe(200);
+    expect(JSON.parse(readFileSync(writable, "utf8"))).toEqual(saved);
+    for (const config of [{ installationName: "New" }, { sessionNaming: { model: "provider/new" } }]) {
+      const rejected = await app.inject({ method: "PUT", url, payload: { config } });
+      expect(rejected.statusCode).toBe(400);
+      expect(rejected.json<{ error: string }>().error).toContain("enforced by");
+      expect(JSON.parse(readFileSync(writable, "utf8"))).toEqual(saved);
+    }
+    const result = await app.inject({ method: "PUT", url, payload: { config: { sessionNaming: { timeoutMs: 1000 } } } });
+    expect(result.statusCode).toBe(200);
+    expect(JSON.parse(readFileSync(writable, "utf8"))).toEqual({
+      ...(url === "/api/config" ? {} : { askUser: false, quietMode: true }),
+      installationName: "Hidden", sessionNaming: { model: "provider/hidden", timeoutMs: 1000 },
+    });
+    expect(result.json<PiWebConfigResponse>().effectiveConfig).toMatchObject({ installationName: "Enforced", sessionNaming: { model: "provider/enforced", timeoutMs: 1000 } });
+  });
+
+  it.each(["/api/config", "/api/machines/local/config"])("does not materialize absent enforced saved settings through %s", async (url) => {
+    writeFileSync(defaults, "{}");
+    writeFileSync(writable, "{}");
+    start({ PI_WEB_INSTALLATION_NAME: "Enforced", PI_WEB_SESSION_NAMING: '{"model":"provider/enforced"}' });
+    const result = await app.inject({ method: "PUT", url, payload: { config: { sessionNaming: { maxTokens: 32 } } } });
+    expect(result.statusCode).toBe(200);
+    expect(JSON.parse(readFileSync(writable, "utf8"))).toEqual({ sessionNaming: { maxTokens: 32 } });
+  });
+
   it("saves and resets in one request without copying defaults or modifying the defaults file", async () => {
     const deployment = { installationName: "Office", quietMode: true, uploads: { defaultFolder: "deployment" } };
     writeFileSync(defaults, JSON.stringify(deployment));

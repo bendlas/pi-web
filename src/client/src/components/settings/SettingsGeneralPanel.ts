@@ -317,11 +317,20 @@ export class SettingsGeneralPanel extends LitElement {
     return html`
       <section class="effective-card ui-settings-summary" aria-label=${messages.t("effectiveMachineAria")}>
         <h3>${messages.t("effectiveMachine")}</h3>
+        <p>${messages.t("machineSummaryHelp")}</p>
         <dl>
+          <div><dt>${messages.t("baseRoots")}</dt><dd>
+            <div>${formatAllowedPaths(effective.basePaths)}</div>
+            <div class="field ui-form-field">
+              <small>${messages.t("baseRootsHelp")}</small>
+              ${settingControls(this.machineConfigResponse, "/basePaths", this.machineLoading || this.saving)}
+            </div>
+          </dd></div>
           <div><dt>${messages.t("externalRoots")}</dt><dd>${formatAllowedPaths(effective.pathAccess?.allowedPaths)}</dd></div>
           <div><dt>${messages.t("uploadFolder")}</dt><dd>${effective.uploads?.defaultFolder === undefined ? html`<span class="muted">${messages.t("defaultValue", { value: DEFAULT_WORKSPACE_UPLOADS_FOLDER })}</span>` : html`<bdi dir="ltr">${effective.uploads.defaultFolder}</bdi>`}</dd></div>
           <div><dt>${messages.t("attachmentFolder")}</dt><dd>${effective.attachments?.defaultFolder === undefined ? html`<span class="muted">${messages.t("defaultValue", { value: DEFAULT_WORKSPACE_ATTACHMENTS_FOLDER })}</span>` : html`<bdi dir="ltr">${effective.attachments.defaultFolder}</bdi>`}</dd></div>
         </dl>
+        ${(effective.basePaths?.length ?? 0) === 0 && (effective.pathAccess?.allowedPaths?.length ?? 0) === 0 ? html`<p>${messages.t("denied")}</p>` : null}
       </section>
     `;
   }
@@ -447,7 +456,7 @@ function formatAllowedHosts(value: PiWebConfigValues["allowedHosts"]): string | 
 }
 
 function formatAllowedPaths(value: string[] | undefined): string | TemplateResult {
-  if (value === undefined || value.length === 0) return html`<span class="muted">${messages.t("denied")}</span>`;
+  if (value === undefined || value.length === 0) return html`<span class="muted">${messages.t("noPaths")}</span>`;
   return html`<bdi dir="ltr">${localization.list(value)}</bdi>`;
 }
 

@@ -471,6 +471,21 @@ describe("maxUploadBytes", () => {
 });
 
 describe("extensionDialogsTimeoutMs", () => {
+  it.each([0, 2_147_483_647])("accepts timer-safe boundary %s through files and environment", (timeout) => {
+    savePiWebConfig({ extensionDialogsTimeoutMs: timeout }, testOptions());
+    expect(loadPiWebConfig(testOptions()).config.extensionDialogsTimeoutMs).toBe(timeout);
+    expect(applyPiWebConfigEnv({}, { PI_WEB_EXTENSION_DIALOGS_TIMEOUT_MS: String(timeout) }).extensionDialogsTimeoutMs).toBe(timeout);
+  });
+
+  it.each([2_147_483_648, Number.MAX_SAFE_INTEGER])("rejects timer-overflow value %s before writing", async (timeout) => {
+    await writeFile(configPath, "{}");
+    expect(() => savePiWebConfig({ extensionDialogsTimeoutMs: timeout }, testOptions())).toThrow("2147483647");
+    expect(await readFile(configPath, "utf8")).toBe("{}");
+    expect(() => applyPiWebConfigEnv({}, { PI_WEB_EXTENSION_DIALOGS_TIMEOUT_MS: String(timeout) })).toThrow("PI_WEB_EXTENSION_DIALOGS_TIMEOUT_MS");
+    await writeFile(configPath, JSON.stringify({ extensionDialogsTimeoutMs: timeout }));
+    expect(() => loadPiWebConfig(testOptions())).toThrow("2147483647");
+  });
+
   it("defaults to five minutes when nothing is configured", () => {
     expect(effectivePiWebConfig(testOptions()).config.extensionDialogsTimeoutMs).toBe(DEFAULT_EXTENSION_DIALOGS_TIMEOUT_MS);
   });
@@ -643,6 +658,25 @@ describe("configuration layers", () => {
 });
 
 describe("environment setting resolution", () => {
+  it.each([
+    { key: "pathAccess", variable: "PI_WEB_PATH_ACCESS", value: { allowedpaths: [] } },
+    { key: "uploads", variable: "PI_WEB_UPLOADS", value: { defaultfolder: "uploads" } },
+    { key: "attachments", variable: "PI_WEB_ATTACHMENTS", value: { defaultfolder: "attachments" } },
+  ])("rejects unknown $key fields rather than silently losing deployment policy", async ({ key, variable, value }) => {
+    await writeFile(configPath, JSON.stringify({ [key]: value }));
+    expect(() => loadPiWebConfig(testOptions())).toThrow("unknown key");
+    expect(() => applyPiWebConfigEnv({ pathAccess: { allowedPaths: ["/existing"] } }, { [variable]: JSON.stringify(value) })).toThrow(variable);
+    expect(() => piWebConfigEnforcedSettings({ [variable]: JSON.stringify(value) })).toThrow("unknown key");
+  });
+
+  it("validates plugin policy envelopes without interpreting plugin-owned setting names or values", () => {
+    expect(() => applyPiWebConfigEnv({}, { PI_WEB_PLUGINS: '{"git":{"enable":false}}' })).toThrow("PI_WEB_PLUGINS");
+    const settings = { customKey: { nested: [1, false] }, anotherKey: "value" };
+    const env = { PI_WEB_PLUGINS: JSON.stringify({ custom: { settings } }) };
+    expect(applyPiWebConfigEnv({}, env).plugins?.["custom"]?.settings).toEqual(settings);
+    expect(piWebConfigEnforcedSettings(env)).toEqual({ "/plugins/custom/settings/customKey": "PI_WEB_PLUGINS", "/plugins/custom/settings/anotherKey": "PI_WEB_PLUGINS" });
+  });
+
   it("supports every core setting with source-aware validators", () => {
     const config = {
       installationName: "Deployment", host: "0.0.0.0", port: 9001, allowedHosts: ["host"],
