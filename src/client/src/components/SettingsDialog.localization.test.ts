@@ -19,7 +19,7 @@ beforeEach(() => {
   vi.spyOn(Element.prototype, "scrollIntoView").mockImplementation(() => undefined);
   vi.spyOn(configApi, "config").mockResolvedValue(configResponse({ uploads: { defaultFolder: "original" } }));
   vi.spyOn(configApi, "namingModels").mockResolvedValue({ models: [] });
-  vi.spyOn(configApi, "saveConfig").mockImplementation((config) => Promise.resolve(configResponse(config)));
+  vi.spyOn(configApi, "updateConfig").mockImplementation((update) => Promise.resolve(configResponse(update.set ?? {})));
   vi.spyOn(pluginsApi, "plugins").mockResolvedValue(pluginsResponse([]));
   vi.spyOn(piPackagesApi, "packages").mockResolvedValue({ packages: [] });
 });
@@ -98,7 +98,7 @@ it("keeps draft controls, focus, disclosure and machine-switch confirmation live
     expect(dialog.shadowRoot?.querySelector("img")).toBeNull();
   }
   expect(configApi.config).toHaveBeenCalledTimes(calls);
-  expect(configApi.saveConfig).not.toHaveBeenCalled();
+  expect(configApi.updateConfig).not.toHaveBeenCalled();
   keep.click();
   await settle(dialog);
   expect(dialog.shadowRoot?.querySelector(".machine-switch-confirmation")).toBeNull();
@@ -108,13 +108,13 @@ it("keeps draft controls, focus, disclosure and machine-switch confirmation live
 it("retains pending save state and resolves its success and failure in the current language", async () => {
   const dialog = await mount();
   const pending = deferred<ReturnType<typeof configResponse>>();
-  vi.mocked(configApi.saveConfig).mockReturnValueOnce(pending.promise);
+  vi.mocked(configApi.updateConfig).mockReturnValueOnce(pending.promise);
   const save = general(dialog).onSaveMachineConfig?.({ uploads: { defaultFolder: "new" } });
   await settle(dialog);
   for (const locale of ["en-XA", "ar-XB"]) {
     await language(dialog, locale);
     expect(general(dialog).saving).toBe(true);
-    expect(configApi.saveConfig).toHaveBeenCalledExactlyOnceWith({ uploads: { defaultFolder: "new" } }, remote.id);
+    expect(configApi.updateConfig).toHaveBeenCalledExactlyOnceWith({ set: { uploads: { defaultFolder: "new" } }, unset: [] }, remote.id);
   }
   pending.resolve(configResponse({ uploads: { defaultFolder: "new" } }));
   await save;
@@ -124,7 +124,7 @@ it("retains pending save state and resolves its success and failure in the curre
     expect(general(dialog).savedMessage).toBe(messages.t("machineSaved", { name: raw }));
     expect(general(dialog).saving).toBe(false);
   }
-  vi.mocked(configApi.saveConfig).mockRejectedValueOnce(new Error(raw));
+  vi.mocked(configApi.updateConfig).mockRejectedValueOnce(new Error(raw));
   await general(dialog).onSaveMachineConfig?.({ uploads: { defaultFolder: "failed" } });
   for (const locale of ["en-XA", "ar-XB", "en"]) {
     await language(dialog, locale);

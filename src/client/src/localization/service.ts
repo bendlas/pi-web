@@ -22,6 +22,13 @@ interface RegisteredSource {
   active: boolean;
 }
 
+export const LOCALIZATION_FIELDS = ["language", "formatLocale", "timeZone", "hourCycle"] as const;
+export type LocalizationField = typeof LOCALIZATION_FIELDS[number];
+export interface LocalizationPolicy {
+  enforcedFields?: Partial<Record<LocalizationField, string>>;
+  sources?: Partial<Record<LocalizationField, string>>;
+}
+
 export interface LocalizationOptions {
   preferences?: LocalizationPreferences;
   /** Pseudo locales are a development facility, disabled in production. */
@@ -91,6 +98,7 @@ export class LocalizationService {
   private current: LocalizationPreferences;
   private defaults: LocalizationPreferences = { language: "en", formatLocale: "en" };
   private overrides: Partial<LocalizationPreferences>;
+  private policy: LocalizationPolicy = {};
   private readonly development: boolean;
   private readonly diagnostic: (diagnostic: LocalizationDiagnostic) => void;
   private readonly sources = new Map<string, Set<RegisteredSource>>();
@@ -114,6 +122,25 @@ export class LocalizationService {
   /** Explicit choices only; omitted fields continue to inherit defaults. */
   get preferenceOverrides(): Readonly<Partial<LocalizationPreferences>> { return { ...this.overrides }; }
   get preferenceDefaults(): Readonly<LocalizationPreferences> { return { ...this.defaults }; }
+  get preferencePolicy(): LocalizationPolicy {
+    return { enforcedFields: { ...this.policy.enforcedFields }, sources: { ...this.policy.sources } };
+  }
+  preferenceSettingPolicy(field: LocalizationField): { locked: boolean; enforcedBy: string | undefined; source: string | undefined } {
+    const enforcedBy = this.policy.enforcedFields?.[field];
+    return { locked: enforcedBy !== undefined, enforcedBy, source: this.policy.sources?.[field] };
+  }
+
+  private resolvePreferences(defaults: LocalizationPreferences, overrides: Partial<LocalizationPreferences>, policy: LocalizationPolicy): LocalizationPreferences {
+    const effective: Partial<LocalizationPreferences> = { ...defaults, ...overrides };
+    for (const field of LOCALIZATION_FIELDS) {
+      if (policy.enforcedFields?.[field] !== undefined) {
+        // A locked field inherits the gateway value, never the saved browser value.
+        Reflect.deleteProperty(effective, field);
+        Object.assign(effective, { [field]: defaults[field] });
+      }
+    }
+    return normalizePreferences(effective);
+  }
   /** Distinguishes explicit preference requests (even identical values) from catalog refreshes. */
   get preferenceRevision(): number { return this.preferencesRevision; }
   /** Actual UI language after catalog fallback, suitable for document.lang. */
@@ -157,12 +184,13 @@ export class LocalizationService {
   }
 
   /** Update inherited values without converting them into explicit preferences. */
-  setPreferenceDefaults(preferences: LocalizationPreferences): Promise<void> {
+  setPreferenceDefaults(preferences: LocalizationPreferences, policy: LocalizationPolicy = this.policy): Promise<void> {
     const defaults = normalizePreferences(preferences);
-    const current = normalizePreferences({ ...defaults, ...this.overrides });
+    const current = this.resolvePreferences(defaults, this.overrides, policy);
     this.assertLanguage(defaults.language);
     this.assertLanguage(current.language);
     this.defaults = defaults;
+    this.policy = { enforcedFields: { ...policy.enforcedFields }, sources: { ...policy.sources } };
     this.current = current;
     this.refresh();
     return this.pending;
@@ -171,7 +199,13 @@ export class LocalizationService {
   /** Replace the override layer. Clearing a field resumes inheritance for that field. */
   setPreferenceOverrides(preferences: Partial<LocalizationPreferences>): Promise<void> {
     const overrides = normalizePreferenceOverrides(preferences);
-    const normalized = normalizePreferences({ ...this.defaults, ...overrides });
+    for (const field of LOCALIZATION_FIELDS) {
+      if (this.policy.enforcedFields?.[field] !== undefined) {
+        Reflect.deleteProperty(overrides, field);
+        if (this.overrides[field] !== undefined) Object.assign(overrides, { [field]: this.overrides[field] });
+      }
+    }
+    const normalized = this.resolvePreferences(this.defaults, overrides, this.policy);
     this.assertLanguage(normalized.language);
     this.overrides = overrides;
     this.current = normalized;

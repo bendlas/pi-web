@@ -196,7 +196,9 @@ export interface PiWebConfigValues {
   allowedHosts?: string[] | true;
   shortcuts?: PiWebShortcutConfig;
   plugins?: PiWebPluginConfigMap;
-  /** External filesystem roots PI WEB may expose outside a workspace. */
+  /** Deployment base roots; combined with independently configurable path additions. */
+  basePaths?: string[];
+  /** Additional external filesystem roots PI WEB may expose outside a workspace. */
   pathAccess?: PiWebPathAccessConfig;
   /** Workspace-relative defaults for manual file uploads. */
   uploads?: PiWebUploadsConfig;
@@ -394,6 +396,13 @@ export interface PiWebConfigResponse {
   config: PiWebConfigValues;
   effectiveConfig: PiWebConfigValues;
   envOverrides: PiWebConfigEnvOverrides;
+  /** JSON-pointer setting identifiers mapped to controlling environment variable names. */
+  enforcedSettings?: Record<string, string>;
+  /** JSON-pointer setting identifiers mapped to their winning configuration source. */
+  configSources?: Record<string, string>;
+  /** Optional deployment-owned defaults, never written by Settings. */
+  defaultsPath?: string;
+  defaultsConfig?: PiWebConfigValues;
 }
 
 export interface Project {

@@ -89,7 +89,7 @@ it("localizes the whole panel live, with regional summaries and unchanged raw va
   expect(panel.onSave).not.toHaveBeenCalled();
   expect(panel.onReload).not.toHaveBeenCalled();
   budget.dispatchEvent(new Event("change"));
-  expect(panel.onSave).toHaveBeenCalledExactlyOnceWith({ sessionNaming: { model: "raw/model", maxTokens: 1234, timeoutMs: 30500 } });
+  expect(panel.onSave).toHaveBeenCalledExactlyOnceWith({ sessionNaming: { maxTokens: 1234 } });
 });
 
 it("retains an open model picker and its search when the locale or display target changes, not its identity", async () => {
@@ -117,7 +117,7 @@ it("retains an open model picker and its search when the locale or display targe
   expect(panel.onSave).not.toHaveBeenCalled();
   required(picker.shadowRoot?.querySelector<HTMLButtonElement>("button.ui-selection-option")).click();
   await settle(panel);
-  expect(panel.onSave).toHaveBeenCalledExactlyOnceWith({ sessionNaming: { model: "raw/model", maxTokens: 1200, timeoutMs: 30500 } });
+  expect(panel.onSave).not.toHaveBeenCalled();
   required(panel.shadowRoot?.querySelector<HTMLButtonElement>("#session-naming-model")).click();
   await settle(panel);
   panel.targetId = "different-machine";

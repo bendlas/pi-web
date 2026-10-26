@@ -1,13 +1,42 @@
 import type { ReactiveController, ReactiveControllerHost } from "lit";
-import { LocalizationService, normalizePreferences, normalizePreferenceOverrides, type LocalizationPreferences } from "./service.js";
+import type { PiWebConfigResponse } from "../../../shared/apiTypes.js";
+import { LOCALIZATION_FIELDS, LocalizationService, normalizePreferences, normalizePreferenceOverrides, type LocalizationPolicy, type LocalizationPreferences } from "./service.js";
 
 const STORAGE_KEY = "pi-web-localization";
 export const localization = new LocalizationService({ development: import.meta.env.DEV });
 const configuredByService = new WeakMap<LocalizationService, Partial<LocalizationPreferences>>();
+const browserDefaultsByService = new WeakMap<LocalizationService, LocalizationPreferences>();
+type GatewayPreferenceConfig = Pick<PiWebConfigResponse, "effectiveConfig" | "enforcedSettings" | "configSources">;
+
+export function localizationPolicyFromConfig(response: GatewayPreferenceConfig): LocalizationPolicy {
+  const enforcedFields: NonNullable<LocalizationPolicy["enforcedFields"]> = {};
+  const sources: NonNullable<LocalizationPolicy["sources"]> = {};
+  for (const field of LOCALIZATION_FIELDS) {
+    const pointer = `/defaultLocalization/${field}`;
+    const enforcedBy = response.enforcedSettings?.[pointer];
+    const source = response.configSources?.[pointer];
+    if (enforcedBy !== undefined) enforcedFields[field] = enforcedBy;
+    if (source !== undefined) sources[field] = source;
+  }
+  return { enforcedFields, sources };
+}
+
+/** Refresh gateway defaults and policy atomically; browser overrides remain untouched. */
+export function configureLocalizationPolicy(response: GatewayPreferenceConfig, service = localization): Promise<void> {
+  return configureLocalizationDefaults(response.effectiveConfig.defaultLocalization ?? {}, localizationPolicyFromConfig(response), service);
+}
+
+function configureLocalizationDefaults(configured: Partial<LocalizationPreferences>, policy: LocalizationPolicy, service: LocalizationService): Promise<void> {
+  const normalized = normalizePreferenceOverrides(configured);
+  const defaults = browserDefaultsByService.get(service) ?? browserLocalizationPreferences();
+  const ready = service.setPreferenceDefaults(normalizePreferences({ ...defaults, ...normalized }), policy);
+  configuredByService.set(service, normalized);
+  return ready;
+}
 
 /** Snapshot browser defaults without inferring a time zone or currency from a locale. */
-export function browserLocalizationPreferences(navigator: Pick<Navigator, "languages" | "language"> = window.navigator): LocalizationPreferences {
-  const locale = navigator.languages[0] ?? navigator.language;
+export function browserLocalizationPreferences(navigator: Pick<Navigator, "languages" | "language"> | undefined = typeof window === "undefined" ? undefined : window.navigator): LocalizationPreferences {
+  const locale = navigator?.languages[0] ?? navigator?.language ?? "en";
   return { language: locale, formatLocale: locale };
 }
 
@@ -24,6 +53,7 @@ export async function initializeLocalization(
   environment: Pick<Window, "localStorage" | "navigator" | "document"> & { location: Pick<Location, "search"> } = window,
   development = import.meta.env.DEV,
   configuredDefaults: Partial<LocalizationPreferences> | Promise<Partial<LocalizationPreferences> | undefined> = {},
+  configuredPolicy: LocalizationPolicy | Promise<LocalizationPolicy> = {},
 ): Promise<() => void> {
   const defaults = browserLocalizationPreferences(environment.navigator);
   let inherited = defaults;
@@ -43,9 +73,10 @@ export async function initializeLocalization(
   }
   if (pseudoLanguage !== undefined) overrides = { ...overrides, language: pseudoLanguage };
   configuredByService.set(service, {});
+  browserDefaultsByService.set(service, defaults);
   // Clear previous initialization state before applying browser/config defaults.
+  void service.setPreferenceDefaults(defaults, {});
   void service.setPreferenceOverrides({});
-  void service.setPreferenceDefaults(defaults);
   void service.setPreferenceOverrides(overrides);
   // Install persistence before translations settle; only their display loads asynchronously.
   await Promise.resolve();
@@ -66,11 +97,10 @@ export async function initializeLocalization(
   update();
   const unsubscribe = service.subscribe(update);
   try {
-    const configured = normalizePreferenceOverrides(await configuredDefaults ?? {});
-    inherited = normalizePreferences({ ...defaults, ...configured });
-    configuredByService.set(service, configured);
-    // Defaults can arrive after a user edit. Only fields without an override inherit them.
-    void service.setPreferenceDefaults(inherited);
+    const [configured, policy] = await Promise.all([configuredDefaults, configuredPolicy]);
+    // Defaults can arrive after a user edit. Enforcement hides, but never replaces, that edit.
+    void configureLocalizationDefaults(configured ?? {}, policy, service);
+    inherited = service.preferenceDefaults;
   } catch (cause) {
     unsubscribe();
     throw cause;

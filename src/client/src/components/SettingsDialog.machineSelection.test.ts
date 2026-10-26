@@ -3,7 +3,7 @@
 import { LitElement } from "lit";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PI_WEB_CAPABILITIES } from "../../../shared/capabilities";
-import { configApi, piPackagesApi, pluginsApi, type Machine, type PiPackagesResponse, type PiWebConfigResponse, type PiWebPluginsResponse } from "../api";
+import { configApi, piPackagesApi, pluginsApi, type Machine, type PiPackagesResponse, type PiWebConfigResponse, type PiWebConfigValues, type PiWebPluginsResponse } from "../api";
 import { PluginRegistry } from "../plugins/registry";
 import { themePackPlugin } from "../plugins/themes";
 import type { SettingsSection } from "../settingsRoute";
@@ -28,7 +28,12 @@ beforeEach(() => {
     uploads: { defaultFolder: `${id}/uploads` }, spawnSessions: true, plugins: { info: { enabled: true } },
   })));
   vi.spyOn(configApi, "namingModels").mockResolvedValue({ models: [] });
-  vi.spyOn(configApi, "saveConfig").mockImplementation((config) => Promise.resolve(configResponse(config)));
+  let savedGateway: PiWebConfigValues = { ...gatewayConfig };
+  vi.spyOn(configApi, "updateConfig").mockImplementation((update, id) => {
+    if (id !== undefined) return Promise.resolve(configResponse(update.set ?? {}));
+    savedGateway = { ...savedGateway, ...update.set };
+    return Promise.resolve(configResponse(savedGateway));
+  });
   vi.spyOn(pluginsApi, "plugins").mockResolvedValue(pluginsResponse([pluginInfo("info", true)]));
   vi.spyOn(piPackagesApi, "packages").mockImplementation((id) => Promise.resolve({ packages: [packageInfo(`npm:${id ?? "gateway"}`)] }));
   vi.spyOn(piPackagesApi, "install").mockResolvedValue({ action: "install", packages: [] });
@@ -213,25 +218,25 @@ describe("settings-only machine selection DOM", () => {
     await edit(general(dialog), uploadInput(general(dialog)), "new/uploads");
     submit(uploadInput(general(dialog)));
     await settle(dialog);
-    expect(configApi.saveConfig).toHaveBeenLastCalledWith(expect.objectContaining({ uploads: { defaultFolder: "new/uploads" } }), "remote-b");
+    expect(configApi.updateConfig).toHaveBeenLastCalledWith({ set: { uploads: { defaultFolder: "new/uploads" } }, unset: [] }, "remote-b");
 
     await navigate(dialog, "sessiond", "Session daemon");
     const sessiond = query<SettingsSessiondPanel>(root(dialog), "settings-sessiond-panel");
     expect(sessiond.configResponse?.config.uploads?.defaultFolder).toBe("remote-b/uploads");
     query<HTMLInputElement>(root(sessiond), "#spawn-sessions").click();
     await settle(dialog);
-    expect(configApi.saveConfig).toHaveBeenLastCalledWith({ spawnSessions: false }, "remote-b");
+    expect(configApi.updateConfig).toHaveBeenLastCalledWith({ set: { spawnSessions: false }, unset: [] }, "remote-b");
     const namingBudget = query<HTMLInputElement>(root(sessiond), "#session-naming-max-tokens");
     namingBudget.value = "48";
     namingBudget.dispatchEvent(new Event("change"));
     await settle(dialog);
-    expect(configApi.saveConfig).toHaveBeenLastCalledWith({ sessionNaming: { maxTokens: 48 } }, "remote-b");
+    expect(configApi.updateConfig).toHaveBeenLastCalledWith({ set: { sessionNaming: { maxTokens: 48 } }, unset: [] }, "remote-b");
 
     await navigate(dialog, "plugins", "PI WEB plugins");
     const plugins = query<SettingsPluginsPanel>(root(dialog), "settings-plugins-panel");
     query<HTMLInputElement>(root(plugins), 'input[aria-label="Enable info"]').click();
     await settle(dialog);
-    expect(configApi.saveConfig).toHaveBeenLastCalledWith({ plugins: { info: { enabled: false } } }, "remote-b");
+    expect(configApi.updateConfig).toHaveBeenLastCalledWith({ set: { plugins: { info: { enabled: false } } } }, "remote-b");
 
     await navigate(dialog, "packages", "Pi packages");
     const packages = query<SettingsPackagesPanel>(root(dialog), "settings-packages-panel");
@@ -257,7 +262,7 @@ describe("settings-only machine selection DOM", () => {
       await edit(general(dialog), hostInput(general(dialog)), "new.gateway.local");
       submit(hostInput(general(dialog)));
       await settle(dialog);
-      expect(vi.mocked(configApi.saveConfig).mock.lastCall).toEqual([expect.objectContaining({ host: "new.gateway.local" })]);
+      expect(vi.mocked(configApi.updateConfig).mock.lastCall).toEqual([{ set: { host: "new.gateway.local" }, unset: [] }]);
 
       const theme = query<SettingsThemePanel>(root(dialog), "settings-theme-panel");
       button(theme, "Use in this browser").click();
@@ -267,15 +272,15 @@ describe("settings-only machine selection DOM", () => {
       vi.mocked(configApi.config).mockClear();
       button(theme, "Set gateway default").click();
       await settle(dialog);
-      expect(vi.mocked(configApi.config).mock.calls).toEqual([[]]);
-      expect(vi.mocked(configApi.saveConfig).mock.lastCall).toEqual([{ ...gatewayConfig, defaultTheme: dialog.themePreference }]);
+      expect(vi.mocked(configApi.config).mock.calls).toEqual([]);
+      expect(vi.mocked(configApi.updateConfig).mock.lastCall).toEqual([{ set: { defaultTheme: dialog.themePreference } }]);
 
       await navigate(dialog, "shortcuts", "Keyboard shortcuts");
       const shortcuts = query<SettingsShortcutsPanel>(root(dialog), "settings-shortcuts-panel");
-      expect(shortcuts.configResponse?.config.host).toBe("gateway.local");
+      expect(shortcuts.configResponse?.config.host).toBe("new.gateway.local");
       query<HTMLButtonElement>(root(shortcuts), '[aria-label="Disable shortcut for Chat"]').click();
       await settle(dialog);
-      expect(vi.mocked(configApi.saveConfig).mock.lastCall).toEqual([expect.objectContaining({ shortcuts: { "core:chat": null } })]);
+      expect(vi.mocked(configApi.updateConfig).mock.lastCall).toEqual([{ set: { shortcuts: { "core:chat": null } }, unset: [] }]);
       expect(dialog.machine).toBe(remoteMachine);
     } finally {
       await registry.dispose();
@@ -369,7 +374,7 @@ describe("settings-only machine selection DOM", () => {
     expect(selector(dialog).value).toBe("remote-a");
     expect(root(dialog).querySelector('[aria-label="Unsaved machine settings"]')).toBeNull();
     expect(hostInput(general(dialog)).value).toBe("unsaved.gateway.local");
-    expect(configApi.saveConfig).not.toHaveBeenCalled();
+    expect(configApi.updateConfig).not.toHaveBeenCalled();
   });
 
   it("ignores delayed loads after rapid selector changes, including returning to the original machine", async () => {

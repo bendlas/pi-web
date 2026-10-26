@@ -145,6 +145,19 @@ describe("machine-scoped runtime API", () => {
 });
 
 describe("settings config and plugin APIs", () => {
+  it("updates and resets settings in one PATCH at the gateway or selected machine", async () => {
+    const response = { ...piWebConfigResponse({ quietMode: false }), enforcedSettings: { "/host": "PI_WEB_HOST" }, configSources: { "/quietMode": "defaults" }, defaultsConfig: { quietMode: false }, defaultsPath: "/etc/defaults.json" };
+    const fetchMock = stubSequenceFetch([jsonResponse(response), jsonResponse(response)]);
+    const update = { set: { quietMode: true }, unset: ["/defaultTheme"] };
+    await expect(configApi.updateConfig(update)).resolves.toEqual(response);
+    await configApi.updateConfig({ unset: ["/sessionNaming"] }, "remote /a");
+    expect(fetchMock.mock.calls.map((call) => call[0])).toEqual([
+      "https://pi.example.test/api/config", "https://pi.example.test/api/machines/remote%20%2Fa/config",
+    ]);
+    expect(fetchCall(fetchMock, 0)[1]?.method).toBe("PATCH");
+    expect(JSON.parse(requestBody(fetchCall(fetchMock, 0)[1]))).toEqual(update);
+    expect(JSON.parse(requestBody(fetchCall(fetchMock, 1)[1]))).toEqual({ unset: ["/sessionNaming"] });
+  });
   it("loads naming models through the selected machine under the application base", async () => {
     vi.stubEnv("BASE_URL", "./");
     vi.stubGlobal("document", { baseURI: "https://pi.example.test/nested/" });

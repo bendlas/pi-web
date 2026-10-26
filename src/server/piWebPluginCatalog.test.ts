@@ -12,10 +12,25 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  vi.unstubAllEnvs();
   await rm(tempDir, { recursive: true, force: true });
 });
 
 describe("PiWebPluginCatalog", () => {
+  it("uses deployment defaults and environment enforcement in its default config provider", async () => {
+    await writePlugin(join(tempDir, "plugins", "browser-only"), {
+      packageJson: { piWeb: { plugins: [{ id: "browser-only", browserRoot: "dist", module: "dist/plugin.js" }] } },
+      files: { "dist/plugin.js": "export default {};" },
+    });
+    const defaults = join(tempDir, "defaults.json");
+    await writeFile(defaults, JSON.stringify({ plugins: { "browser-only": { enabled: false, settings: { color: "blue" } } } }));
+    vi.stubEnv("PI_WEB_CONFIG", join(tempDir, "config.json"));
+    vi.stubEnv("PI_WEB_DEFAULTS_CONFIG", defaults);
+    vi.stubEnv("PI_WEB_PLUGINS", JSON.stringify({ "browser-only": { enabled: true } }));
+    const catalog = new PiWebPluginCatalog({ roots: [{ path: join(tempDir, "plugins"), source: "fixture", scope: "project" }], packageProvider: false });
+    expect((await catalog.snapshot()).plugins[0]).toMatchObject({ enabled: true, settings: { color: "blue" } });
+  });
+
   it("describes browser-only metadata and desired config without changing source or scope", async () => {
     const pluginRoot = join(tempDir, "plugins", "browser-only");
     await writePlugin(pluginRoot, {

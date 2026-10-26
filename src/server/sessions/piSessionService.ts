@@ -3132,8 +3132,8 @@ export class PiSessionService implements SessionRouteService {
    * resolution only governs folder-less API calls.
    */
   private async workspaceAttachmentsConfig(cwd: string): Promise<PiWebAttachmentsConfig> {
-    const globalConfig = this.config === undefined ? {} : (await this.config.read()).effectiveConfig;
-    return loadEffectiveProjectAttachmentsConfig(cwd, globalConfig);
+    const response = this.config === undefined ? undefined : await this.config.read();
+    return loadEffectiveProjectAttachmentsConfig(cwd, response?.effectiveConfig ?? {}, response?.enforcedSettings);
   }
 
   async shell(ref: PiSessionRef, text: string): Promise<void> {

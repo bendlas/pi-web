@@ -14,6 +14,7 @@ import { uiButtonStyles } from "../ui/controlStyles";
 import { uiSettingsStyles } from "../ui/settingsStyles";
 import "./SettingsPanelFrame";
 import type { SettingsNotice } from "./SettingsPanelFrame";
+import { enforcedSetting, settingControls, type ResetSettings } from "./settingsConfigUpdate";
 import { askUserConfigPatch, spawnSessionsConfigPatch, subsessionsConfigPatch } from "./settingsSessiondConfig";
 
 export const sessiondMessages = localization.registerMessages("core.settingsSessiond", source);
@@ -35,7 +36,8 @@ export class SettingsSessiondPanel extends LitElement {
   @property() targetLabel = "";
   @property() targetId = "local";
   @property({ attribute: false }) onReload?: () => void | Promise<void>;
-  @property({ attribute: false }) onSave?: (config: PiWebConfigValues) => void | Promise<void>;
+  @property({ attribute: false }) onReset?: ResetSettings;
+  @property({ attribute: false }) onSave?: (config: PiWebConfigValues, unset?: string[]) => void | Promise<void>;
 
   @property({ attribute: false }) namingModels: SessionModel[] = [];
   @property({ type: Boolean }) namingModelsLoading = false;
@@ -47,20 +49,22 @@ export class SettingsSessiondPanel extends LitElement {
   }
 
   override render(): TemplateResult {
-    const config = this.configResponse;
+    const response = this.configResponse;
+    const inheritedNaming = response?.defaultsConfig?.sessionNaming;
+    const config = response?.effectiveConfig.sessionNaming === undefined ? response : { ...response, config: { ...response.config, sessionNaming: response.effectiveConfig.sessionNaming } };
     const namingOptions = this.namingModels.flatMap((model) => {
       if (model.provider === undefined || model.provider === "" || model.id === undefined || model.id === "") return [];
       const value = `${model.provider}/${model.id}`;
       return [{ value, label: model.name ?? model.id, description: value }];
     });
-    const spawnOverridden = config?.envOverrides.spawnSessions === true;
+    const spawnOverridden = enforcedSetting(config, "/spawnSessions") !== undefined;
     // On by default: the effective config is the source of truth for the toggle
     // state, so an unset config file still shows the feature as enabled.
     const effectiveSpawn = config?.effectiveConfig.spawnSessions !== false;
-    const subsessionsOverridden = config?.envOverrides.subsessions === true;
+    const subsessionsOverridden = enforcedSetting(config, "/subsessions") !== undefined;
     // On by default; also requires spawn to be enabled.
     const effectiveSubsessions = config?.effectiveConfig.subsessions === true && effectiveSpawn;
-    const askUserOverridden = config?.envOverrides.askUser === true;
+    const askUserOverridden = enforcedSetting(config, "/askUser") !== undefined;
     const effectiveAskUser = config?.effectiveConfig.askUser === true;
     return html`
       <settings-panel-frame
@@ -129,6 +133,7 @@ export class SettingsSessiondPanel extends LitElement {
               ${askUserOverridden ? sessiondMessages.rich("envOverride", { variable: "PI_WEB_ASK_USER", code: codeTag }) : null}
             </small>
           </div>
+          ${["spawnSessions", "subsessions", "askUser"].map((key) => settingControls(config, `/${key}`, this.loading || this.saving, this.onReset))}
           <section class="effective-card ui-settings-summary" aria-labelledby="restart-summary-heading" aria-describedby="restart-summary-help">
             <h3 id="restart-summary-heading">${sessiondMessages.t("restartHeading")}</h3>
             <small id="restart-summary-help">${sessiondMessages.t("restartHelp")}</small>
@@ -139,16 +144,19 @@ export class SettingsSessiondPanel extends LitElement {
             </dl>
           </section>
           <h3>${sessiondMessages.t("naming")}</h3>
+          ${settingControls(response, "/sessionNaming", this.loading || this.saving, this.onReset)}
+          <fieldset class="naming-fields" aria-label=${sessiondMessages.t("naming")}>
           <div class="field ui-form-field">
             <span id="session-naming-model-label">${sessiondMessages.t("model")}</span>
             <button id="session-naming-model" class="ui-button ui-button--action naming-model"
               type="button" aria-labelledby="session-naming-model-label session-naming-model-value"
               aria-describedby="session-naming-model-help" aria-haspopup="dialog"
-              ?disabled=${this.loading || this.saving || this.namingModelsLoading}
+              ?disabled=${this.loading || this.saving || this.namingModelsLoading || enforcedSetting(response, "/sessionNaming/model") !== undefined}
               @click=${() => { this.namingPickerOpen = true; }}>
               <span id="session-naming-model-value">${config.config.sessionNaming?.model === undefined ? sessiondMessages.t("useSessionModel") : html`<bdi dir="ltr">${config.config.sessionNaming.model}</bdi>`}</span>
               <span aria-hidden="true">▾</span>
             </button>
+            ${settingControls(response, "/sessionNaming/model", this.loading || this.saving, this.onReset)}
             <small id="session-naming-model-help">${sessiondMessages.t("modelHelp")}</small>
             ${this.namingModelsLoading ? html`<small role="status">${sessiondMessages.t("modelsLoading")}</small>` : null}
             ${this.namingModelsError ? html`<small role="status">${sessiondMessages.t("modelsError", { error: this.namingModelsError })}</small>` : null}
@@ -159,34 +167,36 @@ export class SettingsSessiondPanel extends LitElement {
             <label for="session-naming-max-tokens">${sessiondMessages.t("budget")}</label>
             <input id="session-naming-max-tokens" class="ui-input" type="number" min="1" max="9007199254740991" step="1" placeholder="24"
               aria-describedby="session-naming-max-tokens-help"
+              ?disabled=${this.loading || this.saving || enforcedSetting(response, "/sessionNaming/maxTokens") !== undefined}
               .value=${guard([this.targetId, config.config.sessionNaming?.maxTokens], () => live(String(config.config.sessionNaming?.maxTokens ?? "")))}
-              ?disabled=${this.loading || this.saving}
               @change=${(event: Event) => {
                 const input = event.target;
                 if (!(input instanceof HTMLInputElement)) return;
                 if (input.reportValidity()) void this.saveNamingField("maxTokens", input.value === "" ? undefined : input.valueAsNumber);
               }}>
-            <small id="session-naming-max-tokens-help">${sessiondMessages.t("budgetHelp", { tokens: 24 })}</small>
+            ${settingControls(response, "/sessionNaming/maxTokens", this.loading || this.saving, this.onReset)}
+            <small id="session-naming-max-tokens-help">${sessiondMessages.t("budgetHelp", { tokens: inheritedNaming?.maxTokens ?? 24 })}</small>
           </div>
           <div class="field ui-form-field">
             <label for="session-naming-timeout">${sessiondMessages.t("timeout")}</label>
             <input id="session-naming-timeout" class="ui-input" type="number" min="0.001" max="2147483.647" step="0.001" placeholder="10"
               aria-describedby="session-naming-timeout-help"
+              ?disabled=${this.loading || this.saving || enforcedSetting(response, "/sessionNaming/timeoutMs") !== undefined}
               .value=${guard([this.targetId, config.config.sessionNaming?.timeoutMs], () => live(config.config.sessionNaming?.timeoutMs === undefined ? "" : String(config.config.sessionNaming.timeoutMs / 1000)))}
-              ?disabled=${this.loading || this.saving}
               @change=${(event: Event) => {
                 const input = event.target;
                 if (!(input instanceof HTMLInputElement)) return;
                 if (input.reportValidity()) void this.saveNamingField("timeoutMs", input.value === "" ? undefined : Math.round(input.valueAsNumber * 1000));
               }}>
-            <small id="session-naming-timeout-help">${sessiondMessages.t("timeoutHelp", { seconds: 10 })}</small>
+            ${settingControls(response, "/sessionNaming/timeoutMs", this.loading || this.saving, this.onReset)}
+            <small id="session-naming-timeout-help">${sessiondMessages.t("timeoutHelp", { seconds: (inheritedNaming?.timeoutMs ?? 10000) / 1000 })}</small>
           </div>
           <div class="field ui-form-field">
             <label for="session-naming-thinking-level">${sessiondMessages.t("thinking")}</label>
             <select id="session-naming-thinking-level" class="ui-select"
               aria-describedby="session-naming-thinking-level-help"
+              ?disabled=${this.loading || this.saving || enforcedSetting(response, "/sessionNaming/thinkingLevel") !== undefined}
               .value=${live(config.config.sessionNaming?.thinkingLevel ?? "")}
-              ?disabled=${this.loading || this.saving}
               @change=${(event: Event) => {
                 const input = event.target;
                 if (!(input instanceof HTMLSelectElement)) return;
@@ -194,11 +204,13 @@ export class SettingsSessiondPanel extends LitElement {
                   void this.saveNamingField("thinkingLevel", input.value === "" ? undefined : input.value);
                 }
               }}>
-              <option value="">${sessiondMessages.t("defaultThinking", { level: "minimal" })}</option>
+              <option value="">${sessiondMessages.t("defaultThinking", { level: inheritedNaming?.thinkingLevel ?? "minimal" })}</option>
               ${KNOWN_THINKING_LEVELS.map((level) => html`<option value=${level}>${level}</option>`)}
             </select>
+            ${settingControls(response, "/sessionNaming/thinkingLevel", this.loading || this.saving, this.onReset)}
             <small id="session-naming-thinking-level-help">${sessiondMessages.t("thinkingHelp")}</small>
           </div>
+          </fieldset>
           <section class="effective-card ui-settings-summary" aria-labelledby="naming-summary-heading" aria-describedby="naming-summary-help">
             <h3 id="naming-summary-heading">${sessiondMessages.t("namingSummary")}</h3>
             <small id="naming-summary-help">${sessiondMessages.t("namingSummaryHelp")}</small>
@@ -215,7 +227,8 @@ export class SettingsSessiondPanel extends LitElement {
       ${this.namingPickerOpen ? html`
         <command-picker .title=${sessiondMessages.t("selectModel")} searchable
           .options=${[
-            { value: "", label: sessiondMessages.t("useSessionModel"), description: sessiondMessages.t("sessionModelHelp") },
+            { value: "", label: sessiondMessages.t(inheritedNaming?.model === undefined ? "useSessionModel" : "useConfiguredModel"),
+              description: inheritedNaming?.model === undefined ? sessiondMessages.t("sessionModelHelp") : sessiondMessages.t("configuredModelHelp", { model: inheritedNaming.model }) },
             ...(this.namingModelsLoading || this.namingModelsError ? [] : namingOptions),
           ]}
           .selectedValue=${config?.config.sessionNaming?.model ?? ""}
@@ -245,14 +258,10 @@ export class SettingsSessiondPanel extends LitElement {
   private async saveNamingField<K extends keyof NonNullable<PiWebConfigValues["sessionNaming"]>>(
     key: K, value: NonNullable<PiWebConfigValues["sessionNaming"]>[K],
   ): Promise<void> {
-    const current = { ...this.configResponse?.config.sessionNaming, [key]: value };
-    const sessionNaming = {
-      ...(current.model === undefined ? {} : { model: current.model }),
-      ...(current.maxTokens === undefined ? {} : { maxTokens: current.maxTokens }),
-      ...(current.thinkingLevel === undefined ? {} : { thinkingLevel: current.thinkingLevel }),
-      ...(current.timeoutMs === undefined ? {} : { timeoutMs: current.timeoutMs }),
-    };
-    await this.onSave?.({ sessionNaming });
+    const path = `/sessionNaming/${key}`;
+    if (this.loading || this.saving || enforcedSetting(this.configResponse, path) !== undefined) return;
+    if (value === undefined) await this.onSave?.({}, [path]);
+    else if (value !== this.configResponse?.effectiveConfig.sessionNaming?.[key]) await this.onSave?.({ sessionNaming: { [key]: value } });
   }
 
   private async toggleSpawnSessions(event: Event): Promise<void> {
@@ -277,6 +286,7 @@ export class SettingsSessiondPanel extends LitElement {
     .config-path-card span, dt { color: var(--pi-muted); font-size: 12px; font-weight: 600; }
     code { border: 1px solid var(--pi-border-muted); border-radius: 5px; background: var(--pi-bg); padding: 1px 4px; color: var(--pi-text); font: 12px var(--pi-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace); overflow-wrap: anywhere; }
     .field small, .effective-card small { color: var(--pi-muted); line-height: 1.45; }
+    .naming-fields { border: 0; padding: 0; margin: 0; min-width: 0; display: grid; gap: 12px; }
     .naming-model { justify-content: space-between; text-align: start; gap: 12px; }
     #session-naming-model-value { min-width: 0; overflow-wrap: anywhere; }
     .effective-card dl { display: grid; gap: 8px; margin: 0; }

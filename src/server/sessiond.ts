@@ -214,7 +214,7 @@ async function createSessionDaemonRuntime() {
   const serverNotices = new ServerNoticeService(new ServerNoticeStore(), eventHub);
   const projects = new ProjectService(new ProjectStore(projectStorePath(daemonEnvironment)));
   const initialProjects = await projects.list();
-  const projectSettings = new ProjectPluginSettingsSnapshots(projects);
+  const projectSettings = new ProjectPluginSettingsSnapshots(projects, { env: daemonEnvironment });
   await projectSettings.initialize(initialProjects);
   const serverPlugins = await createServerPluginRuntime({
     catalog: serverPluginCatalog,

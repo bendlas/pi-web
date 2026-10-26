@@ -243,6 +243,14 @@ A browser reload, web/API restart, or Pi's `/reload` does not activate server-pl
 
 Most plugins are enabled by default. Packages can opt out, and Settings can override the default. Plugin settings live in the normal [PI WEB configuration](https://pi-web.dev/config), not inside the package's installed files. Enablement stays global; server plugins supporting project settings, including Git, can use `plugins.<id>.settings` overrides in the registered project's `.pi-web/config.json`. See [Project plugin settings](https://pi-web.dev/config#project-plugin-settings) for override and restart rules.
 
+### Plugin configuration without a settings UI
+
+Server plugins receive frozen, resolved JSON in `context.settings` during activation. Use `context.resolveProjectSettings(project, signal)` when supporting registered-project overrides. PI WEB owns reading its config files, parsing environment JSON, layering values, and enforcing deployment overrides; plugins must not reimplement those readers.
+
+No configuration UI or registered schema is required. Plugins own defaults and semantic validation of their setting names and values. Core validates the JSON/envelope structure, not plugin-specific meanings. Settings currently edits enablement, not arbitrary plugin settings. Browser-only plugins do not yet receive an equivalent generic settings context.
+
+Generic plugin settings are visible through the authenticated configuration API; do not use them as a secret store. Plugin-owned domain files, such as Workspace Tasks' `.pi-web/tasks.json`, remain separate from PI WEB configuration.
+
 ### Local development
 
 An agent can develop a package anywhere and symlink it into the local plugin directory:
