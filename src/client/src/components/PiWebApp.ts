@@ -1971,7 +1971,10 @@ export class PiWebApp extends LitElement {
       toggle: () => {
         const restoreFocus = deepActiveElement(this.ownerDocument)?.getAttribute("data-panel-toggle") === side;
         if (side === "navigation") this.panelCollapse.toggleNavigationPanel();
-        else this.panelCollapse.toggleWorkspacePanel();
+        else {
+          this.panelCollapse.toggleWorkspacePanel();
+          if (this.panelCollapse.workspacePanelCollapsed && this.effectiveMainView() === "workspace") this.selectMainView("chat");
+        }
         if (restoreFocus) void this.focusPanelToggle(side);
       },
       resizeStart: () => this.startPanelResize(side),
