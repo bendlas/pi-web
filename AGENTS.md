@@ -62,6 +62,8 @@ Never report failed, incomplete, or skipped verification as passing. Identify an
 
 ## Configuration conventions
 
+Follow [the configuration architecture](docs/config-architecture.md) when implementing or changing configuration. It defines the target layering, enforcement, replacement, and reset contracts; migration from current behavior must be explicit.
+
 - `$PI_WEB_DATA_DIR` (`~/.pi-web` by default) contains PI WEB-managed state such as `projects.json` and `machines.json`; do not treat it as the user-editable config API.
 - Global user/machine config lives at `$PI_WEB_CONFIG` or `~/.config/pi-web/config.json`.
 - Project-local PI WEB core config should use one commit-able file: `<project>/.pi-web/config.json`.

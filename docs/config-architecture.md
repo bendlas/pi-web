@@ -1,0 +1,72 @@
+# Configuration architecture
+
+Target architecture for implementation agents. This is an agreed design, not a statement that all current configuration paths implement it. See [config.md](config.md) for current supported behavior and [config-audit.md](config-audit.md) for the setting inventory and migration assessment.
+
+## Sources and precedence
+
+Highest priority first:
+
+1. Environment variables: enforced deployment overrides.
+2. Browser preferences: personal overrides, only for applicable preferences.
+3. Project config: overrides machine settings for explicitly project-capable settings only.
+4. Writable config file: saved machine settings.
+5. Deployment defaults file: deployment-owned defaults; never written by PI WEB.
+6. Built-in defaults.
+
+Server settings omit the browser layer. An environment override for a browser preference takes precedence over its saved browser choice, including when the config key would otherwise supply only a default.
+
+- Every PI WEB-owned server configuration setting must support an environment override.
+- Use consistent, documented `PI_WEB_*` names; preserve existing supported names during migration.
+- Keep the existing writable global config and `PI_WEB_CONFIG` selector.
+- Add an optional deployment defaults file using the same schema and validators. Its path selector is not yet specified.
+- Keep project config explicitly scoped to supported settings. Project values override writable machine values but never environment enforcement. Explicit path-addition composition remains additive; resolve enforcement over the applicable project/machine contributions. Do not generalize project overrides to all settings.
+- Each machine resolves its own configuration. Browser-only preferences belong to the browser; gateway-only settings remain on the gateway.
+
+## Replacement and namespace semantics
+
+For each defined setting, the highest-priority supplied value replaces the entire lower-priority value. By default, a top-level config key is one setting.
+
+- Scalars replace.
+- Arrays replace; never concatenate implicitly.
+- Object-valued settings replace entirely; never recursively merge their keys.
+- Missing settings inherit. Empty arrays and objects are explicit values, not requests to inherit.
+- Prefer flat settings. Explicitly declared namespaces may contain independent settings; do not infer namespaces from arbitrary objects.
+
+Approved namespaces:
+
+- Localization: language, regional format, time zone, and hour cycle resolve independently, including enforcement. Keep the existing object representation.
+- Plugins: plugin IDs coexist; each plugin's `enabled` and each top-level plugin-specific setting resolve independently. An individual plugin setting's object/array value replaces completely. No recursive merging inside it. Preserve required-plugin and project-enablement constraints.
+
+Where extension is needed, define separate base and additions settings, resolve each independently, then combine using feature-specific rules. For paths, add a base setting and retain existing allowed-path settings as additions, preserving global/project additive intent. Final names and schema mapping belong to implementation. Do not introduce generic append syntax.
+
+Admins may enforce the base, additions, or both through environment variables. Enforcing the base alone leaves additions configurable. An enforced empty additions array disables additions within that setting's enforcement scope.
+
+## Writes and reset
+
+- Settings writes explicit overrides only, never a materialized copy of effective defaults.
+- Machine settings write to the writable config; personal preferences write to browser storage.
+- Never modify the deployment defaults file or environment from Settings.
+- Reset removes an override, exposing the next applicable layer. Do not persist the current default as the reset value.
+- Use one update operation carrying `set` values and an `unset` list of setting identifiers; saves and resets may share one request. Example: `{"set":{"installationName":"Office"},"unset":["quietMode"]}`.
+- `unset` removes from the addressed writable scope only. It is not persisted as a tombstone. Omitted settings remain unchanged; `null`, empty objects, and empty arrays retain their normal data meanings.
+- Define unambiguous identifiers for namespace settings; do not split arbitrary plugin IDs/keys on dots. Reject conflicting set/unset targets and validate the complete update before writing. Keep existing API replacement/patch contracts until explicitly migrated.
+- Environment-controlled fields are read-only and identify the controlling variable.
+- Preserve saved values hidden by enforcement so they return when enforcement is removed.
+- Machine reset and browser reset are separate operations. Neither resets sessions, credentials, or registries.
+
+## Resolution contract
+
+- Share setting definitions and validation across file, environment, API, and Settings paths; avoid independent per-source rules.
+- Record each setting's type, environment mapping, namespace membership, scope, default, browser applicability, exposure/redaction, and activation timing. Namespace containers may supply JSON; enforce only the independent settings explicitly supplied, not unspecified siblings.
+- Report effective values and their sources to Settings without exposing secrets.
+- Use JSON as canonical environment syntax for arrays and objects. Preserve documented, unambiguous legacy shorthand per setting, including comma-separated allowed hosts. Do not accept CSV generically: values such as paths may contain commas. Malformed JSON-form input must not fall back to shorthand.
+- Environment booleans accept only `true`, `false`, `1`, and `0`; boolean words are case-insensitive. Invalid explicit environment values fail startup with source context, not silently select a fallback. Migrate existing permissive/presence-based switches explicitly.
+- Distinguish unset, empty, `false`, and `0`. Validate supplied file/API values visibly; reject invalid updates without writing. Corrupt optional browser preferences may warn and be discarded rather than prevent application startup.
+- Resolve environment overrides consistently in web/API and session-daemon consumers. Document required reloads or restarts.
+- Server security restrictions must be enforced server-side. Browser preference enforcement controls normal application behavior, not user modifications to their browser.
+
+## Boundaries and migration
+
+Application state (sessions and registries) is not configuration. Keep credentials protected and Pi-owned configuration under Pi's supported mechanisms. Config-file selection and process startup wiring require explicit bootstrap handling rather than circular resolution through the selected files.
+
+Migrate existing project merges, nested plugin settings, environment parsing, and browser defaults deliberately. Preserve compatibility or document intentional changes; this document does not authorize silently changing existing behavior.
