@@ -38,4 +38,11 @@ const fileState: MessageDefinition<{ state: string }> = {
   message: "{state, select, modified {Modified} added {Added} deleted {Deleted} renamed {Renamed} copied {Copied} untracked {Untracked} ignored {Ignored} conflicted {Conflicted} other {Unmodified}}",
   description: "Full accessible description of the changed file state; visible letters are Git notation",
 };
-export default { git, goToGit, refreshGit, navigation, workspace, stale, refresh, changedFilesView, list, tree, collapseAll, expandAll, loadingStatus, statusUnavailable, notRepository, noChanges, selectFile, loadingDiff, noStagedDiff, diff, noDiff, unifiedDiff, submodule, detached, backendUnavailable, requestFailed, diffState, branchSummary, fileState };
+const stagedChanges: MessageDefinition<Record<string, never>> = { message: "Staged", description: "File has staged changes only" };
+const unstagedChanges: MessageDefinition<Record<string, never>> = { message: "Unstaged", description: "File has unstaged changes only" };
+const bothChanges: MessageDefinition<Record<string, never>> = { message: "Both", description: "File has both staged and unstaged changes" };
+const stagingDetail: MessageDefinition<{ index: string; workingTree: string }> = {
+  message: "Staged: {index} · Unstaged: {workingTree}",
+  description: "File status in the index and working tree; values are localized file states",
+};
+export default { stagedChanges, unstagedChanges, bothChanges, stagingDetail, git, goToGit, refreshGit, navigation, workspace, stale, refresh, changedFilesView, list, tree, collapseAll, expandAll, loadingStatus, statusUnavailable, notRepository, noChanges, selectFile, loadingDiff, noStagedDiff, diff, noDiff, unifiedDiff, submodule, detached, backendUnavailable, requestFailed, diffState, branchSummary, fileState };

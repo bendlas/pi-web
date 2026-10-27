@@ -17,6 +17,7 @@ import {
   parseGitDiffResponse,
   parseGitStatusResponse,
   type GitDiffResponse,
+  type GitFileState,
   type GitStatusFile,
   type GitStatusResponse,
 } from "./git-contract.js";
@@ -584,11 +585,24 @@ function renderSelectableRow(
   depth: number,
 ) {
   const selected = state.selectedDiffPath === path;
+  const status = file.index === "conflicted" || file.workingTree === "conflicted"
+    ? "conflicted" : file.workingTree !== "unmodified" ? file.workingTree : file.index;
+  const description = controller.messages.t("fileState", { state: status });
+  const staged = file.index !== "unmodified";
+  const unstaged = file.workingTree !== "unmodified";
+  const staging = status === "conflicted" || status === "untracked" || status === "ignored"
+    ? undefined : staged && unstaged ? "bothChanges" : staged ? "stagedChanges" : "unstagedChanges";
   return html`
-    <button type="button" class=${selected ? "ui-button ui-file-row selected" : "ui-button ui-file-row"} style=${`--depth:${String(depth)}`} title=${path} aria-current=${selected ? "page" : "false"} @click=${() => { controller.selectDiff(context, path); }}>
+    <button type="button" class=${selected ? "ui-button ui-file-row selected" : "ui-button ui-file-row"} data-git-state=${status} style=${`--depth:${String(depth)}`} title=${path} aria-current=${selected ? "page" : "false"} @click=${() => { controller.selectDiff(context, path); }}>
       <span class="ui-file-leading" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"></path><path d="M14 2v6h6"></path></svg></span>
       <span class="ui-file-label"><bdi dir="ltr">${label}</bdi></span>
-      <span class="ui-file-meta" title=${controller.messages.t("fileState", { state: file.workingTree !== "unmodified" ? file.workingTree : file.index })}>${stateLabel(file.index, file.workingTree)}</span>
+      <span class="git-file-details">
+      ${staging === undefined ? null : html`<span class="git-staging" title=${controller.messages.t("stagingDetail", {
+        index: controller.messages.t("fileState", { state: file.index }),
+        workingTree: controller.messages.t("fileState", { state: file.workingTree }),
+      })}>${controller.messages.t(staging)}</span>`}
+      <span class="ui-file-meta git-status" title=${description} aria-label=${description}>${status === "conflicted" ? description : stateLabel(status)}</span>
+      </span>
     </button>
   `;
 }
@@ -748,9 +762,10 @@ function gitSummary(html: HtmlTemplateTag, status: GitStatusResponse, controller
     : controller.messages.rich("branchSummary", { branch, ahead, behind, name: (parts) => html`<bdi dir="ltr">${parts}</bdi>` });
 }
 
-function stateLabel(index: string, workingTree: string): string {
-  const label = workingTree !== "unmodified" ? workingTree : index;
-  return label.slice(0, 1).toUpperCase();
+function stateLabel(state: GitFileState): string {
+  if (state === "untracked") return "?";
+  if (state === "ignored") return "!";
+  return state.slice(0, 1).toUpperCase();
 }
 
 function formatLineNumber(lineNumber: number | undefined, controller: GitUiController): string {
@@ -791,6 +806,15 @@ const gitPanelStyles = `
   .git-panel .git-error { flex: 0 0 auto; margin: 8px; border: 1px solid var(--pi-danger); border-radius: 7px; color: var(--pi-danger); padding: 8px; }
   .git-panel .git-split { flex: 1 1 auto; min-height: 0; display: grid; grid-template-rows: minmax(160px, 34%) minmax(0, 1fr); }
   .git-panel .git-file-list { border-bottom: 1px solid var(--pi-border); }
+  .git-panel [data-git-state] { --git-status-color: var(--pi-muted); }
+  .git-panel [data-git-state="added"] { --git-status-color: var(--pi-success); }
+  .git-panel [data-git-state="modified"] { --git-status-color: var(--pi-warning); }
+  .git-panel [data-git-state="deleted"], .git-panel [data-git-state="conflicted"] { --git-status-color: var(--pi-danger); }
+  .git-panel [data-git-state="renamed"], .git-panel [data-git-state="copied"] { --git-status-color: var(--pi-accent); }
+  .git-panel [data-git-state] .ui-file-leading, .git-panel .git-status { color: var(--git-status-color); }
+  .git-panel .git-status { font-weight: 600; }
+  .git-panel .git-file-details { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+  .git-panel .git-staging { color: var(--pi-muted); font-size: 11px; white-space: nowrap; }
   .git-panel .git-summary { margin: 10px 12px 8px; color: var(--pi-muted); }
   .git-panel .submodule-badge { display: inline-block; margin-inline-start: 6px; border: 1px solid var(--pi-border); border-radius: 999px; color: var(--pi-muted); padding: 0 5px; font-size: 11px; font-weight: 400; vertical-align: baseline; }
   .git-panel .git-viewer { min-height: 0; overflow: auto; display: flex; flex-direction: column; }

@@ -34,6 +34,45 @@ afterEach(() => {
 });
 
 describe("bundled Git browser plugin", () => {
+  it.each(["list", "tree"])("shows change types and staging hints in %s view", async (view) => {
+    window.localStorage.setItem(GIT_FILE_VIEW_STORAGE_KEY, view);
+    const panel = requiredPanel(activate("git"));
+    const backend = backendFixture({ files: [
+      changedFile("added.ts", { index: "added", workingTree: "unmodified" }),
+      changedFile("modified.ts"),
+      changedFile("deleted.ts", { workingTree: "deleted" }),
+      changedFile("renamed.ts", { index: "renamed", workingTree: "modified" }),
+      changedFile("untracked.ts", { workingTree: "untracked" }),
+      changedFile("conflict.ts", { index: "conflicted", workingTree: "modified" }),
+    ] });
+    const context = panelContext(backend.request);
+    const container = document.createElement("div");
+    document.body.append(container);
+    await panel.onInvalidate?.(context);
+    render(panel.render(context), container);
+
+    await settleBackend();
+    render(panel.render(context), container);
+    const added = button(container, "added.ts");
+    expect(added.dataset["gitState"]).toBe("added");
+    expect(added.querySelector(".git-status")?.getAttribute("aria-label")).toBe("Added");
+    expect(added.querySelector(".git-status")?.textContent).toBe("A");
+    expect(added.querySelector(".git-staging")?.textContent).toBe("Staged");
+    expect(button(container, "modified.ts").querySelector(".git-staging")?.textContent).toBe("Unstaged");
+    expect(button(container, "deleted.ts").dataset["gitState"]).toBe("deleted");
+    const both = button(container, "renamed.ts").querySelector(".git-staging");
+    expect(both?.textContent).toBe("Both");
+    expect(both?.getAttribute("title")).toBe("Staged: Renamed · Unstaged: Modified");
+    const untracked = button(container, "untracked.ts");
+    expect(untracked.querySelector(".git-status")?.textContent).toBe("?");
+    expect(untracked.querySelector(".git-staging")).toBeNull();
+    const conflict = button(container, "conflict.ts");
+    expect(conflict.dataset["gitState"]).toBe("conflicted");
+    expect(conflict.querySelector(".git-status")?.textContent).toBe("Conflicted");
+    expect(conflict.querySelector(".git-staging")).toBeNull();
+    render(null, container);
+  });
+
   it("updates live labels, cached diffs and regional numbers without refetching source", async () => {
     const service = new LocalizationService({ development: true });
     const panelContributions = activate("git", "remote.git", service);
