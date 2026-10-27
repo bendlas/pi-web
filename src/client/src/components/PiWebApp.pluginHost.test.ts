@@ -1004,6 +1004,41 @@ describe("PiWebApp plugin host", () => {
     expect(focusNavigationTarget).toHaveBeenCalledWith(target, expect.any(Function));
   });
 
+  it.each(["success", "unavailable"] as const)("opens the restored session before advancing to Chat (%s)", async (outcome) => {
+    const app = createDetachedApp();
+    const previous: SessionInfo = { id: "previous", cwd: workspace.path, path: "/repo/previous.jsonl", created: "now", modified: "now", messageCount: 0, firstMessage: "" };
+    const archived = { ...previous, id: "archived", path: "/repo/archived.jsonl", archived: true };
+    const restored: SessionInfo = { ...archived };
+    delete restored.archived;
+    setAppState(app, { ...initialAppState(), selectedProject: project, selectedWorkspace: workspace, selectedSession: previous, sessions: [previous, archived], mainView: "navigation" });
+    const restore = vi.spyOn(SessionController.prototype, "restoreSession").mockResolvedValue(outcome === "success" ? restored : undefined);
+    const select = vi.fn((session: SessionInfo) => {
+      setAppState(app, { ...appState(app), selectedSession: session });
+      return Promise.resolve(true);
+    });
+    Reflect.set(app, "selectSessionFromNavigation", select);
+    const focus = vi.fn(() => { expect(appState(app).selectedSession?.id).toBe(restored.id); });
+    Reflect.set(app, "focusNavigationTarget", focus);
+    Reflect.set(app, "withChatScrollTransition", async (action: () => Promise<void>) => { await action(); });
+    const host = document.createElement("div");
+    document.body.append(host);
+    render(callAppMethod(app, "renderNavigationPanel"), host);
+    const panel = host.querySelector("app-navigation-panel");
+    if (!(panel instanceof AppNavigationPanel)) throw new Error("Navigation panel was not rendered");
+
+    await panel.onRestoreSession?.(archived);
+
+    expect(restore).toHaveBeenCalledWith(archived);
+    if (outcome === "success") {
+      expect(select).toHaveBeenCalledWith(restored);
+      expect(focus).toHaveBeenCalledWith("chat", expect.any(Function));
+    } else {
+      expect(select).not.toHaveBeenCalled();
+      expect(focus).not.toHaveBeenCalled();
+      expect(appState(app).selectedSession).toBe(previous);
+    }
+  });
+
   it("does not focus a navigation target when its guarded navigation is rejected", async () => {
     const app = createApp();
     const focusNavigationTarget = vi.fn();

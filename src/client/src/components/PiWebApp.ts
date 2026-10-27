@@ -2160,7 +2160,10 @@ export class PiWebApp extends LitElement {
     archiveSession: (session: SessionInfo) => this.sessions.archiveSession(session),
     archiveSessionWithDescendants: (session: SessionInfo) => this.sessions.archiveSessionWithDescendants(session),
     archiveSessions: (sessions: SessionInfo[]) => this.sessions.archiveSessions(sessions),
-    restoreSession: (session: SessionInfo) => this.selectNavigationItem("sessions", "chat", async () => { await this.sessions.restoreSession(session); return undefined; }),
+    restoreSession: (session: SessionInfo) => this.selectNavigationItem("sessions", "chat", async () => {
+      const restored = await this.sessions.restoreSession(session);
+      return restored === undefined ? false : this.selectSessionFromNavigation(restored);
+    }),
     deleteCachedNewSession: (session: SessionInfo) => this.sessions.deleteCachedNewSession(session),
     deleteArchivedSession: (session: SessionInfo) => this.sessions.deleteArchivedSessions([session]),
     deleteArchivedSessions: (sessions: SessionInfo[]) => this.sessions.deleteArchivedSessions(sessions),

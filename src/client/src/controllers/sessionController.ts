@@ -1108,7 +1108,7 @@ export class SessionController {
     else await this.clearSessionAfterNavigation(expected);
   }
 
-  async restoreSession(session = this.getState().selectedSession) {
+  async restoreSession(session = this.getState().selectedSession): Promise<SessionInfo | undefined> {
     if (!session) return;
     const machineId = selectedMachineId(this.getState());
     const errorOwner = this.captureSessionErrorOwner(session);
@@ -1138,6 +1138,7 @@ export class SessionController {
         ...(navigation === undefined ? {} : { navigation }),
       });
     }
+    return restored;
   }
 
   async reloadSession(session = this.getState().selectedSession) {
