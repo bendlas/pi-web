@@ -249,8 +249,8 @@ describe("application rendering boundaries", () => {
     expect(load).not.toHaveBeenCalled();
   });
 
-  it("switches a wide shell to tabbed two-column mode and restores three columns", async () => {
-    const app = await mountApp({ selectedWorkspace: workspace, workspaces: [workspace], mainView: "chat" }, () => html`<p>Tool content</p>`);
+  it.each(["chat", "workspace"] as const)("collapses a wide workspace panel to Chat and restores three columns from %s", async (mainView) => {
+    const app = await mountApp({ selectedWorkspace: workspace, workspaces: [workspace], mainView }, () => html`<p>Tool content</p>`);
     const shell: unknown = Reflect.get(app, "appShell");
     if (!(shell instanceof AppShellController)) throw new Error("Expected shell controller");
     shell.isDesktopSideBySideLayout = true;
