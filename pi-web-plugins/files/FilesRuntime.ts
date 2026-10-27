@@ -19,6 +19,8 @@ import {
   type FilesRuntimeDiagnostic,
 } from "./filesRuntimeMessages";
 
+import { createExplorerViewStateStore, type ExplorerViewStateStore } from "./explorerViewState";
+
 const MAX_RECENT_SCOPES = 8;
 
 export type WorkspaceUploadFileStatus = "pending" | "uploading" | "completed" | "error" | "cancelled";
@@ -61,6 +63,10 @@ export interface FilesScopeState {
   readonly workspaceId: string;
   fileTree: FileTreeEntry[];
   expandedDirs: Record<string, FileTreeEntry[]>;
+  /** Expansion intent is independent of directory listings and survives interrupted loads. */
+  expandedPaths: string[];
+  scrollTop: number;
+  revealRequest?: { id: number; path: string };
   treeLoading: boolean;
   treeStale: boolean;
   error?: string;
@@ -89,6 +95,7 @@ interface ScopeRecord extends FilesScopeState {
   context: WorkspacePanelContext;
   files: WorkspaceFilesCapabilityV1 | undefined;
   navigationSnapshot: WorkspacePanelNavigationV1 | undefined;
+  pendingReveal: { id: number; path: string } | undefined;
   listeners: Set<FilesScopeListener>;
   selectedRequestGeneration: number;
   selectedAbort: AbortController | undefined;
@@ -106,6 +113,7 @@ interface ScopeRecord extends FilesScopeState {
 export interface FilesRuntimeDependencies {
   createUploadBatchId?: () => string;
   now?: () => string;
+  explorerViewState?: ExplorerViewStateStore;
 }
 
 /**
@@ -115,6 +123,11 @@ export interface FilesRuntimeDependencies {
  */
 export class FilesRuntime {
   private readonly scopes = new Map<string, ScopeRecord>();
+  // Keep navigation continuity when the heavier directory/content cache is evicted.
+  private readonly lastSelections = new Map<string, string | undefined>();
+  private readonly pendingReveals = new Map<string, { id: number; path: string }>();
+  private readonly explorerViewState: ExplorerViewStateStore;
+  private revealSequence = 0;
   private readonly createUploadBatchId: () => string;
   private readonly now: () => string;
   private uploadBatchSequence = 0;
@@ -123,6 +136,7 @@ export class FilesRuntime {
   private readonly messageHandles = new WeakMap<PluginLocalization, ReturnType<typeof createFilesRuntimeMessages>>();
 
   constructor(dependencies: FilesRuntimeDependencies = {}) {
+    this.explorerViewState = dependencies.explorerViewState ?? createExplorerViewStateStore();
     this.createUploadBatchId = dependencies.createUploadBatchId ?? (() => {
       this.uploadBatchSequence += 1;
       return `files-upload-${String(this.uploadBatchSequence)}`;
@@ -206,13 +220,12 @@ export class FilesRuntime {
     this.notify(scope);
     try {
       const root = await files.listFiles("", { signal: abort.signal });
-      const expandedEntries = await Promise.all(Object.keys(scope.expandedDirs).map(async (path) => {
-        const response = await files.listFiles(path, { signal: abort.signal });
-        return [path, response.entries] as const;
-      }));
       if (!this.isCurrentTreeRequest(scope, generation, abort)) return;
       scope.fileTree = root.entries;
-      scope.expandedDirs = Object.fromEntries(expandedEntries);
+      const expanded = await loadExpandedDirectories(files, root.entries, new Set(scope.expandedPaths), abort.signal);
+      if (!this.isCurrentTreeRequest(scope, generation, abort)) return;
+      scope.expandedDirs = expanded;
+      this.completeReveal(scope);
       scope.treeStale = false;
       delete scope.error;
     } catch (error) {
@@ -232,20 +245,26 @@ export class FilesRuntime {
     const scope = this.bindContext(context);
     const files = this.requireFiles(scope);
     if (files === undefined) return;
+    this.cancelReveal(scope);
     this.cancelTreeRefreshForInteraction(scope);
-    if (scope.expandedDirs[path] !== undefined) {
-      this.cancelExpandedRequest(scope, path);
+    this.cancelExpandedRequest(scope, path);
+    if (scope.expandedPaths.includes(path)) {
+      scope.expandedPaths = scope.expandedPaths.filter((entry) => entry !== path);
       scope.expandedDirs = omitKey(scope.expandedDirs, path);
+      this.saveExplorerView(scope);
       this.notify(scope);
       return;
     }
-    this.cancelExpandedRequest(scope, path);
+    scope.expandedPaths = [...scope.expandedPaths, path];
+    this.saveExplorerView(scope);
+    this.notify(scope);
     const abort = new AbortController();
     scope.expandedAborts.set(path, abort);
     try {
       const response = await files.listFiles(path, { signal: abort.signal });
+      const descendants = await loadExpandedDirectories(files, response.entries, new Set(scope.expandedPaths), abort.signal);
       if (!this.isCurrentExpandedRequest(scope, path, abort)) return;
-      scope.expandedDirs = { ...scope.expandedDirs, [path]: response.entries };
+      scope.expandedDirs = { ...scope.expandedDirs, ...descendants, [path]: response.entries };
       delete scope.error;
     } catch (error) {
       if (!this.isCurrentExpandedRequest(scope, path, abort) || isAbortError(error)) return;
@@ -258,15 +277,62 @@ export class FilesRuntime {
     }
   }
 
-  async selectFile(context: WorkspacePanelContext, path: string): Promise<void> {
+  /** Tree clicks open in place; uploads and other explicit destinations also reveal. */
+  async selectFile(context: WorkspacePanelContext, path: string, intent: "open" | "reveal" = "open"): Promise<void> {
     const scope = this.bindContext(context);
+    this.cancelReveal(scope);
     context.navigation?.set("file", path);
-    await this.restoreFile(scope, path);
+    const reveal = intent === "reveal" ? this.revealFile(scope, path) : Promise.resolve();
+    await Promise.all([this.restoreFile(scope, path), reveal]);
+  }
+
+  rememberScroll(context: WorkspacePanelContext, scrollTop: number): void {
+    const scope = this.bindContext(context);
+    if (!Number.isFinite(scrollTop) || scrollTop < 0 || scope.scrollTop === scrollTop) return;
+    scope.scrollTop = scrollTop;
+    this.saveExplorerView(scope);
+  }
+
+  acknowledgeReveal(context: WorkspacePanelContext, id: number, scrollTop: number): void {
+    const scope = this.bindContext(context);
+    if (scope.revealRequest?.id !== id) return;
+    this.cancelReveal(scope);
+    this.rememberScroll(context, scrollTop);
+  }
+
+  private saveExplorerView(scope: ScopeRecord): void {
+    this.explorerViewState.write(scope.key, { expandedPaths: scope.expandedPaths, scrollTop: scope.scrollTop });
+  }
+
+  private cancelReveal(scope: ScopeRecord): void {
+    scope.pendingReveal = undefined;
+    this.pendingReveals.delete(scope.key);
+    delete scope.revealRequest;
+  }
+
+  private revealFile(scope: ScopeRecord, path: string): Promise<void> {
+    const request = { id: ++this.revealSequence, path };
+    scope.pendingReveal = request;
+    this.pendingReveals.set(scope.key, request);
+    delete scope.revealRequest;
+    scope.expandedPaths = [...new Set([...scope.expandedPaths, ...ancestorDirectories(path)])];
+    this.saveExplorerView(scope);
+    if (scope.suspended) return Promise.resolve();
+    return this.refreshFiles(scope.context);
+  }
+
+  private completeReveal(scope: ScopeRecord): void {
+    const request = scope.pendingReveal;
+    if (request !== undefined && treeContainsFile(scope.fileTree, scope.expandedDirs, request.path)) {
+      scope.revealRequest = request;
+    }
   }
 
   clearSelection(context: WorkspacePanelContext): void {
     const scope = this.bindContext(context);
     context.navigation?.set("file", undefined);
+    this.cancelReveal(scope);
+    this.lastSelections.set(scope.key, undefined);
     this.cancelSelectedRequest(scope);
     delete scope.selectedFilePath;
     delete scope.selectedFileContent;
@@ -336,6 +402,7 @@ export class FilesRuntime {
   async invalidate(context: WorkspacePanelContext, _invalidation?: WorkspaceInvalidation): Promise<void> {
     void _invalidation;
     const scope = this.bindContext(context);
+    const treeGeneration = scope.treeRequestGeneration;
     const navigationRestore = this.synchronizeNavigation(scope);
     scope.treeStale = true;
     if (scope.suspended) {
@@ -348,13 +415,17 @@ export class FilesRuntime {
       await navigationRestore;
       return;
     }
-    await Promise.all([navigationRestore, this.refreshFiles(context)]);
+    // A changed file destination already started a coordinated tree reveal.
+    const treeRefresh = scope.treeRequestGeneration === treeGeneration ? this.refreshFiles(context) : Promise.resolve();
+    await Promise.all([navigationRestore, treeRefresh]);
   }
 
   private bindContext(context: WorkspacePanelContext): ScopeRecord {
     const key = scopeKey(context);
     let scope = this.scopes.get(key);
     if (scope === undefined) {
+      const remembered = this.explorerViewState.read(key);
+      const lastSelection = this.lastSelections.get(key);
       scope = {
         key,
         machineId: context.machine.id,
@@ -363,15 +434,19 @@ export class FilesRuntime {
         context,
         fileTree: [],
         expandedDirs: {},
+        expandedPaths: remembered?.expandedPaths ?? [],
+        scrollTop: remembered?.scrollTop ?? 0,
+        ...(lastSelection === undefined ? {} : { selectedFilePath: lastSelection }),
         treeLoading: false,
         treeStale: false,
         uploadBatches: {},
         files: undefined,
         navigationSnapshot: undefined,
+        pendingReveal: this.pendingReveals.get(key),
         listeners: new Set(),
         selectedRequestGeneration: 0,
         selectedAbort: undefined,
-        selectedNeedsRestore: false,
+        selectedNeedsRestore: lastSelection !== undefined,
         treeRequestGeneration: 0,
         treeAbort: undefined,
         expandedAborts: new Map(),
@@ -410,7 +485,13 @@ export class FilesRuntime {
   private async restoreNavigationSelection(scope: ScopeRecord): Promise<void> {
     if (scope.capabilityError !== undefined) return;
     const selectedPath = firstQueryString(scope.navigationSnapshot?.query["file"]);
+    const destinationChanged = selectedPath !== scope.selectedFilePath;
     if (scope.suspended) {
+      if (destinationChanged) {
+        this.cancelReveal(scope);
+        if (selectedPath !== undefined && selectedPath !== "") void this.revealFile(scope, selectedPath);
+      }
+      this.lastSelections.set(scope.key, selectedPath);
       this.cancelSelectedRequest(scope);
       if (selectedPath === undefined || selectedPath === "") delete scope.selectedFilePath;
       else scope.selectedFilePath = selectedPath;
@@ -421,6 +502,8 @@ export class FilesRuntime {
     }
     if (selectedPath === scope.selectedFilePath && !scope.selectedNeedsRestore) return;
     if (selectedPath === undefined || selectedPath === "") {
+      this.cancelReveal(scope);
+      this.lastSelections.set(scope.key, undefined);
       this.cancelSelectedRequest(scope);
       delete scope.selectedFilePath;
       delete scope.selectedFileContent;
@@ -429,7 +512,8 @@ export class FilesRuntime {
       this.notify(scope);
       return;
     }
-    await this.restoreFile(scope, selectedPath);
+    const reveal = destinationChanged ? this.revealFile(scope, selectedPath) : Promise.resolve();
+    await Promise.all([this.restoreFile(scope, selectedPath), reveal]);
   }
 
   private async restoreFile(scope: ScopeRecord, path: string): Promise<void> {
@@ -441,6 +525,7 @@ export class FilesRuntime {
     scope.selectedAbort = abort;
     scope.selectedNeedsRestore = false;
     scope.selectedFilePath = path;
+    this.lastSelections.set(scope.key, path);
     delete scope.selectedFileContent;
     delete scope.selectedFileLoadError;
     this.notify(scope);
@@ -611,6 +696,8 @@ export class FilesRuntime {
         scope.context.navigation?.set("file", firstPath);
         this.cancelSelectedRequest(scope);
         scope.selectedFilePath = firstPath;
+        this.lastSelections.set(scope.key, firstPath);
+        void this.revealFile(scope, firstPath);
         delete scope.selectedFileContent;
         delete scope.selectedFileLoadError;
         scope.selectedNeedsRestore = true;
@@ -619,7 +706,7 @@ export class FilesRuntime {
     }
     await this.refreshFiles(scope.context);
     if (options.selectUploadedFile !== false && firstPath !== undefined && scope.uploadBatches[batch.id] === batch) {
-      await this.selectFile(scope.context, firstPath);
+      await this.selectFile(scope.context, firstPath, "reveal");
     }
   }
 
@@ -666,6 +753,32 @@ export class FilesRuntime {
       scope.selectedNeedsRestore = scope.selectedFilePath !== undefined;
     }
   }
+}
+
+function ancestorDirectories(path: string): string[] {
+  const segments = path.split("/");
+  return segments.slice(0, -1).map((_segment, index) => segments.slice(0, index + 1).join("/"));
+}
+
+/** Walk actual listings, so remembered folders that were deleted do not break restoration. */
+async function loadExpandedDirectories(
+  files: WorkspaceFilesCapabilityV1,
+  entries: readonly FileTreeEntry[],
+  expandedPaths: ReadonlySet<string>,
+  signal: AbortSignal,
+): Promise<Record<string, FileTreeEntry[]>> {
+  const branches = await Promise.all(entries.filter((entry) => entry.type === "directory" && expandedPaths.has(entry.path)).map(async (entry) => {
+    const response = await files.listFiles(entry.path, { signal });
+    const descendants = await loadExpandedDirectories(files, response.entries, expandedPaths, signal);
+    return { ...descendants, [entry.path]: response.entries };
+  }));
+  return Object.fromEntries(branches.flatMap((branch) => Object.entries(branch)));
+}
+
+function treeContainsFile(entries: readonly FileTreeEntry[], expanded: Record<string, FileTreeEntry[]>, path: string): boolean {
+  return entries.some((entry) => entry.type === "directory"
+    ? treeContainsFile(Object.hasOwn(expanded, entry.path) ? expanded[entry.path] ?? [] : [], expanded, path)
+    : entry.path === path);
 }
 
 export function workspaceFilesCapabilityV1(files: WorkspaceFilesContextValue): WorkspaceFilesCapabilityV1 | undefined {

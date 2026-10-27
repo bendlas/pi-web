@@ -11,6 +11,7 @@ import { describe, expect, it, vi } from "vitest";
 import { LocalizationService } from "../../src/client/src/localization/service";
 import { createPluginLocalization } from "../../src/client/src/plugins/localization";
 import { FilesRuntime, workspaceUploadPath } from "./FilesRuntime";
+import { createExplorerViewStateStore } from "./explorerViewState";
 
 describe("FilesRuntime tree and selection", () => {
   it("refreshes root and expanded directories, then collapses locally", async () => {
@@ -22,6 +23,7 @@ describe("FilesRuntime tree and selection", () => {
     const runtime = new FilesRuntime();
     const scope = runtime.snapshot(context);
     scope.expandedDirs = { src: [fileEntry("src/stale.ts")] };
+    scope.expandedPaths = ["src"];
     scope.treeStale = true;
 
     await runtime.refreshFiles(context);
@@ -52,6 +54,7 @@ describe("FilesRuntime tree and selection", () => {
 
     const staleExpansion = runtime.expandDir(context, "src");
     const concurrentExpansion = runtime.expandDir(context, "docs");
+    await runtime.expandDir(context, "src"); // A second click cancels the pending expansion.
     const currentExpansion = runtime.expandDir(context, "src");
     expect(trees.request(2).signal.aborted).toBe(true);
     expect(trees.request(3).signal.aborted).toBe(false);
@@ -183,6 +186,221 @@ describe("FilesRuntime tree and selection", () => {
 
     const unavailable = createContext({ files: legacyFiles(), navigation: null });
     expect(runtime.prepare(unavailable).capabilityError).toContain("workspace-files capability v1");
+  });
+});
+
+describe("FilesRuntime navigation flows", () => {
+  const directories: Record<string, FileTreeEntry[]> = {
+    "": [directoryEntry("src"), directoryEntry("docs")],
+    src: [directoryEntry("src/lib"), fileEntry("src/main.ts")],
+    "src/lib": [fileEntry("src/lib/deep.ts")],
+    docs: [fileEntry("docs/guide.md")],
+  };
+
+  function navigationFixture(path = "src/lib/deep.ts") {
+    const listFiles = vi.fn<WorkspaceFilesCapabilityV1["listFiles"]>((folder) => Promise.resolve(treeResponse(folder, directories[folder] ?? [])));
+    const context = createContext({ files: createFiles({ listFiles }), navigation: createNavigation({ file: path }) });
+    return { context, listFiles };
+  }
+
+  it("restores a nested URL destination and reveals it independently of preview loading", async () => {
+    const { context, listFiles } = navigationFixture();
+    const reads = deferredReads();
+    const runtime = new FilesRuntime();
+    const linked = { ...context, files: createFiles({ listFiles, readFile: reads.fn }) };
+    const scope = runtime.prepare(linked);
+
+    await vi.waitFor(() => { expect(scope.revealRequest?.path).toBe("src/lib/deep.ts"); });
+    expect(scope.selectedFileContent).toBeUndefined();
+    expect(scope.expandedPaths).toEqual(["src", "src/lib"]);
+    expect(scope.expandedDirs["src/lib"]).toEqual([fileEntry("src/lib/deep.ts")]);
+    expect(listFiles.mock.calls.map(([path]) => path)).toEqual(["", "src", "src/lib"]);
+    reads.request(0).resolve(fileResponse("src/lib/deep.ts"));
+    await vi.waitFor(() => { expect(scope.selectedFileContent?.path).toBe("src/lib/deep.ts"); });
+  });
+
+  it("resumes manual collapse and scroll on tab return, but reveals the URL again on reload", async () => {
+    const explorerViewState = createExplorerViewStateStore();
+    const { context } = navigationFixture();
+    const runtime = new FilesRuntime({ explorerViewState });
+    const unsubscribe = runtime.subscribe(context, vi.fn());
+    const scope = runtime.prepare(context);
+    await vi.waitFor(() => { expect(scope.revealRequest).toBeDefined(); });
+    runtime.acknowledgeReveal(context, scope.revealRequest?.id ?? -1, 120);
+    await runtime.expandDir(context, "src");
+    runtime.rememberScroll(context, 45);
+    unsubscribe();
+
+    runtime.subscribe(context, vi.fn());
+    runtime.prepare(context);
+    await vi.waitFor(() => { expect(scope.treeLoading).toBe(false); });
+    expect(scope.expandedPaths).not.toContain("src");
+    expect(scope.revealRequest).toBeUndefined();
+    expect(scope.scrollTop).toBe(45);
+    expect(scope.selectedFileContent?.path).toBe("src/lib/deep.ts");
+
+    const reloaded = new FilesRuntime({ explorerViewState }).prepare(context);
+    await vi.waitFor(() => { expect(reloaded.revealRequest?.path).toBe("src/lib/deep.ts"); });
+    expect(reloaded.expandedPaths).toContain("src");
+  });
+
+  it("retries an interrupted expansion on return instead of losing the user's intent", async () => {
+    const trees = deferredTrees();
+    const context = createContext({ files: createFiles({ listFiles: trees.fn }) });
+    const runtime = new FilesRuntime();
+    const unsubscribe = runtime.subscribe(context, vi.fn());
+    const scope = runtime.prepare(context);
+    trees.request(0).resolve(treeResponse("", directories[""]));
+    await vi.waitFor(() => { expect(scope.treeLoading).toBe(false); });
+    const expansion = runtime.expandDir(context, "src");
+    unsubscribe();
+    await expansion;
+    expect(scope.expandedPaths).toEqual(["src"]);
+
+    runtime.subscribe(context, vi.fn());
+    runtime.prepare(context);
+    trees.request(2).resolve(treeResponse("", directories[""]));
+    await vi.waitFor(() => { expect(trees.fn).toHaveBeenCalledTimes(4); });
+    trees.request(3).resolve(treeResponse("src", directories["src"]));
+    await vi.waitFor(() => { expect(scope.expandedDirs["src"]).toEqual(directories["src"]); });
+  });
+
+  it("opens tree clicks in place, but reveals external navigation and browser history destinations", async () => {
+    const { context, listFiles } = navigationFixture();
+    const runtime = new FilesRuntime();
+    const scope = runtime.prepare(context);
+    await vi.waitFor(() => { expect(scope.revealRequest).toBeDefined(); });
+    runtime.acknowledgeReveal(context, scope.revealRequest?.id ?? -1, 75);
+    listFiles.mockClear();
+    await runtime.selectFile(context, "src/main.ts");
+    expect(listFiles).not.toHaveBeenCalled();
+    expect(scope.revealRequest).toBeUndefined();
+    expect(scope.scrollTop).toBe(75);
+
+    const external = { ...context, navigation: createNavigation({ file: "docs/guide.md" }) };
+    await runtime.invalidate(external);
+    expect(scope.revealRequest?.path).toBe("docs/guide.md");
+    expect(scope.expandedPaths).toEqual(expect.arrayContaining(["src", "src/lib", "docs"]));
+    expect(listFiles.mock.calls.filter(([path]) => path === "")).toHaveLength(1);
+    await runtime.invalidate({ ...context, navigation: createNavigation({ file: "src/main.ts" }) });
+    expect(scope.revealRequest?.path).toBe("src/main.ts");
+    expect(scope.selectedFileContent?.path).toBe("src/main.ts");
+  });
+
+  it("does not let an obsolete reveal overwrite a newer collapse", async () => {
+    const trees = deferredTrees();
+    const context = createContext({ files: createFiles({ listFiles: trees.fn }), navigation: createNavigation({ file: "src/lib/deep.ts" }) });
+    const runtime = new FilesRuntime();
+    const scope = runtime.prepare(context);
+    trees.request(0).resolve(treeResponse("", directories[""]));
+    await vi.waitFor(() => { expect(trees.fn).toHaveBeenCalledTimes(2); });
+    await runtime.expandDir(context, "src");
+    expect(trees.request(1).signal.aborted).toBe(true);
+    expect(scope.expandedPaths).not.toContain("src");
+    trees.request(1).resolve(treeResponse("src", directories["src"]));
+    await runtime.refreshFiles({ ...context, files: navigationFixture().context.files });
+    expect(scope.revealRequest).toBeUndefined();
+    expect(scope.expandedDirs["src"]).toBeUndefined();
+    expect(scope.selectedFilePath).toBe("src/lib/deep.ts");
+  });
+
+  it("cancels an obsolete history reveal before it can scroll the new destination", async () => {
+    const trees = deferredTrees();
+    const context = createContext({ files: createFiles({ listFiles: trees.fn }), navigation: createNavigation({ file: "src/lib/deep.ts" }) });
+    const runtime = new FilesRuntime();
+    const scope = runtime.prepare(context);
+    trees.request(0).resolve(treeResponse("", directories[""]));
+    await vi.waitFor(() => { expect(trees.fn).toHaveBeenCalledTimes(2); });
+    const next = { ...context, navigation: createNavigation({ file: "docs/guide.md" }) };
+    const navigating = runtime.invalidate(next);
+    expect(trees.request(1).signal.aborted).toBe(true);
+    trees.request(2).resolve(treeResponse("", directories[""]));
+    await vi.waitFor(() => { expect(trees.fn).toHaveBeenCalledTimes(5); });
+    trees.request(3).resolve(treeResponse("src", []));
+    trees.request(4).resolve(treeResponse("docs", directories["docs"]));
+    await navigating;
+    expect(scope.revealRequest?.path).toBe("docs/guide.md");
+    expect(scope.selectedFileContent?.path).toBe("docs/guide.md");
+  });
+
+  it("restores remembered folders after cache eviction without undoing a deliberate collapse", async () => {
+    const runtime = new FilesRuntime();
+    const { context } = navigationFixture();
+    const scope = runtime.prepare(context);
+    await vi.waitFor(() => { expect(scope.revealRequest).toBeDefined(); });
+    runtime.acknowledgeReveal(context, scope.revealRequest?.id ?? -1, 80);
+    await runtime.expandDir(context, "docs");
+    await runtime.expandDir(context, "src");
+    for (let index = 0; index < 9; index += 1) {
+      runtime.snapshot(createContext({ workspaceId: `other-${String(index)}` }));
+    }
+    const returned = runtime.prepare(context);
+    expect(returned).not.toBe(scope);
+    await vi.waitFor(() => { expect(returned.treeLoading).toBe(false); });
+    expect(returned.expandedPaths).toContain("docs");
+    expect(returned.expandedPaths).not.toContain("src");
+    expect(returned.expandedDirs["docs"]).toEqual(directories["docs"]);
+    expect(returned.revealRequest).toBeUndefined();
+    expect(returned.scrollTop).toBe(80);
+    expect(returned.selectedFileContent?.path).toBe("src/lib/deep.ts");
+  });
+
+  it("keeps tree restoration failures separate from a successfully opened preview", async () => {
+    const { context } = navigationFixture();
+    const listFiles = vi.fn<WorkspaceFilesCapabilityV1["listFiles"]>((path) => path === "src"
+      ? Promise.reject(new Error("directory unavailable"))
+      : Promise.resolve(treeResponse(path, directories[path] ?? [])));
+    const runtime = new FilesRuntime();
+    const scope = runtime.prepare({ ...context, files: createFiles({ listFiles }) });
+    await vi.waitFor(() => { expect(scope.error).toBe("directory unavailable"); });
+    expect(scope.selectedFileContent?.path).toBe("src/lib/deep.ts");
+    expect(scope.fileTree).toEqual(directories[""]);
+    expect(scope.revealRequest).toBeUndefined();
+    await runtime.refreshFiles(context);
+    expect(scope.error).toBeUndefined();
+    expect(scope.revealRequest?.path).toBe("src/lib/deep.ts");
+  });
+
+  it("defers navigation while Files is suspended and reveals the destination on return", async () => {
+    const { context, listFiles } = navigationFixture();
+    const runtime = new FilesRuntime();
+    const unsubscribe = runtime.subscribe(context, vi.fn());
+    const scope = runtime.prepare(context);
+    await vi.waitFor(() => { expect(scope.revealRequest).toBeDefined(); });
+    runtime.acknowledgeReveal(context, scope.revealRequest?.id ?? -1, 50);
+    unsubscribe();
+    listFiles.mockClear();
+    const linked = { ...context, navigation: createNavigation({ file: "docs/guide.md" }) };
+    await runtime.invalidate(linked);
+    expect(listFiles).not.toHaveBeenCalled();
+    expect(scope.selectedFilePath).toBe("docs/guide.md");
+    runtime.subscribe(linked, vi.fn());
+    runtime.prepare(linked);
+    await vi.waitFor(() => { expect(scope.revealRequest?.path).toBe("docs/guide.md"); });
+    expect(scope.selectedFileContent?.path).toBe("docs/guide.md");
+  });
+
+  it("retains an unacknowledged reveal when its inactive content cache is evicted", async () => {
+    const runtime = new FilesRuntime();
+    const { context } = navigationFixture();
+    const scope = runtime.prepare(context);
+    await vi.waitFor(() => { expect(scope.revealRequest).toBeDefined(); });
+    const reveal = scope.revealRequest;
+    for (let index = 0; index < 9; index += 1) runtime.snapshot(createContext({ workspaceId: `other-${String(index)}` }));
+    const returned = runtime.prepare(context);
+    expect(returned).not.toBe(scope);
+    await vi.waitFor(() => { expect(returned.revealRequest).toEqual(reveal); });
+  });
+
+  it("ignores deleted remembered folders and scopes presentation by workspace and machine", async () => {
+    const runtime = new FilesRuntime();
+    const first = navigationFixture().context;
+    await runtime.expandDir(first, "deleted");
+    await runtime.refreshFiles(first);
+    expect(runtime.snapshot(first).error).toBeUndefined();
+    runtime.rememberScroll(first, 100);
+    expect(runtime.snapshot({ ...first, machine: { ...first.machine, id: "other" } }).scrollTop).toBe(0);
+    expect(runtime.snapshot({ ...first, workspace: { ...first.workspace, id: "other" } }).expandedPaths).toEqual([]);
   });
 });
 

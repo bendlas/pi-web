@@ -53,6 +53,8 @@ export class WorkspaceFilesPanel extends LitElement {
   private unsubscribeRuntime: (() => void) | undefined;
   private boundRuntime: FilesRuntime | undefined;
   private boundScopeKey: string | undefined;
+  private boundContext: WorkspacePanelContext | undefined;
+  private scrollRestorePending = true;
   private navigationModeKey = "";
   private modeStore: WorkspaceFileViewModeStore = createWorkspaceFileViewModeStore(undefined);
   private uploadReturnFocus: HTMLElement | undefined;
@@ -72,6 +74,7 @@ export class WorkspaceFilesPanel extends LitElement {
 
   protected override updated(): void {
     this.openPendingDialog();
+    this.restoreExplorerPresentation();
   }
 
   override connectedCallback(): void {
@@ -89,6 +92,10 @@ export class WorkspaceFilesPanel extends LitElement {
   }
 
   override disconnectedCallback(): void {
+    // Detached layout has already reset scrollTop in browsers. Scroll events own
+    // the last visible position; do not replace it with detached geometry.
+    this.scrollRestorePending = true;
+    this.boundContext = undefined;
     window.removeEventListener("resize", this.handleResponsiveVisibilityChange);
     this.visibilityObserver?.disconnect();
     this.unsubscribeRuntime?.();
@@ -143,7 +150,7 @@ export class WorkspaceFilesPanel extends LitElement {
         ${scope.error === undefined ? null : html`<p class="files-error" role="alert">${scope.error}</p>`}
         ${this.renderUploadProgress(context, runtime, scope)}
         <section class="split">
-          <div class="list tree ui-file-list">
+          <div class="list tree ui-file-list" @scroll=${this.handleTreeScroll}>
             ${scope.fileTree.length === 0 ? html`<p class="muted">${this.text.messages.t("noFiles")}</p>` : scope.fileTree.map((entry) => this.renderTreeEntry(context, runtime, scope, entry, 0))}
           </div>
           <div class="viewer">
@@ -180,6 +187,9 @@ export class WorkspaceFilesPanel extends LitElement {
     const runtime = this.runtime;
     const needsSubscription = runtime !== this.boundRuntime || nextKey !== this.boundScopeKey;
     if (needsSubscription) {
+      // Save the old scope before Lit reuses its list element for another workspace.
+      this.rememberExplorerScroll();
+      this.scrollRestorePending = true;
       this.unsubscribeRuntime?.();
       this.unsubscribeRuntime = undefined;
       this.boundRuntime = runtime;
@@ -197,7 +207,40 @@ export class WorkspaceFilesPanel extends LitElement {
         this.requestUpdate();
       });
     }
+    this.boundContext = context;
     this.scope = runtime.prepare(context);
+  }
+
+  private rememberExplorerScroll(): void {
+    const list = this.renderRoot.querySelector<HTMLElement>(".list.tree");
+    if (!this.isConnected || !this.isPanelVisible() || this.scrollRestorePending || list === null || this.boundContext === undefined) return;
+    this.boundRuntime?.rememberScroll(this.boundContext, list.scrollTop);
+  }
+
+  private readonly handleTreeScroll = (): void => {
+    // Ignore clamping and programmatic scroll events until the new tree is ready.
+    if (this.context === undefined || workspaceContextKey(this.context) !== this.boundScopeKey) return;
+    this.rememberExplorerScroll();
+  };
+
+  private restoreExplorerPresentation(): void {
+    const scope = this.scope;
+    const context = this.boundContext;
+    const runtime = this.boundRuntime;
+    const list = this.renderRoot.querySelector<HTMLElement>(".list.tree");
+    if (!this.isConnected || scope === undefined || scope.treeLoading || context === undefined || runtime === undefined || list === null || !this.isPanelVisible()) return;
+    const reveal = scope.revealRequest;
+    if (reveal !== undefined) {
+      // Compare paths directly: filenames need not be valid CSS selector fragments.
+      const row = [...list.querySelectorAll<HTMLButtonElement>(".row")].find((candidate) => candidate.title === reveal.path);
+      if (row === undefined) return;
+      row.scrollIntoView({ block: "nearest", inline: "nearest" });
+      this.scrollRestorePending = false;
+      runtime.acknowledgeReveal(context, reveal.id, list.scrollTop);
+    } else if (this.scrollRestorePending) {
+      list.scrollTop = scope.scrollTop;
+      this.scrollRestorePending = false;
+    }
   }
 
   private renderTreeEntry(
@@ -207,18 +250,18 @@ export class WorkspaceFilesPanel extends LitElement {
     entry: FileTreeEntry,
     depth: number,
   ): TemplateResult {
-    const children = scope.expandedDirs[entry.path];
-    const hasChildren = children !== undefined;
+    const children = Object.hasOwn(scope.expandedDirs, entry.path) ? scope.expandedDirs[entry.path] : undefined;
+    const expanded = scope.expandedPaths.includes(entry.path);
     const selected = entry.type !== "directory" && scope.selectedFilePath === entry.path;
     return html`
-      <button type="button" class=${`row ui-button ui-file-row ${selected ? "selected" : ""}`} style=${`--depth:${String(depth)}`} title=${entry.path} aria-current=${selected ? "page" : nothing} aria-expanded=${entry.type === "directory" ? String(hasChildren) : nothing} @click=${() => {
+      <button type="button" class=${`row ui-button ui-file-row ${selected ? "selected" : ""}`} style=${`--depth:${String(depth)}`} title=${entry.path} aria-current=${selected ? "page" : nothing} aria-expanded=${entry.type === "directory" ? String(expanded) : nothing} @click=${() => {
         if (entry.type === "directory") void runtime.expandDir(context, entry.path);
         else void runtime.selectFile(context, entry.path);
       }}>
-        <span class="ui-file-leading" aria-hidden="true">${entry.type === "directory" ? (hasChildren ? "▾" : "▸") : html`<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"></path><path d="M14 2v6h6"></path></svg>`}</span>
+        <span class="ui-file-leading" aria-hidden="true">${entry.type === "directory" ? (expanded ? "▾" : "▸") : html`<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"></path><path d="M14 2v6h6"></path></svg>`}</span>
         <span class="ui-file-label" dir="ltr">${entry.name}</span>
       </button>
-      ${hasChildren ? children.map((child) => this.renderTreeEntry(context, runtime, scope, child, depth + 1)) : null}
+      ${expanded && children !== undefined ? children.map((child) => this.renderTreeEntry(context, runtime, scope, child, depth + 1)) : null}
     `;
   }
 
@@ -378,6 +421,10 @@ export class WorkspaceFilesPanel extends LitElement {
   };
 
   private readonly handleResponsiveVisibilityChange = (): void => {
+    // Visibility can change without a Lit update (the responsive shell hides us).
+    if (this.isPanelVisible()) {
+      void this.updateComplete.then(() => { this.restoreExplorerPresentation(); });
+    }
     const dialog = this.uploadDialog;
     if ((this.pendingUpload === undefined && dialog?.open !== true) || this.isPanelVisible()) return;
     // The trigger remains connected when the compact shell CSS hides this
