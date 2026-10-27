@@ -571,7 +571,9 @@ Keep the name stable. If you need to retire a name, disable [discovery hooks](#g
 
 #### Desired versus active plugin state
 
-Saving `plugins` config or replacing package files changes **desired** state, not the running server code. A disabled server plugin and its paired UI may remain active until the session daemon restarts. PI WEB withholds a paired UI when its package/settings no longer match the running server code or the server plugin is unhealthy or incompatible.
+Saving `plugins` config or replacing package files changes **desired** state, not the running server code. A disabled server plugin and its paired UI may remain active until the session daemon restarts. By default, PI WEB withholds a paired UI when its package/settings no longer match the running server code or the server plugin is unhealthy or incompatible.
+
+The supported `npm run dev:web` launcher defaults the process-only `PI_WEB_DEV_PLUGIN_PAIRING` flag to `1`, allowing refreshed plugin UI to use the still-running old backend. Set `PI_WEB_DEV_PLUGIN_PAIRING=0` before launching to retain strict pairing. Production and other startup paths stay strict by default. The flag accepts `1`/`true` and `0`/`false` (case-insensitive); invalid values fail web/API startup. This is startup wiring, not a saved `plugins` setting. Mismatch notices remain in the existing restart diagnostics, and backend changes still require a session-daemon restart that interrupts active sessions and terminals. See [Local plugin development](plugins.md#local-development).
 
 **Settings → PI WEB plugins** distinguishes desired from active state and shows failures, compatibility problems, safe mode, and required restarts. If the daemon is unavailable, desired config may still be editable, but active state is unavailable.
 

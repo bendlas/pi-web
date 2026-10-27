@@ -372,6 +372,55 @@ describe("PiWebPluginService", () => {
     await expect(service.readAsset("dual-assets", "browser.js", activeRevision)).resolves.toBeDefined();
   });
 
+  it("serves rebuilt development assets while retaining the running backend revision and mismatch diagnostics", async () => {
+    const pluginDir = join(tempDir, "plugins", "dev-dual");
+    await writePlugin(pluginDir, {
+      packageJson: { piWeb: { plugins: [{ id: "dev-dual", browserRoot: ".", module: "browser.js", serverModule: "server.js" }] } },
+      files: { "browser.js": "export const value = 'old';", "server.js": "export default {};" },
+    });
+    const catalog = new PiWebPluginCatalog({
+      roots: [{ path: join(tempDir, "plugins"), source: "test", scope: "local" }],
+      packageProvider: false,
+    });
+    const activeRuntime = activeRuntimeProvider(catalog, ["dev-dual"]);
+    let unhealthy = false;
+    const service = new PiWebPluginService({
+      catalog,
+      relaxBrowserPairing: true,
+      runtimeProvider: {
+        providerRuntime: async () => {
+          const snapshot = await activeRuntime.providerRuntime();
+          return unhealthy ? { ...snapshot, health: [{ pluginId: "dev-dual", health: { status: "unhealthy" } }] } : snapshot;
+        },
+      },
+    });
+    const initial = (await service.manifest()).plugins[0];
+    expect(initial?.backendRevision).toBeDefined();
+
+    await writeFile(join(pluginDir, "browser.js"), "export const value = 'new';");
+    const desiredRevision = (await catalog.snapshot()).plugins[0]?.browserModule?.revision;
+    if (desiredRevision === undefined) throw new Error("Expected rebuilt revision");
+    // The advertised new URL must refresh an already-cached asset even before
+    // another manifest request (for example after a plugin status refresh).
+    const refreshed = await service.readAsset("dev-dual", "browser.js", desiredRevision);
+    expect(refreshed?.content.toString()).toBe("export const value = 'new';");
+    const updated = (await service.manifest()).plugins[0];
+    expect(updated).toMatchObject({ backendRevision: initial?.backendRevision, pairedRequestVersion: 1 });
+    expect(updated?.module).not.toBe(initial?.module);
+    await expect(service.plugins()).resolves.toMatchObject({
+      plugins: [{ server: { state: "active", staleRevision: true, restartRequired: true } }],
+    });
+
+    await writeFile(join(pluginDir, "server.js"), "export default { changed: true };");
+    const afterBackendEdit = (await service.manifest()).plugins[0];
+    expect(afterBackendEdit?.backendRevision).toBe(initial?.backendRevision);
+    expect(afterBackendEdit?.module).not.toBe(updated?.module);
+
+    unhealthy = true;
+    expect((await service.manifest()).plugins).toEqual([]);
+    await expect(service.readAsset("dev-dual", "browser.js")).resolves.toBeUndefined();
+  });
+
   it("withholds server-backed browser modules and reports an incompatible sessiond protocol", async () => {
     await writePlugin(join(tempDir, "plugins", "dual"), {
       packageJson: { piWeb: { plugins: [{ id: "dual", browserRoot: ".", module: "browser.js", serverModule: "server.js" }] } },

@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs";
+import { parsePiWebEnvBoolean } from "../shared/configResolution.js";
 import { dirname, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyServerOptions } from "fastify";
@@ -179,7 +180,9 @@ export async function buildApp(deps: AppDependencies = {}): Promise<FastifyInsta
   const daemonWorkspaces = new SessionDaemonWorkspaceCatalog(sessionDaemon);
   const workspaces = deps.workspaceCatalog ?? daemonWorkspaces;
   const agentProfileProvider = deps.agentProfileProvider ?? new SessionDaemonActiveAgentProfileProvider(sessionDaemon);
+  const devPluginPairing = process.env["PI_WEB_DEV_PLUGIN_PAIRING"];
   const piWebPlugins = deps.piWebPlugins ?? new PiWebPluginService({
+    relaxBrowserPairing: devPluginPairing === undefined ? false : parsePiWebEnvBoolean(devPluginPairing, "PI_WEB_DEV_PLUGIN_PAIRING"),
     configProvider: readConfig,
     agentDirProvider: () => desiredPluginAgentDir(agentProfileProvider, configService),
     runtimeProvider: daemonWorkspaces,

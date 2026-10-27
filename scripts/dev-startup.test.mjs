@@ -37,6 +37,26 @@ it("starts one builder, waits for publication, then starts the API without rebui
   expect(options.stop).toHaveBeenCalledWith(options.children[1]);
 });
 
+it.each([
+  [undefined, "1"],
+  ["0", "0"],
+  ["1", "1"],
+  ["", ""],
+])("passes dev plugin pairing %s to children as %s without changing the parent environment", async (configured, expected) => {
+  const options = harness();
+  options.env = configured === undefined ? {} : { PI_WEB_DEV_PLUGIN_PAIRING: configured };
+  const originalEnv = { ...options.env };
+  const running = runDevelopmentWeb(options);
+  options.children[0].emit("message", { type: "plugin-build-ready" });
+  expect(options.launch).toHaveBeenCalledTimes(2);
+  for (const call of options.launch.mock.calls) {
+    expect(call[2].PI_WEB_DEV_PLUGIN_PAIRING).toBe(expected);
+  }
+  expect(options.env).toEqual(originalEnv);
+  options.children[0].finish(0);
+  expect(await running).toBe(0);
+});
+
 it("launches a build process in its requested directory", async () => {
   const cwd = await mkdtemp(join(tmpdir(), "pi-web-build-cwd-"));
   const child = startDevelopmentProcess("-e", ["process.send(process.cwd())"], process.env, { ipc: true, cwd });

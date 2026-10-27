@@ -346,7 +346,7 @@ Relays and Workflows are managed bundled packages, not independently versioned i
 systemctl --user restart pi-web-sessiond
 ```
 
-A browser reload, web/API restart, or Pi's `/reload` does not activate server-plugin changes. Until the daemon restarts, Settings can show different desired and active states. A paired browser entry is withheld when it no longer matches the active server entry, rather than running incompatible code.
+A browser reload, web/API restart, or Pi's `/reload` does not activate server-plugin changes. Until the daemon restarts, Settings can show different desired and active states. By default, a paired browser entry is withheld when it no longer matches the active server entry, rather than running incompatible code. The supported development launcher has an explicit [local-development exception](#local-development).
 
 Most plugins are enabled by default. Packages can opt out, and Settings can override the default. Plugin settings live in the normal [PI WEB configuration](https://pi-web.dev/config), not inside the package's installed files. Enablement stays global; server plugins supporting project settings, including Git, can use `plugins.<id>.settings` overrides in the registered project's `.pi-web/config.json`. See [Project plugin settings](https://pi-web.dev/config#project-plugin-settings) for override and restart rules.
 
@@ -359,6 +359,16 @@ No configuration UI or registered schema is required. Plugins own defaults and s
 Generic plugin settings are visible through the authenticated configuration API; do not use them as a secret store. Plugin-owned domain files, such as Workspace Tasks' `.pi-web/tasks.json`, remain separate from PI WEB configuration.
 
 ### Local development
+
+The supported `npm run dev:web` launcher defaults `PI_WEB_DEV_PLUGIN_PAIRING` to `1` in its child processes. This relaxes browser/server plugin pairing so refreshed plugin UI can use the still-running old backend after a rebuild. It does not reload server plugins or apply backend changes, and requires no plugin changes. Production and other startup paths remain strict by default. The flag accepts `1`/`true` and `0`/`false` (case-insensitive); invalid values fail web/API startup.
+
+To exercise strict pairing during development:
+
+```sh
+PI_WEB_DEV_PLUGIN_PAIRING=0 npm run dev:web
+```
+
+Package/settings mismatches remain visible through the existing restart-required diagnostics in **Settings → PI WEB plugins**, even when the refreshed UI is allowed to load. Development pairing does not prove that changed request/response formats are compatible; mismatches can cause runtime errors. If the new UI needs backend changes, restart the target session daemon, then reload the browser. **Restarting the backend interrupts active sessions and terminals**; finish important work first and restart from outside its hosted sessions. A browser refresh or web/API autoreload leaves the old backend running.
 
 An agent can develop a package anywhere and symlink it into the local plugin directory:
 

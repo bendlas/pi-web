@@ -6,7 +6,8 @@ import { startDevelopmentProcess, superviseDevelopmentProcesses } from "./dev-pr
 const require = createRequire(import.meta.url);
 
 export function runDevelopmentWeb({ env = process.env, launch = startDevelopmentProcess, signals = process, stop } = {}) {
-  const childEnv = { ...env };
+  // Refresh plugin UI against the running backend during development only.
+  const childEnv = { ...env, PI_WEB_DEV_PLUGIN_PAIRING: env.PI_WEB_DEV_PLUGIN_PAIRING ?? "1" };
   const buildCwd = env.PI_WEB_DOCKER_MODE === "dev" ? "/build/pi-web" : undefined;
   // Only the builder changes cwd. Runtime imports and package registrations
   // stay anchored to the production-compatible installation path.

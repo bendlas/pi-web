@@ -40,6 +40,7 @@ export function reconcilePiWebPluginLifecycle(
   runtime: ProviderRuntimeLoadResult,
   browserModuleUrl: (plugin: PiWebPluginCatalogEntry) => string,
   desiredSafeStart?: PiWebPluginSafeStart | "off",
+  relaxBrowserPairing = false,
 ): PiWebPluginLifecycleReconciliation {
   const activeSnapshot = runtime.status === "available" ? runtime.snapshot : undefined;
   const desiredById = new Map(desired.plugins.map((plugin) => [plugin.id, plugin]));
@@ -67,7 +68,7 @@ export function reconcilePiWebPluginLifecycle(
       if (activeSnapshot !== undefined
         && plugin?.browserModule !== undefined
         && (terminalMode === "required" || plugin.id !== REQUIRED_TERMINAL_PLUGIN_ID)
-        && shouldPublishBrowserPlugin(plugin, server)) {
+        && shouldPublishBrowserPlugin(plugin, server, record, effectiveDesiredSafeStart, relaxBrowserPairing)) {
         browserPlugins.push({
           plugin,
           ...(server?.activeRevision === undefined ? {} : { backendRevision: server.activeRevision }),
@@ -195,12 +196,23 @@ function serverEnabledForSafeStart(plugin: PiWebPluginCatalogEntry, safeStart: P
 function shouldPublishBrowserPlugin(
   plugin: PiWebPluginCatalogEntry,
   server: PiWebPluginServerInfo | undefined,
+  active: ServerPluginRuntimeRecord | undefined,
+  desiredSafeStart: PiWebPluginSafeStart | "off",
+  relaxBrowserPairing: boolean,
 ): boolean {
   if (plugin.browserModule === undefined) return false;
   if (server === undefined) return plugin.enabled;
   if (plugin.serverModule === undefined) return false;
+  if (relaxBrowserPairing && !serverEnabledForSafeStart(plugin, desiredSafeStart)) return false;
+  // Development may mix new browser assets with the running backend, but must
+  // not bypass configuration, package identity, health, or safe-start policy.
+  const developmentPair = relaxBrowserPairing
+    && plugin.settingsRevision === active?.settingsRevision
+    && plugin.source === active.source
+    && plugin.scope === active.scope
+    && plugin.machineSpecific === active.machineSpecific;
   return server.state === "active"
-    && !server.staleRevision
+    && (!server.staleRevision || developmentPair)
     && server.health?.status !== "unhealthy";
 }
 
