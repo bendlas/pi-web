@@ -3,6 +3,8 @@ import type { WebSocket } from "ws";
 import { FEDERATED_HTTP_ROUTES, FEDERATED_WEBSOCKET_ROUTES, WORKSPACE_FILE_PREVIEW_ROUTE_PATH, type FederatedHttpRouteSpec } from "../../shared/federatedRoutes.js";
 import {
   PAIRED_PLUGIN_BACKEND_CHANNEL_ROUTE_PATHS,
+  PAIRED_PLUGIN_BACKEND_RESOURCE_ROUTE_PATHS,
+  parsePluginBackendResourceQuery,
   pluginBackendScopeFromRoute,
   PLUGIN_BACKEND_CHANNEL_DATA_FRAME_MAX_BYTES,
 } from "../../shared/pluginBackendProtocol.js";
@@ -17,6 +19,7 @@ import {
   coordinatePluginBackendChannelProxy,
   PluginBackendChannelProxyConnectionError,
 } from "../plugins/pluginBackendChannelProxyCoordinator.js";
+import { applyPluginResourcePolicy, pluginResourceError, pluginResourceRange, sendPluginResourceResponse, PLUGIN_RESOURCE_STREAM_DEADLINE_MS } from "../plugins/pluginBackendResourceResponse.js";
 import { requestCancellation } from "../requestCancellation.js";
 import { isSessionImageMimeType } from "../sessions/sessionMediaIndex.js";
 import { bridgeSockets, markPluginBackendChannelUpgradeRequest } from "../webSocketBridge.js";
@@ -58,11 +61,30 @@ export function registerMachineProxyRoutes(
       method: spec.method,
       url: `/api/machines/:machineId${spec.path}`,
       ...("bodyLimit" in spec ? { bodyLimit: spec.bodyLimit } : {}),
+      ...(PAIRED_PLUGIN_BACKEND_RESOURCE_ROUTE_PATHS.includes(spec.path) ? { exposeHeadRoute: false } : {}),
       handler: async (request, reply) => {
         const cancellation = "propagateCancellation" in spec
           ? requestCancellation(request, reply)
           : undefined;
         try {
+          if (PAIRED_PLUGIN_BACKEND_RESOURCE_ROUTE_PATHS.includes(spec.path)) {
+            applyPluginResourcePolicy(reply);
+            let range;
+            try {
+              parsePluginBackendResourceQuery(request.query);
+              range = pluginResourceRange(request.headers.range);
+            }
+            catch (error) { return await pluginResourceError(reply, 400, error); }
+            try {
+              const client = await machines.remoteClient(request.params.machineId);
+              if (client === undefined) return await pluginResourceError(reply, 404, "Machine not found");
+              const upstream = await client.request("GET", remoteApiPath(request.params.machineId, request.url), undefined, {
+                ...(cancellation === undefined ? {} : { signal: cancellation.signal }),
+                ...(range === undefined ? {} : { range }), timeoutMs: 30_000, streamLifetimeMs: PLUGIN_RESOURCE_STREAM_DEADLINE_MS,
+              });
+              return await sendPluginResourceResponse(reply, upstream, cancellation?.signal ?? new AbortController().signal);
+            } catch (error) { return await pluginResourceError(reply, error instanceof RemoteMachineRequestError ? error.statusCode : 502, error); }
+          }
           return await proxyHttpRequest(
             machines,
             spec,

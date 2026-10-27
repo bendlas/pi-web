@@ -1,6 +1,7 @@
 import {
   PAIRED_PLUGIN_BACKEND_CHANNEL_ROUTE_PATHS,
   PAIRED_PLUGIN_BACKEND_REQUEST_ROUTE_PATHS,
+  PAIRED_PLUGIN_BACKEND_RESOURCE_ROUTE_PATHS,
   PLUGIN_BACKEND_FEDERATION_TIMEOUT_MS,
   PLUGIN_BACKEND_REQUEST_BODY_MAX_BYTES,
   PLUGIN_BACKEND_RESPONSE_BODY_MAX_BYTES,
@@ -63,6 +64,9 @@ export const FEDERATED_HTTP_ROUTES = [
   { method: "DELETE", path: "/projects/:projectId" },
   { method: "GET", path: "/project-directories" },
   { method: "GET", path: "/projects/:projectId/workspaces" },
+  ...PAIRED_PLUGIN_BACKEND_RESOURCE_ROUTE_PATHS.map((path): FederatedHttpRouteSpec => ({
+    method: "GET", path, timeoutMs: 30_000, propagateCancellation: true,
+  })),
   ...PAIRED_PLUGIN_BACKEND_REQUEST_ROUTE_PATHS.map((path): FederatedHttpRouteSpec => ({
     method: "POST",
     path,

@@ -56,7 +56,7 @@ describe("plugin delivery artifacts", () => {
       if (!isRecord(imported)) throw new Error(`Built server plugin did not import as a module: ${plugin.id}`);
       const pluginExport = imported["default"];
       if (!isRecord(pluginExport)) throw new Error(`Built server plugin has no default object export: ${plugin.id}`);
-      expect(pluginExport["apiVersion"]).toBe(plugin.id === "pi-web.terminal" ? 5 : 3);
+      expect(pluginExport["apiVersion"]).toBe(["pi-web.terminal", "pi-web.audio"].includes(plugin.id) ? 5 : 3);
       expect(typeof pluginExport["activate"]).toBe("function");
     }
     // npm 10 can still execute prepare with --ignore-scripts. Pack a copy of
@@ -285,7 +285,7 @@ describe("plugin delivery artifacts", () => {
         const secondImported = await import(secondModuleUrl.href);
         const template = (strings, ...values) => ({ strings, values });
         await imported.default.activate({
-          apiVersion: 4,
+          apiVersion: 5,
           pluginId: "files",
           runtimePluginId: "files",
           localization: createPluginLocalization(new LocalizationService(), "files", "files", new AbortController().signal),
@@ -325,8 +325,8 @@ describe("plugin delivery artifacts", () => {
             secondElementConstructor: customElements.get("pi-web-files-panel"),
             firstCodeViewerConstructor,
             secondCodeViewerConstructor: customElements.get("pi-web-files-code-viewer"),
-            firstContextBound: firstRendered?.values.includes(firstContext) === true,
-            secondContextBound: secondRendered?.values.includes(secondContext) === true,
+            firstContextBound: firstRendered?.values.some((value) => value?.workspace === firstContext.workspace && value?.catalog?.machineId === firstContext.machine.id) === true,
+            secondContextBound: secondRendered?.values.some((value) => value?.workspace === secondContext.workspace && value?.catalog?.machineId === secondContext.machine.id) === true,
             firstRuntime: firstRendered?.values.find((value) => value instanceof imported.FilesRuntime),
             secondRuntime: secondRendered?.values.find((value) => value instanceof secondImported.FilesRuntime),
           },
@@ -338,8 +338,8 @@ describe("plugin delivery artifacts", () => {
           },
         };
       });
-      expect(builtModule.default).toMatchObject({ apiVersion: 4, name: "Files" });
-      expect(secondBuiltModule.default).toMatchObject({ apiVersion: 4, name: "Files" });
+      expect(builtModule.default).toMatchObject({ apiVersion: 5, name: "Files" });
+      expect(secondBuiltModule.default).toMatchObject({ apiVersion: 5, name: "Files" });
       expect(secondBuiltModule.FilesRuntime).not.toBe(builtModule.FilesRuntime);
       expect(registrations.panelMachineIds).toEqual(["remote-1", "remote-2"]);
       expect(registrations.firstElementConstructor).toBeDefined();

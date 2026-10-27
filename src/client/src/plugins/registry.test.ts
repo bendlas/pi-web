@@ -139,6 +139,27 @@ function createContext(statePatch: Partial<AppState> = {}) {
 }
 
 describe("PluginRegistry v5 host services", () => {
+  it("propagates resource-only metadata to binding snapshots and lifetime-bound callback backends", async () => {
+    const registry = new PluginRegistry();
+    const render = vi.fn((context: WorkspacePanelContext) => html`${context.machine.id}`);
+    await registry.register({
+      id: "remote.resources", sourcePluginId: "resources", machineId: "remote",
+      backendRevision: "r1", pairedResourceVersion: 1,
+      plugin: { apiVersion: 5, name: "Resources", activate: () => ({ contributions: {
+        workspacePanels: [{ id: "preview", title: "Preview", render }],
+      } }) },
+    });
+    const panel = registry.getWorkspacePanels()[0];
+    const base = createWorkspacePanelContext("remote");
+    const bindings: WorkspacePluginBinding[] = [];
+    panel?.render(installWorkspacePanelScope(base, (binding) => { bindings.push(binding); return base; }));
+    expect(bindings).toEqual([{ registrationPluginId: "remote.resources", sourcePluginId: "resources", backendRevision: "r1", pairedResourceVersion: 1 }]);
+    const peer = render.mock.calls[0]?.[0].backend?.forScope({ kind: "machine" });
+    expect(Object.keys(peer ?? {})).toEqual(["resourceUrl"]);
+    await registry.dispose();
+    expect(() => peer?.resourceUrl?.("image", null)).toThrow();
+  });
+
   it("activates matching versions and warns once per legacy source plugin", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const activate = vi.fn((context: import("./types").PluginActivationContext) => {

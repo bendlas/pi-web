@@ -4386,7 +4386,8 @@ function sameWorkspacePluginBinding(left: WorkspacePluginBinding, right: Workspa
     && left.sourcePluginId === right.sourcePluginId
     && left.backendRevision === right.backendRevision
     && left.pairedRequestVersion === right.pairedRequestVersion
-    && left.pairedChannelVersion === right.pairedChannelVersion;
+    && left.pairedChannelVersion === right.pairedChannelVersion
+    && left.pairedResourceVersion === right.pairedResourceVersion;
 }
 
 function requiredTerminalPluginBinding(registration: PiWebPluginRegistration, machineId: string): WorkspacePluginBinding {

@@ -26,6 +26,7 @@ export interface ReconciledBrowserPlugin {
   backendRevision?: string;
   pairedRequestVersion?: 1;
   pairedChannelVersion?: 1;
+  pairedResourceVersion?: 1;
 }
 
 export interface PiWebPluginLifecycleReconciliation {
@@ -72,6 +73,7 @@ export function reconcilePiWebPluginLifecycle(
           ...(server?.activeRevision === undefined ? {} : { backendRevision: server.activeRevision }),
           ...(record?.pairedRequestVersion === undefined ? {} : { pairedRequestVersion: record.pairedRequestVersion }),
           ...(record?.pairedChannelVersion === undefined ? {} : { pairedChannelVersion: record.pairedChannelVersion }),
+          ...(record?.pairedResourceVersion === undefined ? {} : { pairedResourceVersion: record.pairedResourceVersion }),
         });
       }
 

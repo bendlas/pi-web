@@ -146,7 +146,7 @@ Also prefer consistent visibility and behavior across input types. Avoid pointer
 
 ## Renderer headers
 
-Chat code blocks and Files expose each matching renderer as a named native button alongside Raw, rather than a select menu. Clicking a renderer button both selects and activates that view, including manual renderers. Use `aria-pressed` for selection; these are buttons, not ARIA tabs. Renderer titles supply names, with plugin/contribution IDs as the fallback.
+Chat code blocks and Files expose each matching renderer as a named native button rather than a select menu. Files uses this same strip for document previewers, text-renderer adapters, and other plugin file views. Source files offer Raw; binary files offer their matching previewers without a redundant Original view. Download remains a separate action. Clicking a renderer button both selects and activates that view, including manual renderers. Use `aria-pressed` for selection; these are buttons, not ARIA tabs. Renderer titles supply names, with plugin/contribution IDs as the fallback.
 
 Keep the view buttons on one horizontally scrollable row, using native overflow scrolling like the existing shell headers. Buttons must not shrink or wrap their labels. Keyboard focus and touch scrolling keep off-screen views reachable. Chat keeps Copy outside the scrolling strip; Files keeps Open and Download outside it. Preserve compact control sizing across input types and inset focus indicators.
 

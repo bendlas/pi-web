@@ -53,6 +53,7 @@ export interface PiWebPluginManifestEntry {
   pairedRequestVersion?: 1;
   /** Versioned transport metadata used to expose `context.peer.openChannel`. */
   pairedChannelVersion?: 1;
+  pairedResourceVersion?: 1;
   source: string;
   scope: PiWebPluginScope;
   machineSpecific: boolean;
@@ -104,7 +105,7 @@ export class PiWebPluginService {
       );
     }
     const plugins: PiWebPluginManifestEntry[] = [];
-    for (const { plugin, backendRevision, pairedRequestVersion, pairedChannelVersion } of lifecycle.browserPlugins) {
+    for (const { plugin, backendRevision, pairedRequestVersion, pairedChannelVersion, pairedResourceVersion } of lifecycle.browserPlugins) {
       const artifact = await this.captureBrowserArtifact(plugin, backendRevision);
       if (artifact === undefined) continue;
       plugins.push({
@@ -113,6 +114,7 @@ export class PiWebPluginService {
         ...(backendRevision === undefined ? {} : { backendRevision }),
         ...(pairedRequestVersion === undefined ? {} : { pairedRequestVersion }),
         ...(pairedChannelVersion === undefined ? {} : { pairedChannelVersion }),
+        ...(pairedResourceVersion === undefined ? {} : { pairedResourceVersion }),
         source: plugin.source,
         scope: plugin.scope,
         machineSpecific: plugin.machineSpecific,

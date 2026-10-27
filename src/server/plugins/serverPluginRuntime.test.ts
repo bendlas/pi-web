@@ -86,6 +86,42 @@ function createServerPluginRuntimeWithRequiredTerminal(options: Omit<CreateServe
 }
 
 describe("server plugin runtime", () => {
+  it("discovers resource-only v5 peers and snapshots a bound resource callback", async () => {
+    const peer = {
+      contentType: "application/octet-stream",
+      resource() { return { body: new Uint8Array([1]), contentType: this.contentType }; },
+    };
+    const runtime = await createServerPluginRuntime({
+      catalog: { snapshot: () => Promise.resolve(testSnapshot([entry("resources")])) },
+      logger: testLogger(),
+      importer: () => Promise.resolve({ default: { apiVersion: 5, name: "Resources", activate: () => ({ peer }) } }),
+    });
+    expect(runtime.healthRecords()).toMatchObject([{ state: "active", pairedResourceVersion: 1 }]);
+    const backend = runtime.pairedBackendContributions()[0]?.backend;
+    expect(Object.isFrozen(backend)).toBe(true);
+    expect(backend).not.toHaveProperty("request");
+    expect(backend).not.toHaveProperty("openChannel");
+    peer.resource = () => { throw new Error("Replaced after activation"); };
+    expect(await backend?.resource?.({ scope: { kind: "machine" }, operation: "read", input: null, signal: new AbortController().signal }))
+      .toMatchObject({ contentType: "application/octet-stream", body: new Uint8Array([1]) });
+    await runtime.stop();
+  });
+
+  it.each([
+    { apiVersion: 5, peer: { resource: "invalid" } },
+    { apiVersion: 5, peer: { request: () => null, resource: "invalid" } },
+    { apiVersion: 3, peer: { resource: () => ({ body: new Uint8Array(), contentType: "text/plain" }) } },
+    { apiVersion: 3, peer: { request: () => null, resource: () => ({ body: new Uint8Array(), contentType: "text/plain" }) } },
+  ])("rejects invalid or legacy resource peers (%j)", async ({ apiVersion, peer }) => {
+    const runtime = await createServerPluginRuntime({
+      catalog: { snapshot: () => Promise.resolve(testSnapshot([entry("resources")])) },
+      logger: testLogger(),
+      importer: () => Promise.resolve({ default: { apiVersion, name: "Resources", activate: () => ({ peer }) } }),
+    });
+    expect(runtime.healthRecords()).toMatchObject([{ state: "incompatible" }]);
+    expect(runtime.pairedBackendContributions()).toEqual([]);
+    await runtime.stop();
+  });
   it("activates v3 and v5 with their own version and adapts only legacy workspace contexts", async () => {
     const logger = testLogger();
     const legacyRequest = vi.fn<(context: unknown) => null>(() => null);

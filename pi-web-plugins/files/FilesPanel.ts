@@ -1,4 +1,4 @@
-import type { StylesheetIntegrationCapabilityV1, ContentRenderingCapability, FileTreeEntry, WorkspacePanelContext } from "@jmfederico/pi-web/plugin-api";
+import type { StylesheetIntegrationCapabilityV1, FilePreviewingCapability, FileTreeEntry, WorkspacePanelContext } from "@jmfederico/pi-web/plugin-api";
 import { css, html, LitElement, nothing, type PropertyValues, type TemplateResult } from "lit";
 import { property, query, state } from "lit/decorators.js";
 import {
@@ -39,7 +39,7 @@ export class WorkspaceFilesPanel extends LitElement {
 
   @property({ attribute: false }) context: WorkspacePanelContext | undefined;
   @property({ attribute: false }) runtime: FilesRuntime | undefined;
-  @property({ attribute: false }) contentRendering: ContentRenderingCapability | undefined;
+  @property({ attribute: false }) filePreviewing: FilePreviewingCapability | undefined;
   @query("#workspace-upload-input") private uploadInput?: HTMLInputElement;
   @query("dialog.upload-dialog") private uploadDialog?: HTMLDialogElement;
   @state() private pendingUpload: PendingWorkspaceUploadReview | undefined;
@@ -150,7 +150,8 @@ export class WorkspaceFilesPanel extends LitElement {
             <pi-web-files-viewer
               .content=${this.content}
               .stylesheetIntegration=${this.stylesheetIntegration}
-              .contentRendering=${this.contentRendering}
+              .filePreviewing=${this.filePreviewing}
+              .files=${context.files}
               .machineId=${context.machine.id}
               .projectId=${context.workspace.projectId}
               .workspaceId=${context.workspace.id}

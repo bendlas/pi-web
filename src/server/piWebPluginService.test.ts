@@ -249,6 +249,23 @@ describe("PiWebPluginService", () => {
     await expect(service.readAsset("dual", "browser.js")).resolves.toBeDefined();
   });
 
+  it("publishes a resource-only paired package without inventing request or channel support", async () => {
+    await writePlugin(join(tempDir, "plugins", "resource-only"), {
+      packageJson: { piWeb: { plugins: [{ id: "resource-only", browserRoot: ".", module: "browser.js", serverModule: "server.js" }] } },
+      files: { "browser.js": "export default {};", "server.js": "throw new Error('must not execute');" },
+    });
+    const catalog = new PiWebPluginCatalog({
+      roots: [{ path: join(tempDir, "plugins"), source: "test", scope: "local" }],
+      packageProvider: false,
+    });
+    const service = new PiWebPluginService({ catalog, runtimeProvider: activeRuntimeProvider(catalog, [], [], ["resource-only"]) });
+    const manifest = await service.manifest();
+    expect(manifest.plugins[0]).toMatchObject({ id: "resource-only", pairedResourceVersion: 1 });
+    expect(manifest.plugins[0]?.backendRevision).toMatch(/^sha256:[a-f\d]{64}$/u);
+    expect(manifest.plugins[0]).not.toHaveProperty("pairedRequestVersion");
+    expect(manifest.plugins[0]).not.toHaveProperty("pairedChannelVersion");
+  });
+
   it("rejects an excluded metadata alias before an equal-revision server entry change can be paired", async () => {
     const pluginId = "excluded-metadata-pairing";
     const pluginDir = join(tempDir, "plugins", pluginId);
@@ -814,6 +831,7 @@ function activeRuntimeProvider(
   catalog: PiWebPluginCatalog,
   pairedRequestPluginIds: readonly string[] = [],
   pairedChannelPluginIds: readonly string[] = [],
+  pairedResourcePluginIds: readonly string[] = [],
 ): WorkspaceProviderRuntimeReader {
   const activeSnapshot = catalog.snapshot().then((snapshot) => {
     const records = snapshot.plugins.flatMap((plugin) => plugin.serverModule === undefined ? [] : [{
@@ -826,6 +844,7 @@ function activeRuntimeProvider(
       machineSpecific: plugin.machineSpecific,
       ...(pairedRequestPluginIds.includes(plugin.id) ? { pairedRequestVersion: 1 as const } : {}),
       ...(pairedChannelPluginIds.includes(plugin.id) ? { pairedChannelVersion: 1 as const } : {}),
+      ...(pairedResourcePluginIds.includes(plugin.id) ? { pairedResourceVersion: 1 as const } : {}),
       state: plugin.enabled ? "active" as const : "disabled" as const,
       ...(plugin.enabled ? { name: plugin.id } : { message: "disabled in PI WEB config" }),
     }]);

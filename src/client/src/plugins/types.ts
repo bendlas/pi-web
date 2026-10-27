@@ -27,6 +27,7 @@ export interface PiWebPluginRegistration extends PiWebPluginRegistrationDeclarat
   backendRevision?: string;
   pairedRequestVersion?: 1;
   pairedChannelVersion?: 1;
+  pairedResourceVersion?: 1;
 }
 
 export interface WorkspacePluginBinding {
@@ -35,6 +36,7 @@ export interface WorkspacePluginBinding {
   backendRevision?: string;
   pairedRequestVersion?: 1;
   pairedChannelVersion?: 1;
+  pairedResourceVersion?: 1;
 }
 
 type MaybePromise<T> = T | Promise<T>;
@@ -91,6 +93,7 @@ export interface PluginContributions {
   stylesheets?: StylesheetContribution[];
   contentRenderers?: import("../../../plugin-api").ContentRendererContributionV5[];
   syntaxHighlighters?: import("../../../plugin-api").SyntaxHighlighterContribution[];
+  filePreviewers?: import("../../../plugin-api").FilePreviewerContribution[];
   messageActions?: import("../../../plugin-api").MessageActionContribution[];
   actions?: PluginAction[];
   applicationPanels?: ApplicationPanelContribution[];
@@ -185,11 +188,18 @@ export interface PluginPeerChannel {
 export type PluginPeer =
   | {
       request(operation: string, input: JsonValue, options?: PluginPeerRequestOptions): Promise<JsonValue>;
+      resourceUrl?(operation: string, input: JsonValue): string;
       openChannel?(operation: string, input: JsonValue, options: PluginPeerChannelOptions): Promise<PluginPeerChannel>;
     }
   | {
       request?: undefined;
       openChannel(operation: string, input: JsonValue, options: PluginPeerChannelOptions): Promise<PluginPeerChannel>;
+      resourceUrl?(operation: string, input: JsonValue): string;
+    }
+  | {
+      request?: undefined;
+      openChannel?: undefined;
+      resourceUrl(operation: string, input: JsonValue): string;
     };
 
 export interface WorkspaceHost {

@@ -82,6 +82,7 @@ import { bindCompanionBackend } from "./sessions/companionBackend.js";
 import { registerWorkspaceCatalogRoutes } from "./sessiond/workspaceCatalogRoutes.js";
 import { registerPluginBackendChannelRoutes } from "./sessiond/pluginBackendChannelRoutes.js";
 import { installPluginBackendChannelWebSocketPayloadLimit } from "./webSocketBridge.js";
+import { registerPluginBackendResourceRoutes } from "./sessiond/pluginBackendResourceRoutes.js";
 import { registerPairedPluginBackendRoutes } from "./sessiond/pluginBackendRoutes.js";
 import { registerWorkspaceRemovalRoutes } from "./sessiond/workspaceRemovalRoutes.js";
 import { createWorkspaceProviderRuntimeSnapshot } from "./workspaces/workspaceCatalog.js";
@@ -477,6 +478,7 @@ function registerSessionDaemonRoutes({ eventHub, machineStatus, statusAttributio
     onWorkspacesMutated: () => { statusAttribution.invalidate(); },
   });
   registerPluginBackendChannelRoutes(app, { projects, backends: pluginBackends });
+  registerPluginBackendResourceRoutes(app, { projects, backends: pluginBackends });
   registerWorkspaceRemovalRoutes(app, {
     projects,
     removals: workspaceRemovals,

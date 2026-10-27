@@ -19,6 +19,9 @@ import type {
   PluginCapabilityProvision,
   ServerPluginCapabilityResolver,
   ServerPluginPeer,
+  ServerPluginPeerV5,
+  ServerPluginPeerResourceContextV5,
+  ServerPluginResourceResponse,
   ServerPluginPeerChannel,
   ServerPluginPeerChannelCloseContext,
   ServerPluginPeerChannelOpenContext,
@@ -381,6 +384,21 @@ describe("public server plugin API", () => {
     { version: 2, create: (): undefined => undefined, run: (): undefined => undefined },
   ])("rejects incomplete or incompatible session capabilities before use: %o", (value) => {
     expect(() => PI_WEB_HOST_PI_SESSIONS_CAPABILITY.parse(value)).toThrow("must expose create and run");
+  });
+
+  it("exposes general-purpose byte resources only on v5 peers", () => {
+    type Resource = NonNullable<ServerPluginPeerV5["resource"]>;
+    type ResourceOnlyIsValid = { resource: Resource } extends ServerPluginPeerV5 ? true : false;
+    // eslint-disable-next-line @typescript-eslint/no-generated-empty-object-type -- Empty peers must remain invalid.
+    type EmptyPeerIsValid = Record<never, never> extends ServerPluginPeerV5 ? true : false;
+    expectTypeOf<ResourceOnlyIsValid>().toEqualTypeOf<true>();
+    expectTypeOf<EmptyPeerIsValid>().toEqualTypeOf<false>();
+    expectTypeOf<Extract<keyof ServerPluginPeer, "resource">>().toEqualTypeOf<never>();
+    expectTypeOf<ServerPluginPeerResourceContextV5["scope"]>().toEqualTypeOf<ServerPluginPeerRequestContextV5["scope"]>();
+    expectTypeOf<ServerPluginPeerResourceContextV5["range"]>().toEqualTypeOf<string | undefined>();
+    expectTypeOf<ReadonlyKeys<ServerPluginPeerResourceContextV5>>().toEqualTypeOf<keyof ServerPluginPeerResourceContextV5>();
+    expectTypeOf<ServerPluginResourceResponse["body"]>().toEqualTypeOf<Uint8Array | AsyncIterable<Uint8Array>>();
+    expectTypeOf<ServerPluginResourceResponse["statusCode"]>().toEqualTypeOf<200 | 206 | 416 | undefined>();
   });
 
   it("keeps host inputs readonly and concrete services out of the declaration surface", async () => {

@@ -2,8 +2,10 @@
 
 import type { StylesheetIntegrationCapabilityV1, FileContentResponse, FileTreeResponse, WorkspaceFilesCapabilityV1, WorkspacePanelContext, WorkspacePanelNavigationV1, WriteWorkspaceFileResponse } from "@jmfederico/pi-web/plugin-api";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { html } from "lit";
 import { WorkspaceFilesPanel, startDirectWorkspaceUpload, uploadBatchProgressValue, uploadBatchStatusLabel, workspaceUploadReviewDefaults, workspaceUploadReviewError } from "./FilesPanel";
 import { filesLocalizationFixture } from "./filesLocalization.testSupport";
+import { WorkspaceFileViewer } from "./FilesViewer";
 import { FilesRuntime, type WorkspaceUploadBatchState } from "./FilesRuntime";
 import { defineFilesCustomElements } from "./pi-web-plugin";
 
@@ -16,6 +18,17 @@ afterEach(() => {
 });
 
 describe("Files panel component boundary", () => {
+  it("passes file previewing and the workspace's files helpers to its viewer", async () => {
+    const context = createContext();
+    const panel = await mountPanel(context);
+    const capability = { listPreviewers: vi.fn(() => []), renderPreview: vi.fn(() => undefined) };
+    panel.filePreviewing = capability;
+    await panel.updateComplete;
+    const viewer = panel.renderRoot.querySelector<WorkspaceFileViewer>("pi-web-files-viewer");
+    expect(viewer?.filePreviewing).toBe(capability);
+    expect(viewer?.files).toBe(context.files);
+  });
+
   it("retranslates an open upload review without changing focus, paths, options or starting an upload", async () => {
     const { service, content } = filesLocalizationFixture("de-DE");
     const uploadFile = vi.fn<WorkspaceFilesCapabilityV1["uploadFile"]>();
@@ -143,6 +156,10 @@ describe("Files panel component boundary", () => {
     const first = createContext({ files, navigation: createNavigation({ file: "a.md", mode: "raw" }) });
     const runtime = new FilesRuntime();
     const panel = await mountPanel(first, runtime);
+    panel.filePreviewing = {
+      listPreviewers: () => [{ id: "fixture:markdown", label: "Preview", renderMode: "manual" }],
+      renderPreview: () => html`<p>Markdown fixture</p>`,
+    };
     await vi.waitFor(() => {
       const viewer = requiredElement(panel.shadowRoot?.querySelector<HTMLElement>("pi-web-files-viewer"), "Files viewer");
       expect(buttonWithText(viewer.shadowRoot, "Raw").getAttribute("aria-pressed")).toBe("true");

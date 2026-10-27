@@ -56,6 +56,7 @@ export type DisplayedMessageActionContextV5 = DisplayedMessageActionContext & Pl
 export interface PluginContributionsV5 extends Omit<PluginContributions, "actions" | "applicationPanels" | "workspacePanels" | "workspaceLabels" | "sessionLabels" | "messageActions" | "contentRenderers" | "themes"> {
     stylesheets?: StylesheetContribution[];
     syntaxHighlighters?: SyntaxHighlighterContribution[];
+    filePreviewers?: FilePreviewerContribution[];
     contentRenderers?: ContentRendererContributionV5[];
     themes?: ThemeContributionV5[];
     actions?: PluginActionV5[];
@@ -178,6 +179,42 @@ export interface ContentRendererContributionV5 extends Omit<ContentRendererContr
     /** Synchronous eligibility; replaces absent selectors or further restricts declared selectors. */
     supports?(request: Readonly<ContentRenderRequest>): boolean;
     render(input: ContentRendererInputV5): TemplateResult;
+}
+export interface FilePreviewRequest {
+    readonly machineId: string;
+    readonly projectId: string;
+    readonly workspaceId: string;
+    readonly file: Readonly<FileContentResponse>;
+}
+export interface FilePreviewerInput extends FilePreviewRequest {
+    readonly files: WorkspaceFilesContextValue;
+    readonly backend?: PluginBackend;
+    readonly signal: AbortSignal;
+    readonly fail: (error: unknown) => void;
+}
+export interface FilePreviewerContribution {
+    id: LocalContributionId;
+    title: string;
+    /** Extensions without a leading dot, matched case-insensitively. */
+    fileExtensions?: readonly string[];
+    /** Exact MIME types or type/* wildcards. */
+    mimeTypes?: readonly string[];
+    /** Replaces absent selectors or further restricts declared selectors. */
+    supports?(request: Readonly<FilePreviewRequest>): boolean;
+    renderMode?: "manual" | "automatic";
+    render(input: FilePreviewerInput): TemplateResult;
+}
+export type FilePreviewerOption = ContentRendererOption;
+export interface FilePreviewRenderRequest extends FilePreviewRequest {
+    previewerId: string;
+    files: WorkspaceFilesContextValue;
+    fail: (error: unknown) => void;
+}
+/** Host capability token: { pluginId: "pi-web", id: "file-previewing", version: 1, parse }. */
+export interface FilePreviewingCapability {
+    listPreviewers(request: FilePreviewRequest): readonly FilePreviewerOption[];
+    /** Only mounts the selected previewer; callers authorize manual rendering. */
+    renderPreview(request: FilePreviewRenderRequest): TemplateResult | undefined;
 }
 export type SyntaxHighlightTokenKind = "keyword" | "string" | "number" | "comment" | "type" | "function" | "variable" | "operator" | "punctuation" | "property" | "literal" | "meta";
 export interface SyntaxHighlightToken {

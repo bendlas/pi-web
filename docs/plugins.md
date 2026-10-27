@@ -18,6 +18,7 @@ This is the documentation entry point for agents and developers building PI WEB 
 - [Contracts, examples, and design boundaries](#agent-development)
 - [Shared UI styles](#host-provided-ui-styles), [CSS integration](#css-files-and-shadow-roots), and [themes](#css-first-themes)
 - [Read-only catalogs and scoped backends](#read-only-catalogs-and-scoped-backends-v5)
+- [Binary resources and media delivery](#binary-resources-and-media-delivery)
 - [Trust and recovery](#trust-and-recovery)
 
 ## What can be built
@@ -32,9 +33,11 @@ This is the documentation entry point for agents and developers building PI WEB 
 | Run builds, tests, or development servers | Workspace terminal commands |
 | Customize the appearance | Themes and light/dark theme pairs |
 | Preview diagrams or other text formats in chat and Files | Browser content renderers |
+| Add file-type previews to Files, including binary files | Browser v5 file previewers |
 | Highlight additional programming languages in Files and chat | Syntax highlighters |
 | Read or change workspace files | File listing, reading, writing, moving, deleting, and uploads |
 | Show live backend results | Requests or streaming channels between a plugin's browser and server entries |
+| Deliver generated documents, media, or binary data | Scoped backend resources with browser-ready URLs |
 | Save plugin-owned results or preferences | A persistent server-side plugin directory |
 | Start a Pi conversation or collaborate with a Pi extension | Host session capabilities and session-local messaging |
 | Replace Git's workspace discovery with another system | A workspace provider |
@@ -142,6 +145,55 @@ The last matching automatic renderer in plugin discovery order is the default. B
 
 Incomplete, truncated, or oversized input is not rendered. Files also limits the size of inline previews. Failed previews fall back to source. Renderers must treat text as untrusted, sanitize output, and avoid executing source. For implementation, see the [Files consumer](https://github.com/jmfederico/pi-web/blob/main/pi-web-plugins/files/pi-web-plugin.ts) and [Mermaid contribution](https://github.com/jmfederico/pi-web/tree/main/pi-web-plugins/mermaid).
 
+### Contribute file previewers
+
+Browser v5 plugins can contribute `filePreviewers` to the existing Files panel. Use these for file-specific views, including binary formats; use `contentRenderers` for text presentations shared with chat code blocks. A previewer does not need its own file browser or companion backend.
+
+Each previewer declares an `id`, a human-readable `title`, and `fileExtensions` (without leading dots), `mimeTypes` (exact types or `audio/*`-style wildcards), or a synchronous `supports(request)` callback. Extension and MIME selectors are alternatives; `supports`, when supplied, further restricts them. With only `supports`, it decides eligibility. Matching is case-insensitive. Unknown formats may have no MIME metadata, so extension matching is useful.
+
+```ts
+export default {
+  apiVersion: 5,
+  name: "Custom file views",
+  activate({ html }) {
+    return {
+      contributions: {
+        filePreviewers: [{
+          id: "model",
+          title: "3D model",
+          fileExtensions: ["mesh"],
+          supports: ({ file }) => file.size <= 20 * 1024 * 1024,
+          // Manual by default: no rendering or file fetch until selected.
+          render({ file, files, signal, fail }) {
+            return html`<my-model-viewer .path=${file.path}
+              .files=${files} .signal=${signal} .fail=${fail}></my-model-viewer>`;
+          },
+        }],
+      },
+    };
+  },
+};
+```
+
+The plugin owns `my-model-viewer` in this example. Its component can fetch existing workspace bytes using the supplied file helpers:
+
+```ts
+if (files.capabilityVersion !== 1) throw new Error("Workspace download URLs are unavailable");
+const response = await fetch(files.downloadUrl(path), { signal });
+if (!response.ok) throw new Error(`File load failed: HTTP ${response.status}`);
+const bytes = await response.arrayBuffer();
+```
+
+This uses the same authenticated file-serving path as downloads, including remote machines. `Content-Disposition: attachment` does not trigger a download when using `fetch()`. For browser media, construct a `Blob` with the appropriate MIME type and revoke its object URL during cleanup. Fetching into a blob loads the whole file; apply a suitable size limit. A companion backend is optional for processing, generated resources, or plugin-managed range streaming; see [binary resources](#binary-resources-and-media-delivery).
+
+Files shows all eligible previewers as named view buttons and keeps **Download** available. Images, SVG, PDF, HTML, and Markdown are contributions from the bundled Files plugin, using the same discovery, selection, and lifecycle API as Audio and third-party previews. Existing text `contentRenderers` are adapted into this file-preview pipeline; their chat behavior and public contribution API remain unchanged. Files itself owns only selection, Raw source, and download fallback. `renderMode: "automatic"` opts into automatic rendering; otherwise selection is explicit. Later matching automatic previewers take precedence over earlier defaults, but an explicit view choice takes priority. Raster images and PDF opt into automatic rendering. SVG, HTML, and Markdown keep Raw as their fresh-browser default; a saved or linked Preview preference activates their registered previewer. Built-in document previewers retain the core size limits, safe file URLs, HTML sandboxing, and native PDF policy. Previewers can handle large files without inheriting the core inline-preview size cap; they must enforce their own limits.
+
+`render` receives a frozen file snapshot, `machineId`, `projectId`, `workspaceId`, workspace `files`, and—when this package has one—its own paired `backend`. It never receives another plugin's backend. The host aborts `signal` when the file, selected view, mounting, or plugin lifetime changes. Stop requests and release media, object URLs, observers, and workers when aborted or disconnected. Report asynchronous failures through `fail(error)`; synchronous failures are caught by the host. Files displays the failure and retains a source/download fallback; failures from obsolete previews cannot replace a newer selection.
+
+For another file-view consumer, require the host capability `{ pluginId: "pi-web", id: "file-previewing", version: 1 }`. Its `listPreviewers(request)` discovers matching views and `renderPreview({ ...request, previewerId, files, fail })` mounts one selected view with the same lifecycle handling. Supply the actual machine and authoritative project/workspace IDs. Require this capability when your plugin must fail explicitly on older hosts rather than run without file-preview support.
+
+The bundled [Audio plugin](https://github.com/jmfederico/pi-web/tree/main/pi-web-plugins/audio) is a complete consumer example. No DOCX conversion is included.
+
 ### Highlight additional languages
 
 The bundled **Code highlighting** plugin supplies one **Highlighted** renderer, offered only for languages it supports. Browser v5 plugins can extend it with `syntaxHighlighters` for any language, including languages that PI WEB does not recognize on the server. Match chat fences with `languages` (including aliases) and files with `fileExtensions` (without a leading dot). Adding a grammar expands this renderer's coverage; it does not add a separate renderer choice. Highlighting is available in completed chat fences, Markdown files, and standalone Files previews. **Raw** stays unhighlighted.
@@ -155,6 +207,61 @@ A plugin can instead provide an independent highlighting system as a `contentRen
 The bundled Mermaid plugin contributes both a **Diagram** renderer and a source grammar for `mermaid` fences and `.mmd`/`.mermaid` files. Its grammar adds **Highlighted** to those sources without loading the diagram engine. Diagram rendering stays manual; **Raw**, **Highlighted**, and **Diagram** retain the same source text. The lightweight grammar colours common Mermaid syntax; it does not validate diagrams.
 
 Older hosts ignore syntax-highlighter contributions; require the host capability `{ pluginId: "pi-web", id: "syntax-highlighting", version: 1 }` when your plugin depends on this feature. This capability exposes `supports()` and `highlight()` for renderers that consume semantic token contributions. See `SyntaxHighlighterContribution`, `SyntaxHighlightingCapability`, and `ContentRendererContributionV5` in the [public browser contract](https://github.com/jmfederico/pi-web/blob/main/src/plugin-api.ts).
+
+### Binary resources and media delivery
+
+Use a **resource** to deliver bytes from a plugin's server entry to its browser entry. Resources are general-purpose: generated reports, audio, converted documents, and other binary results use the same transport. Resources provide transport, not viewer registration: pair them with [file previewers](#contribute-file-previewers) when the result belongs in Files. They do not change the core file-preview allowlist.
+
+A server v5 peer can implement `resource` alongside `request` and `openChannel`, or by itself. The callback receives the operation, JSON input, cancellation signal, and host-resolved machine/project/workspace scope. It returns `ServerPluginResourceResponse`: a `Uint8Array` or asynchronous iterable of byte chunks, a `contentType`, and optional `contentLength`. Node readable streams can be used as asynchronous iterables.
+
+```ts
+// Server entry: no separate HTTP listener or public port.
+export default {
+  apiVersion: 5,
+  name: "Generated reports",
+  activate() {
+    return {
+      peer: {
+        resource({ operation, scope, signal }) {
+          signal.throwIfAborted();
+          if (operation !== "summary" || scope.kind !== "workspace") {
+            throw new Error("A workspace summary was requested outside its scope");
+          }
+          const body = new TextEncoder().encode(`Workspace: ${scope.workspace.label}\n`);
+          return { body, contentType: "text/plain; charset=utf-8", contentLength: body.byteLength };
+        },
+      },
+    };
+  },
+};
+```
+
+In a browser v5 panel or action, capture the desired scope and feature-detect `resourceUrl`:
+
+```ts
+const peer = context.backend?.forScope({
+  kind: "workspace",
+  projectId: context.workspace.projectId,
+  workspaceId: context.workspace.id,
+});
+if (peer?.resourceUrl === undefined) throw new Error("Update PI WEB and restart its session daemon to use resources");
+const url = peer.resourceUrl("summary", null);
+const response = await fetch(url, { signal });
+if (!response.ok) throw new Error(`Summary failed: HTTP ${response.status}`);
+const summary = await response.text();
+```
+
+`resourceUrl()` returns an absolute, browser-ready URL. Use it directly with browser APIs or media elements; do not resolve it again or construct private routes. The URL captures the package revision, machine, and scope. Every load uses normal PI WEB authentication and re-resolves authority on the owning machine, including remote machines. A URL is not a public share link or a bearer credential. Resource URLs from older revisions fail rather than silently invoking new plugin code.
+
+Resource selectors are JSON of at most **4 KiB UTF-8** and appear in the URL. Keep them short and non-secret; URLs can appear in history and logs. Use a normal backend request for large or private inputs, then select a plugin-owned result by a short opaque identifier. Resource callbacks serve GET requests and should not start mutating jobs; browsers may repeat loads or request ranges.
+
+For seeking or partial downloads, the callback receives the optional HTTP `range` string. A plugin may ignore it and return a full `200` response, or implement range handling with `statusCode: 206`, `contentRange`, `contentLength`, and `acceptRanges: "bytes"`. Unsatisfiable ranges use `statusCode: 416` and `contentRange: "bytes */TOTAL"`. PI WEB forwards these fields; it does not seek or slice plugin-owned data. Plugins must validate range requests against their actual resource.
+
+The host streams bytes with backpressure rather than wrapping them in JSON/base64. It validates response metadata and any declared length, cancels work on disconnect or daemon shutdown, and limits resource lifetimes and concurrency. Plugins must honor `signal`, release their own resources, and apply format-specific size and conversion limits. File reads and conversions belong to the plugin: resolve file inputs against the host-provided scope and validate browser-supplied selectors.
+
+Responses are private, uncached, and protected by host-owned MIME and sandbox policies; plugins cannot supply arbitrary HTTP headers, cookies, or redirects. HTML and SVG documents remain sandboxed. Native PDF responses omit the sandbox restriction but retain restrictive CSP and `nosniff`. Inserting fetched HTML into a panel bypasses document isolation: sanitize it before rendering, and never execute untrusted document content.
+
+After upgrading PI WEB for this API, restart the affected session daemon when safe, then reload the browser. Gateways and remote machines must both support resources. This transport does not add resource methods to companion Pi extensions; those continue to use requests and channels.
 
 ### Conversations and companion extensions
 
@@ -273,7 +380,8 @@ Keep gateways and targets compatible. During this plugin API transition, upgrade
 ## Included tools and optional packages
 
 - **Terminal** supplies terminals and command runs in one tab. With a workspace selected, it lists that workspace's terminals alongside existing maintenance terminals on the same machine. Without a workspace, it lists only maintenance terminals. **New terminal** creates workspace shells only; maintenance terminals start through actions such as Update and can be continued interactively after completion. Closing a maintenance terminal removes it from every workspace view. Terminal is required in normal operation; disable it only through emergency safe start.
-- **Files** supplies file browsing, previews, and uploads. Disabling its panel does not remove other plugins' file helpers.
+- **Files** supplies file browsing, uploads, and the common previewer chooser. Its image, SVG, PDF, HTML, and Markdown views are ordinary previewer contributions; text-renderer contributions use the same file-preview pipeline. Disabling its panel does not remove other plugins' file helpers.
+- **Audio** adds an automatic Files preview for common audio extensions. Its paired backend streams workspace audio and supports single byte ranges for seeking; decoding depends on the browser's codecs. Download remains available when playback fails. This plugin exercises both file-preview contributions and generic backend resources; other previewers can use ordinary file downloads instead. Server-backed plugin changes require a session-daemon restart.
 - **Git** discovers Git workspaces and provides status/diff, including [automatic discovery of new worktrees](#automatic-git-worktree-discovery) on supported Git builds. Disabling it leaves the project-folder workspace available unless another provider takes over.
 - **Mermaid** uses the default manual mode: choose **Render** to preview `mermaid` fences and `.mmd`/`.mermaid` text files. Its bundled engine runs locally in an opaque-origin sandbox with network access blocked; no diagram service receives your source. Interactive links and external resources are intentionally unavailable. Disable Mermaid in plugin Settings to keep plain code rendering. Only a browser reload is needed after changing this browser-only plugin.
 - **Code highlighting** colours completed chat code fences in common languages automatically, including JavaScript/TypeScript, Python, shell, HTML/CSS, JSON, Go, Rust, SQL, and diff. Choose **Raw** to view plain source or **Preview** to restore colours; Copy always copies the source. Unsupported, unlabelled, incomplete, and oversized blocks stay plain. Highlighting runs locally without executing code. Disable Code highlighting in plugin Settings to keep plain code rendering; reload the browser after changing this browser-only plugin.
@@ -673,7 +781,7 @@ export default {
 
 Components and event handlers can call `catalog.projects.list()` / `get(projectId)`, `catalog.workspaces.list(projectId)` / `get({ projectId, workspaceId })`, and `catalog.sessions.list({ projectId, workspaceId })` / `get({ projectId, workspaceId, sessionId })`. Reads accept an optional abort signal. Session snapshots include public metadata and `runtime` (`not-hosted`, `idle`, or `busy`); discovery does not open a saved session or expose its transcript/private file path.
 
-Paired plugins also receive `backend` in these browser contexts. `backend.forScope({ kind: "machine" })`, `{ kind: "project", projectId }`, or `{ kind: "workspace", projectId, workspaceId }` returns the package's paired request/channel interface on that context's machine. Portable browser-only plugins have no paired backend. Existing workspace `peer` helpers remain available.
+Paired plugins also receive `backend` in these browser contexts. `backend.forScope({ kind: "machine" })`, `{ kind: "project", projectId }`, or `{ kind: "workspace", projectId, workspaceId }` returns the package's paired request, channel, or resource interface on that context's machine. Portable browser-only plugins have no paired backend. Existing workspace `peer` helpers remain available.
 
 Server v5 peer callbacks receive `scope` instead of always requiring `project` and `workspace`. Machine scope carries no project; project scope contains host-resolved `project`; workspace scope contains host-resolved `project` and `workspace`. Browser/server package revisions, cancellation, and host authority checks still apply. Server v3 retains its workspace-only callback shape and cannot accept machine/project-scoped calls.
 
