@@ -318,7 +318,6 @@ function taskFromConfigState(state: ConfigState | undefined, taskId: string | nu
 function taskStyles(): string {
   return `
       :host { display: contents; }
-      .toolbar { border-bottom: 1px solid var(--pi-border-muted); }
       .toolbar-title { padding-inline: 10px; }
       .viewer { box-sizing: border-box; min-height: 0; overflow: auto; padding: 12px; }
       .tasks-viewer { display: grid; align-content: start; gap: 12px; }

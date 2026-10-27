@@ -421,7 +421,7 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
     const unreadSelectedSessions = selectedSessions.filter((session) => this.unreadSessionIds.has(session.id));
     return html`
       <div class="selection-toolbar">
-        <div class="ui-toolbar bulk-row selecting">
+        <div class="ui-toolbar ui-toolbar--borderless bulk-row selecting">
           ${this.renderSelectionControls("current")}
           <div class="ui-toolbar-group bulk-actions">
             <button class="ui-button" ?disabled=${archivableSessions.length === 0} @click=${() => { this.archiveSelectedCurrent(); }}>${sessionNavigationMessages.t("archive")}</button>
@@ -438,7 +438,7 @@ export class SessionList extends LitElement implements KeyboardNavigableSection 
     const selectedSessions = this.selectedSessions("archived");
     return html`
       <div class="selection-toolbar">
-        <div class="ui-toolbar bulk-row selecting">
+        <div class="ui-toolbar ui-toolbar--borderless bulk-row selecting">
           ${this.renderSelectionControls("archived")}
           <div class="ui-toolbar-group bulk-actions">
             <button class="ui-button danger" title=${sessionNavigationMessages.t("deleteSelectedTitle")} ?disabled=${selectedSessions.length === 0} @click=${() => { this.confirmDeleteSelectedArchived(); }}>${sessionNavigationMessages.t("delete")}</button>

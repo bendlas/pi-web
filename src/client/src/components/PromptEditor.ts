@@ -212,7 +212,7 @@ export class PromptEditor extends LitElement {
           ${this.renderAttachments()}
           <autocomplete-menu .onClose=${() => { this.closeCompletions(); }} .items=${this.completions} .selectedIndex=${this.selectedIndex} .onPick=${(item: CompletionItem) => { this.pick(item); }}></autocomplete-menu>
         </div>
-        <div class="actions ui-toolbar ui-toolbar--primary">
+        <div class="actions ui-toolbar ui-toolbar--primary ui-toolbar--borderless">
           ${this.renderCompactStatus()}
           <div class="ui-toolbar-group">
             <button class="ui-button ui-button--icon icon-button send-button ${keyboardSteers ? "" : "default-send-action"}" ?disabled=${busy} title=${messages.t(queuesInput ? "queueTitle" : "send")} aria-label=${messages.t(queuesInput ? "queue" : "send")} @click=${() => { this.send("followUp"); }}>${queuesInput ? renderQueueIcon() : renderSendIcon()}</button>

@@ -470,7 +470,6 @@ export class ModelPicker extends LitElement {
   }
 
   static override styles = [uiDialogStyles, uiSelectionStyles, uiToolbarStyles, css`
-    .scope-toggle { border-bottom: 1px solid var(--pi-border-muted); }
     .scope-toggle button { flex: 1; }
     .scope-notice { display: grid; gap: 3px; margin: 10px 12px 0; padding: 8px 10px; border: 1px solid var(--pi-border); border-radius: 8px; color: var(--pi-muted); }
     .scope-notice strong { color: var(--pi-text); }

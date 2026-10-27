@@ -114,7 +114,7 @@ export class SessionNotificationTray extends LitElement {
       <section class=${`notification-tray${collapsed ? " collapsed" : ""}`} role="region" aria-labelledby="session-notifications-heading" @focusout=${(event: FocusEvent) => { this.releaseEmptyNotificationTray(event); }}>
         <header class="notification-header" data-notification-focus="header" tabindex="-1">
           <strong class="notification-heading" id="session-notifications-heading">${notificationTrayHeading(inbox)}</strong>
-          <div class="ui-toolbar notification-header-actions">
+          <div class="ui-toolbar ui-toolbar--borderless notification-header-actions">
             <div class="ui-toolbar-group">
               <button type="button" class="ui-button notification-clear" aria-label=${messages.t("clearAll")} title=${messages.t("clearAll")}
                 ?disabled=${inbox.dismissAllPending || notificationInboxTotalCount(inbox) === 0 || this.onDismissAllNotifications === undefined}

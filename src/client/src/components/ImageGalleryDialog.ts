@@ -147,7 +147,7 @@ export class ImageGalleryDialog extends LitElement {
             <img class="image-zoom-full" src=${image.src} alt=${image.alt} decoding="async" draggable="false" />
           </div>
           ${gallery.images.length < 2 ? null : html`
-            <div class="image-gallery-navigation ui-toolbar ui-toolbar--primary">
+            <div class="image-gallery-navigation ui-toolbar ui-toolbar--primary ui-toolbar--borderless">
               <button type="button" class="ui-button" data-navigation="previous" aria-label=${imageMessages.t("previousImage")} ?disabled=${gallery.index === 0} @click=${() => { this.move(-1); }}>${imageMessages.t("previous")}</button>
               <button type="button" class="ui-button" data-navigation="next" aria-label=${imageMessages.t("nextImage")} ?disabled=${gallery.index === gallery.images.length - 1} @click=${() => { this.move(1); }}>${imageMessages.t("next")}</button>
             </div>
@@ -161,7 +161,7 @@ export class ImageGalleryDialog extends LitElement {
     dialog.image-zoom { position: fixed; inset: 0; margin: auto; box-sizing: border-box; width: min(1100px, calc(100vw - 32px - env(safe-area-inset-left) - env(safe-area-inset-right))); height: min(900px, calc(100dvh - 32px - env(safe-area-inset-top) - env(safe-area-inset-bottom))); max-width: none; max-height: none; padding: 0; border: 1px solid var(--pi-border); border-radius: 0; color: var(--pi-text); background: var(--pi-bg); overflow: hidden; }
     dialog.image-zoom[open] { display: flex; flex-direction: column; }
     dialog.image-zoom::backdrop { background: var(--pi-overlay); }
-    .image-gallery-header { border-bottom: 1px solid var(--pi-border); }
+    .image-gallery-header { border-bottom-color: var(--pi-border); }
     .image-gallery-position { padding-inline: 12px; min-width: 0; overflow-wrap: anywhere; white-space: normal; }
     .image-gallery-stage { flex: 1 1 auto; min-width: 0; min-height: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; background: var(--pi-surface); touch-action: pan-y pinch-zoom; }
     .image-zoom-full { display: block; width: 100%; height: 100%; min-width: 0; min-height: 0; object-fit: contain; }

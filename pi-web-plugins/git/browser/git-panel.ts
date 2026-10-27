@@ -782,7 +782,7 @@ const gitPanelStyles = `
   .git-panel ${activityElementTag} { display: none; }
   .git-panel small, .git-panel .git-muted { color: var(--pi-muted); }
   .git-panel p { margin: 10px; }
-  .git-panel .git-toolbar { overflow-x: auto; flex: 0 0 auto; border-bottom: 1px solid var(--pi-border-muted); font-size: 12px; color: var(--pi-muted); }
+  .git-panel .git-toolbar { overflow-x: auto; flex: 0 0 auto; font-size: 12px; color: var(--pi-muted); }
   .git-panel .git-toolbar-actions { margin-inline-start: auto; }
   .git-panel .git-toolbar > strong { display: flex; align-items: center; padding-inline: 10px; font-weight: 500; }
   .git-panel .git-toolbar .ui-button { white-space: nowrap; }

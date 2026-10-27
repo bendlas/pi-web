@@ -152,7 +152,7 @@ function createUpdatesContent(localization: PluginLocalization) {
     const additional = additionalCommands(status, recommended, (key) => t(key));
     return html`
       <style>
-        .updates-toolbar { flex: 0 0 auto; padding-inline: 12px; border-bottom: 1px solid var(--pi-border-muted); }
+        .updates-toolbar { flex: 0 0 auto; padding-inline: 12px; }
         .viewer.updates-status { flex: 1 1 auto; min-height: 0; box-sizing: border-box; display: flex; flex-direction: column; gap: 14px; padding: 12px; overflow-y: auto; overflow-x: hidden; }
         .viewer.updates-status section { flex: 0 0 auto; min-width: 0; display: grid; gap: 8px; }
         .updates-message { display: grid; gap: 5px; border: 1px solid var(--pi-border); border-radius: 8px; padding: 10px; background: var(--pi-surface); }

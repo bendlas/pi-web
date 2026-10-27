@@ -39,6 +39,18 @@ test("completions escape layout clipping, preserve editor focus, and disappear o
   await expect(page.locator("autocomplete-menu [popover]:popover-open")).toHaveCount(0);
 });
 
+test("shared toolbars own one bottom separator while embedded strips stay borderless", async ({ page }) => {
+  const toolbar = page.locator("#shared-toolbars .ui-toolbar").first();
+  const embedded = page.locator("#shared-toolbars .ui-toolbar--borderless");
+  await expect(toolbar).toHaveCSS("border-bottom-width", "1px");
+  await expect(toolbar).toHaveCSS("border-bottom-style", "solid");
+  await expect(toolbar).toHaveCSS("border-bottom-color", "rgb(85, 85, 85)");
+  await expect(toolbar.locator("button")).toHaveCSS("height", "32px");
+  await expect(embedded).toHaveCSS("border-bottom-width", "0px");
+  await expect(embedded.locator("button")).toHaveCSS("height", "32px");
+  await expect(page.locator("prompt-editor .actions")).toHaveCSS("border-bottom-width", "0px");
+});
+
 test("attachment control stays compact before and after chat navigation arrives", async ({ page }) => {
   const editor = page.locator("prompt-editor");
   const attach = editor.getByRole("button", { name: "Attach files", exact: true });

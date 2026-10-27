@@ -6,6 +6,7 @@ import { PromptEditor } from "../../src/client/src/components/PromptEditor";
 import { MachineSwitcher } from "../../src/client/src/components/MachineSwitcher";
 import { ModalSurface } from "../../src/client/src/components/ModalSurface";
 import { MessageActionsMenu } from "../../src/client/src/components/chat/MessageActionsMenu";
+import { uiButtonStyles, uiToolbarStyles } from "../../src/client/src/components/ui/controlStyles";
 
 api.commands = () => Promise.resolve([{ name: "tree", source: "builtin" }]);
 api.files = () => Promise.resolve([{ path: "README.md", kind: "tracked" }]);
@@ -77,6 +78,15 @@ render(html`<style>
   .clip { display: flex; align-items: center; gap: 10px; position: relative; transform: translateZ(0); overflow: hidden; height: 56px; padding: 8px; border: 1px solid #888; }
   machine-switcher { width: 240px; flex: 0 0 240px; }
 </style><div class="scroll"><div class="scroll-content"><div class="clip">${clippedSwitcher}${messageActions}</div></div></div>`, scrollingRoot);
+const toolbars = document.createElement("div");
+toolbars.id = "shared-toolbars";
+const toolbarRoot = toolbars.attachShadow({ mode: "open" });
+render(html`<style>${uiButtonStyles.cssText}${uiToolbarStyles.cssText}
+  :host { --pi-border-muted: #555; display: block; }
+</style>
+  <section class="ui-toolbar"><button class="ui-button">Panel action</button></section>
+  <section class="ui-toolbar ui-toolbar--borderless"><button class="ui-button">Embedded action</button></section>
+`, toolbarRoot);
 const root = document.createElement("main");
 document.body.append(root);
 render(html`
@@ -89,6 +99,7 @@ render(html`
   </div>
   ${layout}
   ${scrollingHost}
+  ${toolbars}
 `, root);
 await Promise.all([layout.updateComplete, editor.updateComplete, clippedSwitcher.updateComplete, messageActions.updateComplete]);
 

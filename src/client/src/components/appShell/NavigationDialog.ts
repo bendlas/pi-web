@@ -82,7 +82,7 @@ export class NavigationDialog extends LitElement {
           <button class="ui-button" @click=${() => { this.onPreferencesChange?.({ ...this.preferences, pinnedIds: [] }); }}>${m.t("showAll")}</button>
           <div class="mobile-navigation" role="group" aria-label=${m.t("mobileNavigation")}>
             <span>${m.t("mobileNavigation")}</span>
-            <div class="toggle-options ui-toolbar">
+            <div class="toggle-options ui-toolbar ui-toolbar--borderless">
               <button type="button" class="ui-button" aria-pressed=${String(!this.preferences.mobileCollapsed)} @click=${() => {
                 this.onPreferencesChange?.({ ...this.preferences, mobileCollapsed: false });
               }}>${m.t("expanded")}</button>
