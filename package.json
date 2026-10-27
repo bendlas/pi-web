@@ -37,7 +37,6 @@
     "LICENSE",
     "extensions",
     "examples/workspace-provider-plugin",
-    "examples/session-bridge-plugin",
     "!examples/**/node_modules",
     "!examples/**/dist",
     "docs/plugins.md",

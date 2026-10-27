@@ -81,7 +81,7 @@ describe("plugin delivery artifacts", () => {
       "dist/plugin-api.d.ts", "dist/server-plugin-api.d.ts", "dist/server-plugin-api.js",
       "dist/shared/pluginApiTypes.d.ts", "dist/shared/pluginCatalogTypes.d.ts", "dist/shared/pluginCatalogTypes.js",
       "plugin-api.d.ts", "server-plugin-api.d.ts", "dist/client/index.html",
-      "examples/session-bridge-plugin/package.json",
+      "examples/workspace-provider-plugin/package.json",
       "dist/pi-web-plugins/git/workspace-discovery-notify.cjs",
     ]));
     expect(packagedFiles.some((path) => path.includes("/node_modules/") || /^examples\/[^/]+\/dist\//u.test(path))).toBe(false);

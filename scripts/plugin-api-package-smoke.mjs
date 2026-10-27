@@ -47,7 +47,6 @@ export async function smokeInstalledPluginApi({ packageRoot, fixtureRoot, repoRo
   const consumerRoot = join(fixtureRoot, "plugin-api-consumers");
   await cp(join(repoRoot, "test-fixtures", "plugin-api-consumers"), consumerRoot, { recursive: true });
   await cp(join(packageRoot, "examples", "workspace-provider-plugin"), join(consumerRoot, "dual-entry"), { recursive: true });
-  await cp(join(packageRoot, "examples", "session-bridge-plugin"), join(consumerRoot, "session-bridge"), { recursive: true });
   await Promise.all([
     mkdir(join(consumerRoot, "node_modules", "@jmfederico"), { recursive: true }),
     mkdir(join(consumerRoot, "node_modules", "@types"), { recursive: true }),
@@ -67,8 +66,6 @@ export async function smokeInstalledPluginApi({ packageRoot, fixtureRoot, repoRo
     join(consumerRoot, "dual-entry", "src", "server.ts"),
   ];
 
-  await buildSessionBridgeExample(join(consumerRoot, "session-bridge"), repoRoot);
-
   for (const mode of pluginConsumerCompilerModes) {
     assertPluginApiResolution(browserPath, mode.options, packageRoot);
     assertStrictPluginConsumer("browser-only", [browserPath], mode, packageRoot, repoRoot, [
@@ -87,40 +84,9 @@ export async function smokeInstalledPluginApi({ packageRoot, fixtureRoot, repoRo
       "dist/shared/terminalTitlePresentation.d.ts",
       "dist/shared/workspaceRemovalPresentation.d.ts",
     ]);
-    assertStrictPluginConsumer("session-bridge browser/backend", [
-      join(consumerRoot, "session-bridge", "src", "browser", "index.ts"),
-      join(consumerRoot, "session-bridge", "src", "server.ts"),
-    ], mode, packageRoot, repoRoot, [
-      ...publicApiDeclarationPaths.map((path) => `dist/${path}`),
-    ], ["node"]);
     assertStrictPluginConsumer("dual-entry example", dualEntryPaths, mode, packageRoot, repoRoot, [
       ...publicApiDeclarationPaths.map((path) => `dist/${path}`),
     ], ["node"]);
-  }
-}
-
-async function buildSessionBridgeExample(exampleRoot, repoRoot) {
-  const manifest = JSON.parse(await readFile(join(exampleRoot, "package.json"), "utf8"));
-  if (manifest.devDependencies?.["@jmfederico/pi-web"] !== workspaceProviderExamplePiWebRange) {
-    throw new Error("Session bridge example must use the plugin platform release floor");
-  }
-  const configPath = join(exampleRoot, "tsconfig.json");
-  const config = ts.readConfigFile(configPath, ts.sys.readFile);
-  if (config.error) throw new Error(formatDiagnostics([config.error], repoRoot));
-  const parsed = ts.parseJsonConfigFileContent(config.config, ts.sys, exampleRoot);
-  const program = ts.createProgram(parsed.fileNames, parsed.options);
-  const diagnostics = [...parsed.errors, ...ts.getPreEmitDiagnostics(program)];
-  if (diagnostics.length) throw new Error(formatDiagnostics(diagnostics, repoRoot));
-  const emitted = program.emit();
-  if (emitted.emitSkipped || emitted.diagnostics.length) throw new Error("Session bridge example build failed");
-  // Resolve the shipped manifest, not hardcoded output locations.
-  const entry = manifest.piWeb.plugins[0];
-  const server = await import(pathToFileURL(join(exampleRoot, entry.serverModule)).href);
-  const browser = await import(pathToFileURL(join(exampleRoot, entry.module)).href);
-  await readFile(join(exampleRoot, manifest.pi.extensions[0]), "utf8");
-  if (server.default.apiVersion !== 3 || browser.default.apiVersion !== 4
-    || server.default.requires.length !== 2 || entry.machineSpecific !== true) {
-    throw new Error("Session bridge example manifest/runtime entries are incompatible");
   }
 }
 
