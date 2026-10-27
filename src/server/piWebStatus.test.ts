@@ -304,7 +304,9 @@ describe("PI WEB status", () => {
 
       expect(status.components.sessiond.available).toBe(false);
       expect(status.components.sessiond.error).toBe("runtime check returned HTTP 500");
-      expect(status.messages.map((message) => message.id)).toContain("sessiond-unavailable");
+      const notice = status.messages.find((message) => message.id === "sessiond-unavailable");
+      expect(notice).toMatchObject({ severity: "info", title: "Session daemon version unknown" });
+      expect(notice?.body).toContain("The last check could not determine the session daemon version.");
     } finally {
       await rm(home, { recursive: true, force: true });
     }

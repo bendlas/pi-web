@@ -827,8 +827,14 @@ export class PiWebApp extends LitElement {
     this.clearScheduledPiWebStatusRefresh();
     this.piWebStatusDeferredTimer = window.setTimeout(() => {
       this.piWebStatusDeferredTimer = undefined;
-      void this.piWebStatusController.refresh();
+      void this.piWebStatusController.refresh().finally(() => { this.schedulePiWebStatusRetry(); });
     }, delayMs);
+  }
+
+  private schedulePiWebStatusRetry(): void {
+    if (this.isConnected && this.state.piWebStatus?.components.sessiond.available === false) {
+      this.schedulePiWebStatusRefresh(5_000);
+    }
   }
 
   private clearScheduledPiWebStatusRefresh(): void {
@@ -3211,7 +3217,7 @@ export class PiWebApp extends LitElement {
       refreshFiles: () => this.invalidateSelectedWorkspaceFiles(),
       refreshWorkspacePanels: (panelId) => this.invalidateWorkspacePanels(panelId),
       refreshAppData: () => this.refreshAppData(),
-      checkForPiWebUpdates: () => this.piWebStatusController.checkForUpdates(),
+      checkForPiWebUpdates: () => this.piWebStatusController.checkForUpdates().finally(() => { this.schedulePiWebStatusRetry(); }),
       reloadPage: () => { this.hardReloadApp(); },
       deleteWorkspace: (workspace) => this.deleteWorkspace(workspace),
       startSession: () => this.withChatScrollTransition(() => this.startSessionAndOpenChat()),

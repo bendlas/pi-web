@@ -16,7 +16,7 @@ export function recommendedCommand(status: PiWebStatusResponse, label: (key: "up
   if (release.updateAvailable && typeof commands.update === "string" && commands.update !== "") {
     return { label: label("update"), command: commands.update };
   }
-  const restartNeeded = components.web.stale || components.sessiond.stale || !components.sessiond.available;
+  const restartNeeded = components.web.stale || components.sessiond.stale;
   if (restartNeeded && typeof commands.restart === "string" && commands.restart !== "") {
     return { label: label("restart"), command: commands.restart };
   }

@@ -120,6 +120,20 @@ describe("Updates plugin panel layout", () => {
     expect(container.textContent).toContain(service.date(Date.parse(value.generatedAt), { dateStyle: "medium", timeStyle: "short" }));
   });
 
+  it("describes a failed version check without declaring the daemon down or recommending a restart", () => {
+    const value = status();
+    value.components.sessiond = component({ component: "sessiond", available: false });
+    value.commands = { restart: "pi-web restart" };
+    value.messages = [{ id: "sessiond-unavailable", severity: "info", title: "old title", body: "old body" }];
+    const panel = renderPanel(value);
+
+    expect(panel.textContent).toContain("Session daemon version unknown");
+    expect(panel.textContent).toContain("The last check could not determine the session daemon version.");
+    expect(panel.textContent).toContain("If checks keep failing");
+    expect(panel.querySelector(".updates-recommended")).toBeNull();
+    expect(panel.querySelectorAll(".updates-version-row")[1]?.textContent).toContain("version unknown");
+  });
+
   it("preserves unknown gateway notice details for forward compatibility", () => {
     const container = renderPanel(status({ messages: [{ id: "future", severity: "error", title: "Future gateway notice", body: "Keep this operational guidance" }] }));
     expect(container.textContent).toContain("Future gateway notice");
