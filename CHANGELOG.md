@@ -1,5 +1,32 @@
 # @jmfederico/pi-web
 
+## 1.202610.8
+
+### Patch Changes
+
+- ac2c9b4: Return to Chat when collapsing the desktop workspace pane after selecting a tool, instead of expanding the tool into the conversation area. Preserve the selected tool for reopening.
+- 3b6e0e6: Keep Reload before Actions in both desktop and mobile layouts.
+- 5e6af1f: Reveal the selected file in the Files tree after reloads and file navigation. Preserve expanded folders, deliberate collapses, and tree scroll position when returning to Files, including after interrupted directory loads.
+- 9b558dd: Make Git list and tree views easier to scan with status-coloured icons and markers, explicit conflict labels, and staged/unstaged hints.
+- 574e915: Add optional read-only deployment defaults through `PI_WEB_DEFAULTS_CONFIG`, environment enforcement for core settings, and resettable saved overrides with source indicators in Settings. Enforce only supplied fields in supported configuration containers, preserve project path additions, and retain browser theme/localization choices while policy temporarily overrides them.
+
+  **Upgrade notice — configuration compatibility:**
+
+  - Boolean environment values must now be `true`/`false` (case-insensitive) or `1`/`0`. Replace arbitrary strings and empty values, or unset the variable; invalid values now fail startup. This includes `PI_WEB_SPAWN_SESSIONS`, `PI_WEB_SUBSESSIONS`, `PI_WEB_ASK_USER`, and `PI_WEB_ENVIRONMENT_FACTS`.
+  - `PI_WEB_OFFLINE`, `PI_OFFLINE`, `PI_WEB_SKIP_VERSION_CHECK`, and `PI_SKIP_VERSION_CHECK` now use those boolean values instead of treating every nonempty string as enabled. In particular, `false` and `0` now disable the corresponding flag and may re-enable networking; use `true` or `1` to preserve an intentionally enabled flag.
+  - Previously ignored unknown fields in `pathAccess`, `uploads`, and `attachments` are now rejected, including in project config. Remove unsupported fields or correct misspellings. Plugin-owned keys inside `settings` remain supported.
+  - Environment-controlled settings are now read-only in Settings/API. Unset the controlling variable to allow saved overrides to change.
+  - `extensionDialogsTimeoutMs` must not exceed `2147483647` milliseconds; use `0` to wait indefinitely.
+  - Existing config paths and supported setting names remain valid. Legacy comma-separated allowed hosts, project path additions, project plugin setting overrides, and empty upload/attachment container inheritance are preserved. No automatic config or data migration is required.
+
+  Keep deployment defaults separate from writable `PI_WEB_CONFIG`. Apply deployment environment settings to both services. Upgrade federated peers before relying on their enforcement metadata.
+- 4d22289: Add audio playback in Files and let browser plugins contribute previewers for additional text and binary formats. Keep built-in previews, downloads, and text-file Raw views available; isolate preview failures and cancel obsolete work when switching files or views. Remove the redundant Original view for binary files.
+- 9f6500f: Allow refreshed plugin UI builds to use the running backend during development without changing plugins. Keep exact browser/backend revision pairing by default outside the development launcher, and retain update-pending diagnostics when a daemon restart is needed.
+- 5256056: Remove the optional Workspace Reviews example from the package. Keep the minimal workspace-provider example as the standalone plugin starting point.
+- 4d22289: Add scoped plugin resource URLs for streaming generated documents, media, and other binary data through PI WEB, including remote machines and plugin-managed range responses. Plugins can provide bytes from their companion backend without exposing a separate HTTP port.
+- c03b09d: Make toolbar bottom separators consistent across panels, including Files and Git.
+- b480c21: Describe failed session daemon version checks without declaring the service down or recommending a restart. Retry automatically while the version is unknown, and stop replaying cached failed checks after the daemon recovers.
+
 ## 1.202610.7
 
 ### Patch Changes
