@@ -1,5 +1,5 @@
 import type { TemplateResult } from "lit";
-import type { PluginBackend, PluginCatalog, PluginNavigate, PluginProjects, PluginPromptEditor, PluginSelectedSession, PluginSelectionService } from "../../../plugin-api";
+import type { FileIconThemeContribution, PluginBackend, PluginCatalog, PluginNavigate, PluginProjects, PluginPromptEditor, PluginSelectedSession, PluginSelectionService } from "../../../plugin-api";
 import type { AppAction } from "../actions";
 import type { DeleteWorkspaceFileResponse, FileContentResponse, FileTreeResponse, JsonValue, Machine, MoveWorkspaceFileOptions, MoveWorkspaceFileResponse, MaintenanceTerminalCommandRun, TerminalCommandRunHandle, WriteWorkspaceFileOptions, WriteWorkspaceFileResponse, Workspace } from "../api";
 import type { PluginCapability, PluginCapabilityProvision } from "../../../shared/pluginApiTypes";
@@ -101,6 +101,7 @@ export interface PluginContributions {
   workspaceLabels?: WorkspaceLabelContribution[];
   sessionLabels?: SessionLabelContribution[];
   themes?: ThemeContribution[];
+  fileIconThemes?: FileIconThemeContribution[];
   themePairs?: ThemePairContribution[];
 }
 
@@ -445,6 +446,14 @@ export interface QualifiedSessionLabelContribution extends SessionLabelContribut
   pluginId: PluginId;
   localId: LocalContributionId;
   machineId?: string;
+}
+
+export type { FileIconAsset, FileIconsCapability, FileIconThemeContribution } from "../../../plugin-api";
+
+export interface QualifiedFileIconThemeContribution extends FileIconThemeContribution {
+  id: QualifiedContributionId;
+  pluginId: PluginId;
+  localId: LocalContributionId;
 }
 
 export type ThemeColorScheme = "dark" | "light";

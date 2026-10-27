@@ -3,6 +3,7 @@ import gitPlugin from "../../../../pi-web-plugins/git/browser/pi-web-plugin.js";
 import { machineScopedBundledPluginId, machineScopedPluginId } from "../../../shared/machinePluginIds";
 import { loadExternalPlugins, resolvePluginModuleUrl } from "./external";
 import { PluginRegistry } from "./registry";
+import { FileIconService, fileIconsCapabilityToken } from "../fileIconService";
 
 beforeEach(() => {
   vi.stubGlobal("document", { baseURI: "https://pi.example.test/" });
@@ -297,7 +298,7 @@ describe("external plugin manifests", () => {
     const moduleLoader = vi.fn(() => Promise.resolve({ default: gitPlugin }));
 
     const result = await loadExternalPlugins(manifestUrl, { machineId: "remote-1", moduleLoader });
-    const registry = new PluginRegistry();
+    const registry = new PluginRegistry({ hostCapabilities: [{ capability: fileIconsCapabilityToken, value: new FileIconService().capability }] });
     for (const registration of result.registrations) await registry.register(registration);
     const registrationPluginId = machineScopedPluginId("remote-1", "git");
 
@@ -311,6 +312,7 @@ describe("external plugin manifests", () => {
       machineSpecific: true,
     }]);
     expect(registry.getWorkspacePanels().map((panel) => panel.id)).toEqual([`${registrationPluginId}:workspace.git`]);
+    await registry.dispose();
   });
 
   it("accepts host-attributed bundled ids locally and through machine-scoped federation", async () => {

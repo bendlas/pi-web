@@ -109,6 +109,7 @@ export interface PluginContributionsV5 extends Omit<PluginContributions, "action
   filePreviewers?: FilePreviewerContribution[];
   contentRenderers?: ContentRendererContributionV5[];
   themes?: ThemeContributionV5[];
+  fileIconThemes?: FileIconThemeContribution[];
   actions?: PluginActionV5[];
   applicationPanels?: ApplicationPanelContributionV5[];
   workspacePanels?: WorkspacePanelContributionV5[];
@@ -945,6 +946,31 @@ export interface SessionLabelContribution {
   order?: number;
   visible?: (context: SessionLabelContext) => boolean;
   items: (context: SessionLabelContext) => SessionLabelItem[];
+}
+
+/** Transparent artwork rendered as a single-tone alpha mask. Remote assets require CORS. */
+export interface FileIconAsset {
+  url: string;
+  lightUrl?: string;
+}
+
+/** File-only icons. URLs must be absolute HTTP(S) asset URLs, never inline markup. */
+export interface FileIconThemeContribution {
+  id: string;
+  name: string;
+  description?: string;
+  order?: number;
+  file: FileIconAsset;
+  /** Case-insensitive basename matching: first exact filename wins, then longest extension.
+   * Extensions include their leading dot (for example .d.ts); equal-length ties use declaration order.
+   */
+  files?: readonly { filenames?: readonly string[]; extensions?: readonly string[]; icon: FileIconAsset }[];
+}
+
+/** App-owned host capability: { pluginId: "pi-web", id: "file-icons", version: 1, parse }. */
+export interface FileIconsCapability {
+  resolveIcon(path: string): string | undefined;
+  subscribe(listener: () => void): () => void;
 }
 
 export type ThemeColorScheme = "dark" | "light";

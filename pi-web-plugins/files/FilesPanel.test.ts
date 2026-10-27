@@ -6,6 +6,7 @@ import { html } from "lit";
 import { WorkspaceFilesPanel, startDirectWorkspaceUpload, uploadBatchProgressValue, uploadBatchStatusLabel, workspaceUploadReviewDefaults, workspaceUploadReviewError } from "./FilesPanel";
 import { filesLocalizationFixture } from "./filesLocalization.testSupport";
 import { WorkspaceFileViewer } from "./FilesViewer";
+import type { FileIcon } from "./FileIcon";
 import { FilesRuntime, type WorkspaceUploadBatchState } from "./FilesRuntime";
 import { defineFilesCustomElements } from "./pi-web-plugin";
 
@@ -19,6 +20,45 @@ afterEach(() => {
 });
 
 describe("Files panel component boundary", () => {
+  it("updates file icons live without replacing rows or directory disclosures and releases subscriptions", async () => {
+    const panel = await mountPanel(createContext({ files: createFiles({ listFiles: () => Promise.resolve(treeResponse("", [
+      { name: "src", path: "src", type: "directory" },
+      { name: "README.md", path: "README.md", type: "file" },
+    ])) }) }));
+    await vi.waitFor(() => { expect(panel.shadowRoot?.querySelector("pi-web-files-icon")).not.toBeNull(); });
+    let url = "https://icons.example/markdown.svg";
+    const listeners = new Set<() => void>();
+    const release = vi.fn();
+    const subscribe = vi.fn((listener: () => void) => {
+      listeners.add(listener);
+      return () => { listeners.delete(listener); release(); };
+    });
+    panel.fileIcons = { resolveIcon: () => url, subscribe };
+    await panel.updateComplete;
+    const row = buttonWithText(panel.shadowRoot, "README.md");
+    const icon = requiredElement(row.querySelector<FileIcon>("pi-web-files-icon"), "file icon");
+    expect(icon.url).toBe(url);
+    expect(row.querySelector(".ui-file-leading")?.getAttribute("aria-hidden")).toBe("true");
+    expect(buttonWithText(panel.shadowRoot, "src").getAttribute("aria-expanded")).toBe("false");
+    expect(buttonWithText(panel.shadowRoot, "src").querySelector("pi-web-files-icon")).toBeNull();
+    url = "https://icons.example/markdown-light.svg";
+    for (const listener of listeners) listener();
+    await panel.updateComplete;
+    expect(buttonWithText(panel.shadowRoot, "README.md")).toBe(row);
+    expect(icon.url).toBe(url);
+    panel.remove();
+    expect(listeners.size).toBe(0);
+    expect(release).toHaveBeenCalledOnce();
+    document.body.append(panel);
+    await panel.updateComplete;
+    expect(subscribe).toHaveBeenCalledTimes(2);
+    panel.fileIcons = undefined;
+    await panel.updateComplete;
+    expect(listeners.size).toBe(0);
+    expect(release).toHaveBeenCalledTimes(2);
+    expect(icon.url).toBeUndefined();
+  });
+
   it("passes file previewing and the workspace's files helpers to its viewer", async () => {
     const context = createContext();
     const panel = await mountPanel(context);

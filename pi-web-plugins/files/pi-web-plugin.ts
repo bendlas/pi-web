@@ -1,5 +1,6 @@
-import type { StylesheetIntegrationCapabilityV1, FilePreviewingCapability, ContentRenderingCapability, PluginCapability, PiWebPlugin, PluginActivationContextV5, PluginActivationResultV5 } from "@jmfederico/pi-web/plugin-api";
+import type { FileIconsCapability, StylesheetIntegrationCapabilityV1, FilePreviewingCapability, ContentRenderingCapability, PluginCapability, PiWebPlugin, PluginActivationContextV5, PluginActivationResultV5 } from "@jmfederico/pi-web/plugin-api";
 import { createFilesContent } from "./filesLocalization";
+import { FileIcon } from "./FileIcon";
 import { FilesCodeViewer } from "./FilesCodeViewer";
 import { FilesDocumentPreview } from "./FilesDocumentPreview";
 import { createDocumentPreviewers } from "./documentPreviewers";
@@ -49,6 +50,22 @@ const filePreviewingCapability: PluginCapability<FilePreviewingCapability> = {
   },
 };
 
+const fileIconsCapability: PluginCapability<FileIconsCapability> = {
+  pluginId: "pi-web", id: "file-icons", version: 1,
+  parse(value) {
+    if (!isFileIconsCapability(value)) {
+      throw new Error("Files requires file icons capability v1");
+    }
+    return value;
+  },
+};
+
+function isFileIconsCapability(value: unknown): value is FileIconsCapability {
+  return typeof value === "object" && value !== null
+    && "resolveIcon" in value && typeof value.resolveIcon === "function"
+    && "subscribe" in value && typeof value.subscribe === "function";
+}
+
 const stylesheetIntegrationCapability: PluginCapability<StylesheetIntegrationCapabilityV1, 1> = {
   pluginId: "pi-web", id: "stylesheet-integration", version: 1,
   parse(value) {
@@ -67,7 +84,7 @@ function isStylesheetIntegration(value: unknown): value is StylesheetIntegration
 }
 
 const plugin = {
-  requires: [stylesheetIntegrationCapability, contentRenderingCapability, filePreviewingCapability],
+  requires: [stylesheetIntegrationCapability, contentRenderingCapability, filePreviewingCapability, fileIconsCapability],
   apiVersion: 5,
   name: "Files",
   activate: (context) => activateFilesPlugin(context, new FilesRuntime()),
@@ -82,6 +99,7 @@ export function activateFilesPlugin(context: PluginActivationContextV5, filesRun
   defineFilesCustomElements();
   let contentRendering: ContentRenderingCapability | undefined;
   let filePreviewing: FilePreviewingCapability | undefined;
+  let fileIcons: FileIconsCapability | undefined;
   let stylesheetIntegration: StylesheetIntegrationCapabilityV1 | undefined;
   const panelId = `${context.runtimePluginId}:workspace.files`;
   const icon = context.svg`
@@ -93,6 +111,7 @@ export function activateFilesPlugin(context: PluginActivationContextV5, filesRun
     start: ({ capabilities }) => {
       contentRendering = capabilities.resolve(contentRenderingCapability);
       filePreviewing = capabilities.resolve(filePreviewingCapability);
+      fileIcons = capabilities.resolve(fileIconsCapability);
       stylesheetIntegration = capabilities.resolve(stylesheetIntegrationCapability);
     },
     contributions: {
@@ -110,7 +129,7 @@ export function activateFilesPlugin(context: PluginActivationContextV5, filesRun
         invalidationResources: ["workspace.files"],
         fileOpenQuery: (_workspaceContext, path) => ({ file: path }),
         onInvalidate: (workspaceContext, invalidation) => filesRuntime.invalidate(workspaceContext, invalidation),
-        render: (workspaceContext) => context.html`<pi-web-files-panel .content=${content} .stylesheetIntegration=${stylesheetIntegration} .context=${workspaceContext} .runtime=${filesRuntime} .filePreviewing=${filePreviewing}></pi-web-files-panel>`,
+        render: (workspaceContext) => context.html`<pi-web-files-panel .content=${content} .stylesheetIntegration=${stylesheetIntegration} .context=${workspaceContext} .runtime=${filesRuntime} .fileIcons=${fileIcons} .filePreviewing=${filePreviewing}></pi-web-files-panel>`,
       }],
       actions: [
         {
@@ -142,6 +161,7 @@ export function defineFilesCustomElements(): void {
   defineCustomElement(FILES_VIEWER_ELEMENT, WorkspaceFileViewer);
   defineCustomElement(FILES_DOCUMENT_PREVIEW_ELEMENT, FilesDocumentPreview);
   defineCustomElement(FILES_PANEL_ELEMENT, WorkspaceFilesPanel);
+  defineCustomElement("pi-web-files-icon", FileIcon);
 }
 
 function defineCustomElement(name: string, constructor: CustomElementConstructor): void {

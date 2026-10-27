@@ -2,7 +2,7 @@
 
 import { html, render, svg } from "lit";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { JsonValue, PluginCapability, PluginPeer, PluginRuntimeContext, Workspace, WorkspacePanelContext } from "@jmfederico/pi-web/plugin-api";
+import type { FileIconsCapability, JsonValue, PluginCapability, PluginPeer, PluginRuntimeContext, Workspace, WorkspacePanelContext } from "@jmfederico/pi-web/plugin-api";
 import { GIT_FILE_VIEW_STORAGE_KEY } from "./browser/gitFileViewPreference.js";
 import plugin from "./browser/pi-web-plugin.js";
 import { LocalizationService } from "../../src/client/src/localization/service.js";
@@ -34,6 +34,104 @@ afterEach(() => {
 });
 
 describe("bundled Git browser plugin", () => {
+  it.each(["list", "tree"])("uses live file icons in %s view without losing Git status or directory disclosures", async (view) => {
+    window.localStorage.setItem(GIT_FILE_VIEW_STORAGE_KEY, view);
+    let url: string | undefined = "https://icons.test/typescript.svg";
+    const listeners = new Set<() => void>();
+    const resolveIcon = vi.fn(() => url);
+    const release = vi.fn();
+    const icons: FileIconsCapability = {
+      resolveIcon,
+      subscribe(listener) { listeners.add(listener); return () => { listeners.delete(listener); release(); }; },
+    };
+    const panel = requiredPanel(activate("git", "git", new LocalizationService(), new AbortController(), icons));
+    const requestRender = vi.fn();
+    const context = { ...panelContext(backendFixture().request), host: { requestRender } };
+    const container = document.createElement("div");
+    document.body.append(container);
+    await panel.onInvalidate?.(context);
+    render(panel.render(context), container);
+    await settleBackend();
+    render(panel.render(context), container);
+    if (view === "tree") {
+      button(container, "src").click();
+      render(panel.render(context), container);
+      expect(button(container, "src").getAttribute("aria-expanded")).toBe("true");
+      expect(button(container, "src").querySelector("pi-web-git-file-icon")).toBeNull();
+    }
+    const row = button(container, view === "tree" ? "main.ts" : "src/main.ts");
+    const icon = row.querySelector("pi-web-git-file-icon");
+    expect(resolveIcon).toHaveBeenCalledWith("src/main.ts");
+    expect(icon?.shadowRoot?.querySelector("img")?.src).toBe(url);
+    expect(icon?.shadowRoot?.querySelector("img")?.alt).toBe("");
+    expect(icon?.shadowRoot?.querySelector("img")?.hidden).toBe(true);
+    expect(icon?.shadowRoot?.querySelector("img")?.crossOrigin).toBe("anonymous");
+    icon?.shadowRoot?.querySelector("img")?.dispatchEvent(new Event("load"));
+    expect(icon?.shadowRoot?.querySelector<HTMLElement>(".mask")?.style.maskImage).toBe(`url("${url}")`);
+    expect(icon?.shadowRoot?.querySelector("svg")).toBeNull();
+    expect(row.querySelector(".ui-file-leading")?.getAttribute("aria-hidden")).toBe("true");
+    expect(row.dataset["gitState"]).toBe("modified");
+    expect(row.querySelector(".git-status")?.textContent).toBe("M");
+    const styles = container.querySelector("style[data-git-styles]")?.textContent;
+    expect(styles).toContain('[data-git-state] .ui-file-label');
+    expect(styles).not.toContain('[data-git-state] .ui-file-leading');
+    const calls = requestRender.mock.calls.length;
+    url = "https://icons.test/typescript-light.svg";
+    for (const listener of listeners) listener();
+    expect(requestRender).toHaveBeenCalledTimes(calls + 1);
+    render(panel.render(context), container);
+    expect(icon?.shadowRoot?.querySelector("img")?.src).toBe(url);
+    expect(button(container, view === "tree" ? "main.ts" : "src/main.ts")).toBe(row);
+    url = undefined;
+    for (const listener of listeners) listener();
+    render(panel.render(context), container);
+    expect(icon?.shadowRoot?.querySelector("img")).toBeNull();
+    expect(icon?.shadowRoot?.querySelector(".mask")).toBeNull();
+    expect(icon?.shadowRoot?.querySelector("svg")).not.toBeNull();
+    container.remove();
+    expect(listeners.size).toBe(0);
+    expect(release).toHaveBeenCalledOnce();
+    document.body.append(container);
+    expect(listeners.size).toBe(1);
+    render(null, container);
+    expect(listeners.size).toBe(0);
+    expect(release).toHaveBeenCalledTimes(2);
+  });
+
+  it("falls back after an image failure and ignores errors from a replaced image", async () => {
+    let url = "https://icons.test/typescript.svg";
+    const icons = { resolveIcon: () => url, subscribe: () => () => undefined };
+    const panel = requiredPanel(activate("git", "git", new LocalizationService(), new AbortController(), icons));
+    const context = panelContext(backendFixture({ files: [changedFile("main.ts")] }).request);
+    const container = document.createElement("div");
+    document.body.append(container);
+    await panel.onInvalidate?.(context);
+    render(panel.render(context), container);
+    const icon = button(container, "main.ts").querySelector("pi-web-git-file-icon");
+    const image = icon?.shadowRoot?.querySelector("img");
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    image?.dispatchEvent(new Event("error"));
+    expect(warning).toHaveBeenCalledExactlyOnceWith("Failed to load Git file icon", url);
+    expect(icon?.shadowRoot?.querySelector("svg")).not.toBeNull();
+    url = "https://icons.test/typescript-light.svg";
+    render(panel.render(context), container);
+    expect(icon?.shadowRoot?.querySelector("img")?.src).toBe(url);
+    image?.dispatchEvent(new Event("error"));
+    expect(icon?.shadowRoot?.querySelector("img")?.src).toBe(url);
+    warning.mockRestore();
+    render(null, container);
+  });
+
+  it("requires the host's file icons capability and rejects incompatible payloads", () => {
+    const capability = plugin.requires.find(({ id }) => id === "file-icons");
+    if (capability === undefined) throw new Error("Expected file icons requirement");
+    const icons = { resolveIcon: () => undefined, subscribe: () => () => undefined };
+    expect(capability.parse(icons)).toBe(icons);
+    for (const value of [null, {}, { ...icons, resolveIcon: undefined }, { ...icons, subscribe: undefined }]) {
+      expect(() => capability.parse(value)).toThrow("Invalid PI WEB file icons");
+    }
+  });
+
   it.each(["list", "tree"])("shows change types and staging hints in %s view", async (view) => {
     window.localStorage.setItem(GIT_FILE_VIEW_STORAGE_KEY, view);
     const panel = requiredPanel(activate("git"));
@@ -343,7 +441,7 @@ describe("bundled Git browser plugin", () => {
     const selectedRow = button(container, "src/main.ts");
     expect(selectedRow.classList.contains("selected")).toBe(true);
     expect(selectedRow.querySelector(".ui-file-label")?.textContent).toBe("src/main.ts");
-    expect(selectedRow.querySelector(".ui-file-leading svg")?.getAttribute("viewBox")).toBe("0 0 24 24");
+    expect(selectedRow.querySelector("pi-web-git-file-icon")?.shadowRoot?.querySelector("svg")?.getAttribute("viewBox")).toBe("0 0 24 24");
     expect(selectedRow.querySelector(".ui-file-meta")?.textContent).toBe("M");
     const styleRules = (container.querySelector("style[data-git-styles]")?.textContent ?? "")
       .split("\n")
@@ -644,7 +742,7 @@ describe("bundled Git browser plugin", () => {
   });
 });
 
-function activate(pluginId: string, runtimePluginId = pluginId, service = new LocalizationService(), lifetime = new AbortController()) {
+function activate(pluginId: string, runtimePluginId = pluginId, service = new LocalizationService(), lifetime = new AbortController(), icons: FileIconsCapability = { resolveIcon: () => undefined, subscribe: () => () => undefined }) {
   const result = plugin.activate({
     apiVersion: 4,
     pluginId,
@@ -656,7 +754,7 @@ function activate(pluginId: string, runtimePluginId = pluginId, service = new Lo
     lifetimeSignal: new AbortController().signal,
   });
   result.start({
-    capabilities: { resolve: <Value,>(capability: PluginCapability<Value>): Value => capability.parse(stylesheetIntegration) },
+    capabilities: { resolve: <Value,>(capability: PluginCapability<Value>): Value => capability.parse(capability.id === "file-icons" ? icons : stylesheetIntegration) },
     signal: new AbortController().signal,
   });
   return result.contributions;

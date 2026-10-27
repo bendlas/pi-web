@@ -4,6 +4,7 @@ import { pathToFileURL } from "node:url";
 import { afterEach, expect, it } from "vitest";
 import { html } from "lit";
 import { PluginRegistry } from "../src/client/src/plugins/registry.ts";
+import { FileIconService, fileIconsCapabilityToken } from "../src/client/src/fileIconService.ts";
 import { adaptPublicPlugin } from "../src/client/src/plugins/publicContext.ts";
 import { ContentRenderingBoundary } from "../src/client/src/components/ContentRenderingBoundary.ts";
 import { ContentRendererHost } from "../src/client/src/components/ContentRendererHost.ts";
@@ -41,7 +42,7 @@ async function settle(viewer) {
 // host and text-renderer adapters. Source-only tests cannot catch this boundary.
 it("loads saved Markdown Preview through the bundled Files plugin without crossing Lit directive runtimes", async () => {
   const files = await import(pathToFileURL(resolve("dist/pi-web-plugins/files/browser/pi-web-plugin.js")).href);
-  const registry = new PluginRegistry();
+  const registry = new PluginRegistry({ hostCapabilities: [{ capability: fileIconsCapabilityToken, value: new FileIconService().capability }] });
   let content;
   try {
     await registry.register({ id: "diagram", plugin: adaptPublicPlugin({ apiVersion: 5, name: "Diagram", activate: () => ({ contributions: {

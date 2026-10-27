@@ -9,6 +9,11 @@ import { themeStylesheetFetch } from "./themeStylesheetFetch.testSupport";
 import { SettingsDialog } from "./SettingsDialog";
 import { configResponse, pluginsResponse } from "./SettingsDialog.testSupport";
 import { SettingsThemePanel } from "./settings/SettingsThemePanel";
+import { SettingsFileIconThemePanel } from "./settings/SettingsFileIconThemePanel";
+import { FILE_ICON_STORAGE_KEY, NO_FILE_ICONS } from "../fileIconPreferences";
+import { fileIconsCapabilityToken } from "../fileIconService";
+import type { FileIconsCapability } from "../../../plugin-api";
+import { PluginRegistry } from "../plugins/registry";
 
 // Mount real settings and theme interactions, leaving unrelated session/socket
 // startup out of this component-boundary test.
@@ -62,6 +67,46 @@ afterEach(() => {
 });
 
 describe("app theme defaults and device overrides", () => {
+  it("provides live file icons to plugins and keeps their browser selection independent of color themes", async () => {
+    const app = await mountApp();
+    // Isolated startup skips runtime discovery; allow gateway contributions in recovery mode.
+    const mode: unknown = Reflect.get(app, "verifiedPluginModeByMachine");
+    const registry: unknown = Reflect.get(app, "plugins");
+    if (!(mode instanceof Map) || !(registry instanceof PluginRegistry)) throw new Error("Expected app plugin host");
+    mode.set("local", "recovery-disabled");
+    let icons: FileIconsCapability | undefined;
+    await registry.register({ id: "icon-consumer", plugin: {
+      apiVersion: 5, name: "Icons", requires: [fileIconsCapabilityToken],
+      activate: () => ({ contributions: { fileIconThemes: [{ id: "custom", name: "Custom", file: { url: "https://icons.test/dark.svg", lightUrl: "https://icons.test/light.svg" } }] },
+        start: ({ capabilities }) => { icons = capabilities.resolve(fileIconsCapabilityToken); },
+      }),
+    } });
+    app.requestUpdate();
+    await app.updateComplete;
+    await settings(app).updateComplete;
+    const panel = settings(app).shadowRoot?.querySelector("settings-general-panel")?.querySelector<SettingsFileIconThemePanel>("settings-file-icon-theme-panel");
+    if (panel == null || icons === undefined) throw new Error("Expected app-provided icons and Appearance settings");
+    await panel.updateComplete;
+    const changed = vi.fn();
+    const unsubscribe = icons.subscribe(changed);
+    const select = panel.shadowRoot?.querySelector("select");
+    if (select == null) throw new Error("Expected file icon selector");
+    select.value = "icon-consumer:custom";
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+    await app.updateComplete;
+    expect(icons.resolveIcon("file.ts")).toBe("https://icons.test/light.svg");
+    expect(JSON.parse(localStorage.getItem(FILE_ICON_STORAGE_KEY) ?? "null")).toBe("icon-consumer:custom");
+    expect(localStorage.getItem(THEME_STORAGE_KEY)).toBeNull();
+    settings(app).onConfigSaved?.({ defaultTheme: { themeId: "themes:pi-web-dark", auto: false } });
+    await app.updateComplete;
+    expect(icons.resolveIcon("file.ts")).toBe("https://icons.test/dark.svg");
+    expect(changed).toHaveBeenCalledTimes(2);
+    settings(app).onSelectFileIconTheme?.(NO_FILE_ICONS);
+    expect(icons.resolveIcon("file.ts")).toBeUndefined();
+    settings(app).onResetFileIconTheme?.();
+    expect(localStorage.getItem(FILE_ICON_STORAGE_KEY)).toBeNull();
+    unsubscribe();
+  });
   it("uses config without saving it locally, then supports device override and following the default", async () => {
     const app = await mountApp();
     expect(document.documentElement.dataset["piWebTheme"]).toBe("themes:pi-web-light");

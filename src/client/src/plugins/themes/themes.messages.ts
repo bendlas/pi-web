@@ -15,4 +15,6 @@ export default {
   piWebPairDescription: message("Follow the system light/dark preference with PI WEB themes.", "Built-in light/dark theme pair description"),
   neutralPairName: message("Paper / Graphite", "Neutral light/dark theme pair display name; use the translated theme names"),
   neutralPairDescription: message("Follow the system light/dark preference with neutral gray themes.", "Neutral light/dark theme pair description"),
+  materialName: message("Material", "Material file icon theme display name; preserve upstream branding"),
+  materialDescription: message("Material icons for files, bundled for offline use.", "Built-in Material file icon theme description"),
 };

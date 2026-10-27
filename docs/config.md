@@ -67,7 +67,7 @@ enforced environment > browser-local choice > supported project override
   > writable global config > deployment defaults > built-in defaults
 ```
 
-Browser-local choices apply only to theme and localization. Project config participates only for supported keys. Environment policy wins over both; it is not a default that projects or browsers can override.
+Browser-local choices apply to colour theme, file icon theme, and localization. Project config participates only for supported keys. Environment policy wins over both; it is not a default that projects or browsers can override.
 
 Each declared setting replaces its lower-priority value, including arrays and dictionaries; there is no general recursive merge. The schema declares these namespace leaves: `uploads.defaultFolder`, `attachments.defaultFolder`, `sessionNaming.model`, `.maxTokens`, `.thinkingLevel`, `.timeoutMs`, `sessionArchive.directory`, `pathAccess.allowedPaths`, and `defaultLocalization.language`, `.formatLocale`, `.timeZone`, `.hourCycle`. Each inherits independently across deployment defaults, writable config, applicable project config, and environment policy. An empty namespace `{}` contributes no overrides; missing leaves inherit.
 
@@ -625,6 +625,12 @@ The default belongs to the gateway, not a project or remote machine. Changes app
 ```
 
 Use a theme contribution ID rather than a display name. Built-in IDs are `themes:pi-web-dark`, `themes:pi-web-light`, and `themes:classic`.
+
+### File icon theme
+
+**Settings → General → File icons** selects a complete icon set for Files and Git in this browser, independently of the colour theme. Git uses filename colours and status labels to distinguish changes without tinting the file-type artwork. Material is included locally and selected by default. Its file-type shapes render in one muted grey supplied by the active colour theme, without separate light/dark assets. Choose generic file icons to disable themed icons, or reset the browser choice to return to Material. Unavailable saved themes temporarily fall back to Material without erasing the choice. If Material is unavailable too, Files uses generic icons. Directory expand/collapse indicators remain unchanged.
+
+This is a browser-only preference, with no gateway default, project setting, or environment override. See [file icon contributions](plugins.md#file-icon-themes) for additional icon sets.
 
 ### Shortcut config
 

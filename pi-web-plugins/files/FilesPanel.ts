@@ -1,4 +1,4 @@
-import type { StylesheetIntegrationCapabilityV1, FilePreviewingCapability, FileTreeEntry, WorkspacePanelContext } from "@jmfederico/pi-web/plugin-api";
+import type { FileIconsCapability, StylesheetIntegrationCapabilityV1, FilePreviewingCapability, FileTreeEntry, WorkspacePanelContext } from "@jmfederico/pi-web/plugin-api";
 import { css, html, LitElement, nothing, type PropertyValues, type TemplateResult } from "lit";
 import { property, query, state } from "lit/decorators.js";
 import {
@@ -35,6 +35,23 @@ export class WorkspaceFilesPanel extends LitElement {
     this.releaseStyles = undefined;
     this.integration = value;
     if (this.isConnected && this.renderRoot instanceof ShadowRoot) this.releaseStyles = value?.registerRoot(this.renderRoot, { sharedUi: true });
+  }
+
+  private icons: FileIconsCapability | undefined;
+  private releaseIcons: (() => void) | undefined;
+
+  @property({ attribute: false })
+  get fileIcons(): FileIconsCapability | undefined { return this.icons; }
+  set fileIcons(value: FileIconsCapability | undefined) {
+    if (value === this.icons) return;
+    this.releaseIcons?.();
+    this.releaseIcons = undefined;
+    this.icons = value;
+    if (this.isConnected) this.subscribeIcons();
+  }
+
+  private subscribeIcons(): void {
+    this.releaseIcons ??= this.icons?.subscribe(() => { this.requestUpdate(); });
   }
 
   @property({ attribute: false }) context: WorkspacePanelContext | undefined;
@@ -79,6 +96,7 @@ export class WorkspaceFilesPanel extends LitElement {
 
   override connectedCallback(): void {
     super.connectedCallback();
+    this.subscribeIcons();
     if (this.renderRoot instanceof ShadowRoot) this.releaseStyles ??= this.integration?.registerRoot(this.renderRoot, { sharedUi: true });
     window.addEventListener("resize", this.handleResponsiveVisibilityChange);
     if (typeof ResizeObserver !== "undefined") {
@@ -106,6 +124,8 @@ export class WorkspaceFilesPanel extends LitElement {
     this.resetPendingUpload();
     this.releaseStyles?.();
     this.releaseStyles = undefined;
+    this.releaseIcons?.();
+    this.releaseIcons = undefined;
     super.disconnectedCallback();
   }
 
@@ -258,7 +278,7 @@ export class WorkspaceFilesPanel extends LitElement {
         if (entry.type === "directory") void runtime.expandDir(context, entry.path);
         else void runtime.selectFile(context, entry.path);
       }}>
-        <span class="ui-file-leading" aria-hidden="true">${entry.type === "directory" ? (expanded ? "▾" : "▸") : html`<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"></path><path d="M14 2v6h6"></path></svg>`}</span>
+        <span class="ui-file-leading" aria-hidden="true">${entry.type === "directory" ? (expanded ? "▾" : "▸") : html`<pi-web-files-icon .url=${this.icons?.resolveIcon(entry.path)}></pi-web-files-icon>`}</span>
         <span class="ui-file-label" dir="ltr">${entry.name}</span>
       </button>
       ${expanded && children !== undefined ? children.map((child) => this.renderTreeEntry(context, runtime, scope, child, depth + 1)) : null}

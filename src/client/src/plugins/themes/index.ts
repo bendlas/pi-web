@@ -1,5 +1,6 @@
 import type { PiWebPlugin } from "../types";
 import definitions from "./themes.messages";
+import { materialFileIcons } from "./material/generated";
 
 export const themePackPlugin: PiWebPlugin = {
   apiVersion: 5,
@@ -8,6 +9,13 @@ export const themePackPlugin: PiWebPlugin = {
     if (localization === undefined) throw new Error("The built-in theme pack requires host localization");
     const messages = localization.registerMessages("themes", definitions);
     return { contributions: {
+      fileIconThemes: [{
+        id: "material",
+        get name() { return messages.t("materialName"); },
+        get description() { return messages.t("materialDescription"); },
+        order: 10,
+        ...materialFileIcons,
+      }],
       themes: [
         {
           id: "pi-web-dark",

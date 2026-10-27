@@ -26,7 +26,7 @@ it("keeps every theme and pair label live while preserving stylesheets, identiti
   await registry.register({ id: "themes", plugin: themePackPlugin });
   const themes = registry.getThemes();
   const pairs = registry.getThemePairs();
-  const contributions = [...themes, ...pairs];
+  const contributions = [...themes, ...pairs, ...registry.getFileIconThemes()];
   const originalLabels = contributions.map(({ name, description }) => ({ name, description }));
   const identity = themes.map(({ id, colorScheme, stylesheets }) => ({ id, colorScheme, stylesheets }));
   const pairing = pairs.map(({ id, light, dark }) => ({ id, light, dark }));

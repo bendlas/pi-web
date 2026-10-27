@@ -9,6 +9,7 @@ import ts from "typescript";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { PiWebPluginCatalog, PI_WEB_PLUGIN_ARTIFACT_MAX_BYTES, PI_WEB_PLUGIN_ARTIFACT_MAX_ENTRIES } from "../src/server/piWebPluginCatalog.js";
 import { PluginRegistry } from "../src/client/src/plugins/registry.js";
+import { FileIconService, fileIconsCapabilityToken } from "../src/client/src/fileIconService.js";
 import { LocalizationService } from "../src/client/src/localization/service.js";
 import { createPluginLocalization } from "../src/client/src/plugins/localization.js";
 
@@ -296,7 +297,7 @@ describe("plugin delivery artifacts", () => {
         });
         const firstElementConstructor = customElements.get("pi-web-files-panel");
         const firstCodeViewerConstructor = customElements.get("pi-web-files-code-viewer");
-        const registry = new PluginRegistry();
+        const registry = new PluginRegistry({ hostCapabilities: [{ capability: fileIconsCapabilityToken, value: new FileIconService().capability }] });
         await registry.register({ id: "remote-1.files", sourcePluginId: "files", machineId: "remote-1", plugin: imported.default });
         await registry.register({ id: "remote-2.files", sourcePluginId: "files", machineId: "remote-2", plugin: secondImported.default });
         const panels = registry.getWorkspacePanels();

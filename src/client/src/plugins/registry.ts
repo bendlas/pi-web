@@ -1,6 +1,8 @@
 import { html, svg } from "lit";
 import { filePreviewerMatches, snapshotFilePreviewer, type RegisteredFilePreviewer } from "./filePreviewers";
 import { createFilePreviewingCapability, filePreviewingCapabilityToken } from "./filePreviewing";
+import { snapshotFileIconTheme } from "./fileIcons";
+import type { QualifiedFileIconThemeContribution } from "./types";
 import { textFilePreviewer } from "./textFilePreviewer";
 import { snapshotDisplayMetadata } from "./displayMetadata";
 import { localization } from "../localization/browser";
@@ -106,6 +108,7 @@ interface PreparedPluginContributions {
   readonly workspaceLabels: readonly QualifiedWorkspaceLabelContribution[];
   readonly sessionLabels: readonly QualifiedSessionLabelContribution[];
   readonly themes: readonly QualifiedThemeContribution[];
+  readonly fileIconThemes: readonly QualifiedFileIconThemeContribution[];
   readonly themePairs: readonly QualifiedThemePairContribution[];
 }
 
@@ -263,6 +266,7 @@ export class PluginRegistry {
   private readonly sessionLabels: QualifiedSessionLabelContribution[] = [];
   private readonly stylesheets: QualifiedStylesheetContribution[] = [];
   private readonly themes: QualifiedThemeContribution[] = [];
+  private readonly fileIconThemes: QualifiedFileIconThemeContribution[] = [];
   private readonly themePairs: QualifiedThemePairContribution[] = [];
   private readonly pluginIds = new Set<string>();
   private readonly warnedLegacyPluginIds = new Set<string>();
@@ -371,6 +375,7 @@ export class PluginRegistry {
     this.sessionLabels.splice(0);
     this.stylesheets.splice(0);
     this.themes.splice(0);
+    this.fileIconThemes.splice(0);
     this.themePairs.splice(0);
     this.contributionIds.clear();
     for (const plugin of plugins) {
@@ -629,10 +634,17 @@ export class PluginRegistry {
     const themes = registration.machineId === undefined
       ? (contributions.themes ?? []).map((theme) => this.qualifyTheme(runtimePluginId, theme, contributionIds))
       : [];
+    const fileIconThemes = registration.machineId === undefined
+      ? (contributions.fileIconThemes ?? []).map((theme) => {
+        const snapshot = snapshotFileIconTheme(theme);
+        const id = this.qualify(runtimePluginId, snapshot.id, contributionIds);
+        return Object.freeze(snapshotDisplayMetadata(theme, { ...snapshot, id, pluginId: runtimePluginId, localId: snapshot.id }));
+      })
+      : [];
     const themePairs = registration.machineId === undefined
       ? (contributions.themePairs ?? []).map((pair) => this.qualifyThemePair(runtimePluginId, pair, contributionIds))
       : [];
-    return Object.freeze({ ids: contributionIds, filePreviewers, contentRenderers, syntaxHighlighters, actions, messageActions, applicationPanels, workspacePanels, workspaceLabels, sessionLabels, stylesheets, themes, themePairs });
+    return Object.freeze({ ids: contributionIds, filePreviewers, contentRenderers, syntaxHighlighters, actions, messageActions, applicationPanels, workspacePanels, workspaceLabels, sessionLabels, stylesheets, themes, fileIconThemes, themePairs });
   }
 
   private dependencyFailure(
@@ -747,6 +759,7 @@ export class PluginRegistry {
     this.sessionLabels.push(...staged.contributions.sessionLabels);
     this.stylesheets.push(...staged.contributions.stylesheets);
     this.themes.push(...staged.contributions.themes);
+    this.fileIconThemes.push(...staged.contributions.fileIconThemes);
     this.themePairs.push(...staged.contributions.themePairs);
     this.activeCapabilitiesByRegistration.set(staged.registration.id, new Map(staged.provisions.map((provision) => [provision.key, provision])));
     if (hostSnapshots.length > 0) {
@@ -963,6 +976,12 @@ export class PluginRegistry {
 
   getStylesheets(selectedMachineId: string): QualifiedStylesheetContribution[] {
     return this.stylesheets.filter((style) => this.isContributionActive(style.pluginId, style.machineId, selectedMachineId, style.sourcePluginId));
+  }
+
+  getFileIconThemes(): QualifiedFileIconThemeContribution[] {
+    return this.fileIconThemes
+      .filter((theme) => this.isContributionEnabled(theme.pluginId, undefined))
+      .sort((left, right) => (left.order ?? 1000) - (right.order ?? 1000) || left.name.localeCompare(right.name));
   }
 
   getThemes(): QualifiedThemeContribution[] {
@@ -1447,6 +1466,9 @@ function contributionsForVersion(contributions: PluginContributions, apiVersion:
     }
     return contributions;
   }
+  if (contributions.fileIconThemes !== undefined) {
+    throw new BrowserPluginIncompatibleError("File icon theme contributions require browser API v5");
+  }
   if (contributions.filePreviewers !== undefined || contributions.stylesheets !== undefined || contributions.syntaxHighlighters !== undefined
     || contributions.contentRenderers?.some((renderer) => renderer.title !== undefined || renderer.supports !== undefined) === true
     || contributions.themes?.some((theme) => theme.stylesheets !== undefined) === true) {
@@ -1806,7 +1828,7 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-const contributionNames: readonly string[] = ["actions", "applicationPanels", "workspacePanels", "workspaceLabels", "sessionLabels", "stylesheets", "themes", "themePairs", "contentRenderers", "syntaxHighlighters", "filePreviewers", "messageActions"];
+const contributionNames: readonly string[] = ["actions", "applicationPanels", "workspacePanels", "workspaceLabels", "sessionLabels", "stylesheets", "themes", "fileIconThemes", "themePairs", "contentRenderers", "syntaxHighlighters", "filePreviewers", "messageActions"];
 
 function isPluginContributions(value: unknown): value is PluginContributions {
   if (!isRecord(value)) return false;

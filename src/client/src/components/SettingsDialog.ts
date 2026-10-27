@@ -14,7 +14,8 @@ import { uiDialogStyles, uiSelectionStyles } from "./ui/dialogStyles";
 import "./settings/SettingsGeneralPanel";
 import type { SettingsGeneralPanel } from "./settings/SettingsGeneralPanel";
 import "./settings/SettingsThemePanel";
-import type { QualifiedThemeContribution } from "../plugins/types";
+import type { QualifiedFileIconThemeContribution, QualifiedThemeContribution } from "../plugins/types";
+import "./settings/SettingsFileIconThemePanel";
 import { configureThemePolicy, DEFAULT_THEME_PREFERENCE, type ThemePreference } from "../theme";
 import "./settings/SettingsSessiondPanel";
 import "./settings/SettingsPackagesPanel";
@@ -46,6 +47,10 @@ export class SettingsDialog extends LitElement {
   @property({ attribute: false }) section: SettingsSection = "general";
   @property({ attribute: false }) actions: AppAction[] = [];
   @property({ attribute: false }) themes: readonly QualifiedThemeContribution[] = [];
+  @property({ attribute: false }) fileIconThemes: readonly QualifiedFileIconThemeContribution[] = [];
+  @property({ attribute: false }) fileIconPreference: string | undefined;
+  @property({ attribute: false }) onSelectFileIconTheme?: (id: string) => void;
+  @property({ attribute: false }) onResetFileIconTheme?: () => void;
   @property({ attribute: false }) themePreference: ThemePreference = DEFAULT_THEME_PREFERENCE;
   @property() activeThemeId = "";
   @property({ type: Boolean }) hasLocalThemeOverride = false;
@@ -380,6 +385,13 @@ export class SettingsDialog extends LitElement {
           .onUseDefault=${this.onUseDefaultTheme}
           .onSetDefault=${(preference: ThemePreference) => this.saveDefaultTheme(preference)}
         ></settings-theme-panel>
+        <settings-file-icon-theme-panel
+          slot="appearance"
+          .themes=${this.fileIconThemes}
+          .preference=${this.fileIconPreference}
+          .onSelect=${this.onSelectFileIconTheme}
+          .onReset=${this.onResetFileIconTheme}
+        ></settings-file-icon-theme-panel>
       </settings-general-panel>
     `;
   }
