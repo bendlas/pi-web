@@ -155,15 +155,33 @@ it("refreshes all settled reasons and summaries, preserving raw answers and dism
       expect(root.querySelector("h2")?.textContent).toBe(dialog.title);
       expect(root.querySelector("img")).toBeNull();
       expect(dismiss).not.toHaveBeenCalled();
-      if (reason === "answered") expect(root.querySelector(".closed-summary")?.textContent).toContain("Yes <img> العربية");
+      if (reason === "answered") {
+        expect(root.textContent).not.toContain("Yes <img> العربية");
+        const toggle = required(root.querySelector<HTMLButtonElement>(".answer-visibility"));
+        expect(toggle.getAttribute("aria-label")).toBe(extensionDialogMessages.t("seeAnswer"));
+        toggle.click();
+        await card.updateComplete;
+        expect(root.querySelector(".closed-summary")?.textContent).toBe(extensionDialogCloseSummary(card.outcome, true));
+        expect(root.querySelector(".closed-summary")?.textContent).toContain("Yes <img> العربية");
+        expect(root.querySelector("img")).toBeNull();
+        expect(toggle.getAttribute("aria-label")).toBe(extensionDialogMessages.t("hideAnswer"));
+        // A catalog change must not itself reveal or hide an answer.
+        await language(card, locale === "en" ? "en-XA" : "en");
+        expect(toggle.getAttribute("aria-expanded")).toBe("true");
+        expect(toggle.title).toBe(extensionDialogMessages.t("hideAnswer"));
+        toggle.click();
+        await card.updateComplete;
+        expect(root.textContent).not.toContain("Yes <img> العربية");
+      }
     }
   }
   for (const answer of [true, false, "", undefined]) {
-    const closed = { dialog, reason: "answered" as const, ...(answer === undefined ? {} : { answer }) };
+    const closed = { dialog: { ...dialog, kind: typeof answer === "boolean" ? "confirm" as const : "input" as const }, reason: "answered" as const, ...(answer === undefined ? {} : { answer }) };
     const expected = answer === undefined ? extensionDialogMessages.t("missingAnswer")
-      : answer === "" ? extensionDialogMessages.t("emptyAnswer")
+      : answer === "" ? extensionDialogMessages.t("hiddenAnswer")
       : extensionDialogMessages.t("booleanAnswer", { answer: answer === true ? "yes" : "no" });
     expect(extensionDialogCloseSummary(closed)).toBe(expected);
+    if (answer === "") expect(extensionDialogCloseSummary(closed, true)).toBe(extensionDialogMessages.t("emptyAnswer"));
   }
   required(root.querySelector<HTMLButtonElement>("button")).click();
   expect(dismiss).toHaveBeenCalledExactlyOnceWith("dialog-id");
