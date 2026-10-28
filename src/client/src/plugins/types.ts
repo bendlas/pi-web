@@ -448,7 +448,7 @@ export interface QualifiedSessionLabelContribution extends SessionLabelContribut
   machineId?: string;
 }
 
-export type { FileIconAsset, FileIconsCapability, FileIconThemeContribution } from "../../../plugin-api";
+export type { FileIconAsset, FileIconThemeContribution } from "../../../plugin-api";
 
 export interface QualifiedFileIconThemeContribution extends FileIconThemeContribution {
   id: QualifiedContributionId;
