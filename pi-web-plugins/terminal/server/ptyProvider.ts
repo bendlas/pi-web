@@ -14,8 +14,12 @@ export interface PtyHandlers {
 
 /** One owned PTY. dispose is idempotent and suppresses all subsequent callbacks. */
 export interface PtyHandle {
+  /** Process id of the shell, which also leads the pty's process group. */
+  readonly pid: number;
   write(data: string): void;
   resize(cols: number, rows: number): void;
+  /** Signal the shell while keeping the PTY, so a hangup can precede disposal. */
+  kill(signal: NodeJS.Signals): void;
   dispose(): void;
 }
 

@@ -143,7 +143,7 @@ PI_WEB_DEFAULT_LOCALIZATION='{"timeZone":"UTC"}'
 PI_WEB_PLUGINS='{"git":{"settings":{"workspaceDiscoveryHooks":false}}}'
 ```
 
-Container JSON variables keep their existing names: `PI_WEB_UPLOADS`, `PI_WEB_ATTACHMENTS`, `PI_WEB_SESSION_NAMING`, `PI_WEB_SESSION_ARCHIVE`, `PI_WEB_PATH_ACCESS`, and `PI_WEB_DEFAULT_LOCALIZATION`. Only supplied namespace leaves are enforced, including `pathAccess.allowedPaths` and plugin leaves; `{}` enforces none. Atomic settings lock the whole value. `PI_WEB_PORT` retains the `PORT` fallback; a nonempty `PI_WEB_SESSION_ARCHIVE_DIR` alias wins over `PI_WEB_SESSION_ARCHIVE` JSON. `PI_WEB_HOST_ACCESS` accepts one atomic JSON policy: `{"mode":"restricted","hosts":["pi.example.com"]}` or `{"mode":"any"}`. Legacy `PI_WEB_ALLOWED_HOSTS` accepts JSON `true` or a string array, plus legacy `true`/comma-separated hosts; it controls only the development UI when no `hostAccess` policy is supplied. See [migration](#migration-from-the-development-only-setting). The [Origin guard](#origin-checks) remains active regardless of hostname policy.
+Container JSON variables keep their existing names: `PI_WEB_UPLOADS`, `PI_WEB_ATTACHMENTS`, `PI_WEB_SESSION_NAMING`, `PI_WEB_SESSION_ARCHIVE`, `PI_WEB_PATH_ACCESS`, `PI_WEB_GIT`, and `PI_WEB_DEFAULT_LOCALIZATION`. Only supplied namespace leaves are enforced, including `pathAccess.allowedPaths` and plugin leaves; `{}` enforces none. Atomic settings lock the whole value. `PI_WEB_PORT` retains the `PORT` fallback; a nonempty `PI_WEB_SESSION_ARCHIVE_DIR` alias wins over `PI_WEB_SESSION_ARCHIVE` JSON. `PI_WEB_HOST_ACCESS` accepts one atomic JSON policy: `{"mode":"restricted","hosts":["pi.example.com"]}` or `{"mode":"any"}`. Legacy `PI_WEB_ALLOWED_HOSTS` accepts JSON `true` or a string array, plus legacy `true`/comma-separated hosts; it controls only the development UI when no `hostAccess` policy is supplied. See [migration](#migration-from-the-development-only-setting). The [Origin guard](#origin-checks) remains active regardless of hostname policy.
 
 Boolean environment inputs accept only `true`/`false` (case-insensitive) or `1`/`0`. Invalid supplied policy values fail startup instead of being ignored. Unknown fields in declared core containers are errors, including misspellings in `pathAccess`, `uploads`, and `attachments`. Plugin environment envelopes accept only `enabled` and `settings`; keys inside `settings` remain plugin-owned. Unset a variable to remove enforcement; empty strings are not a general reset syntax. Legacy empty host, port, allowed-hosts, upload-limit, and archive-directory overrides remain ignored. Runtime-only variables have their own contracts; see offline flags below. Markers such as `PI_WEB_SESSION` are not config policy.
 
@@ -280,9 +280,30 @@ Unless environment-enforced, project-local `uploads.defaultFolder` overrides the
 
 Project-local `plugins.<id>.settings` supplies overrides for server plugins that support project settings, including Git. Only settings are allowed here: `plugins.<id>.enabled` is not supported; plugin enablement stays global. See [Project plugin settings](#project-plugin-settings) for merge and restart rules.
 
-Plugins may also own separate project files, such as `.pi-web/tasks.json` for the built-in Workspace Tasks plugin.
+Plugins may also own separate project files, such as `.pi-web/scripts.json` for the built-in Workspace Scripts plugin (an earlier `.pi-web/tasks.json` is still read).
 
-PI WEB also honors one optional project hook; see [Worktree pre-remove hook](#worktree-pre-remove-hook).
+PI WEB also honors one optional project hook; see [Worktree pre-remove hook](#worktree-pre-remove-hook). See also [Add-workspace worktree location](#add-workspace-worktree-location) for where new worktrees are created.
+
+## Add-workspace worktree location
+
+The Add-workspace action creates a new workspace directly from the UI, without starting a session. For Git and Jujutsu projects the new workspace's directory is placed under a configured parent directory. Set it per project in `.pi-web/config.json` or globally in your PI WEB config:
+
+```json
+{
+  "git": {
+    "worktreeParentDir": "../my-repo-worktrees"
+  }
+}
+```
+
+- **Value:** an absolute path, or a path relative to the project root. Relative paths are resolved against the registered project directory.
+- **Default:** when unset, PI WEB uses a sibling directory named `<repo>-worktrees` next to the main checkout (for example `../my-repo-worktrees` for a project at `./my-repo`).
+- **Precedence:** project-local `.pi-web/config.json` overrides the global config; the sibling default applies when neither is set.
+- **Environment policy:** `PI_WEB_GIT='{"worktreeParentDir":"/srv/worktrees"}'` enforces the leaf over project and global config. The global value is read when the session daemon starts, so restart the daemon after changing it; a project config change applies to the next creation.
+
+The action opens a small dialog collecting the workspace name, an optional base ref (for Git, a branch, commit, or tag to branch from, defaulting to the current branch; for Jujutsu, a revision), and an optional new branch name (defaulting to the workspace name). The active workspace provider performs the creation — `git worktree add <parent>/<name> -b <branch> [<baseRef>]` for Git, or `jj workspace add` for a Jujutsu project — and the new workspace appears in the list immediately, ready to select.
+
+The parent directory is created if it does not already exist. Because creation runs through the current owner provider, the action is available for any project whose provider advertises the create capability, including the bundled Git and Jujutsu providers.
 
 ## Worktree pre-remove hook
 
@@ -312,6 +333,7 @@ Rows with JSON key `—` are runtime-only environment variables, not config-file
 | Additional filesystem roots | `pathAccess.allowedPaths` | `PI_WEB_PATH_ACCESS` (JSON object) | Global + project | **Adds** after base roots; global then project, deduplicated; env replaces effective additions | Next file request; refresh existing views if needed |
 | Manual file upload default folder | `uploads.defaultFolder` | `PI_WEB_UPLOADS` (JSON object) | Global + project | **Overrides**: project value wins for workspaces in that project; otherwise global/default applies | New Upload dialogs and direct drag/drop batches after config/workspace refresh |
 | Prompt attachment default folder | `attachments.defaultFolder` | `PI_WEB_ATTACHMENTS` (JSON object) | Global + project | **Overrides**: project value wins for workspaces in that project; otherwise global/default applies | New prompt-attachment saves after config/workspace refresh |
+| Add-workspace worktree parent | `git.worktreeParentDir` | `PI_WEB_GIT` (JSON object) | Global + project | **Overrides**: project value wins for that project; otherwise global/default applies | Restart the session daemon for the global value; a project config change applies to the next creation |
 | Upload/body limit | `maxUploadBytes` | `PI_WEB_MAX_UPLOAD_BYTES` | Global | Not supported locally | Restart web/API and session daemon on that machine |
 | Agent can spawn sessions | `spawnSessions` | `PI_WEB_SPAWN_SESSIONS` | Global/session daemon | Not supported locally | Restart session daemon on that machine |
 | Tracked subsessions | `subsessions` | `PI_WEB_SUBSESSIONS` | Global/session daemon | Not supported locally; also requires `spawnSessions` | Restart session daemon on that machine |
@@ -528,17 +550,15 @@ This mirrors the Pi CLI: with `defaultProjectTrust: "never"`, an opened workspac
 
 `spawnSessions` controls whether agents receive the `spawn_session` tool. It defaults to `true`; set it to `false` if you do not want an agent to start independent PI WEB sessions.
 
-`subsessions` controls whether agents receive the tracked-subsession tools: `spawn_subsession`, `list_subsessions`, `check_subsession`, `read_subsession`, `yield_to_subsessions`, and `manage_subsession`. It defaults to `true` and also requires `spawnSessions` to be enabled.
+`subsessions` controls whether agents receive the tracked-subsession tools: `spawn_subsession`, `list_subsessions`, `check_subsession`, `read_subsession`, `steer_subsession`, `wait_subsessions`, `yield_to_subsessions`, and `manage_subsession`. It defaults to `true` and also requires `spawnSessions` to be enabled.
 
-Independent sessions run in a workspace of the same project without granting management rights or sending automatic lifecycle notices to the initiating session. Tracked subsessions run in the parent's working directory and give the parent inspection and lifecycle controls. When a tracked child's run ends, the parent receives an idle or error notice—not the child's final answer or a claim that its task is complete. A working parent receives notices at the next safe turn boundary, without waiting for its run to finish. The parent can keep working or use `yield_to_subsessions` to suspend until a new notice arrives. Received notices are not automatically repeated; explicit inspection remains available through `check_subsession` and `read_subsession`.
-
-Both kinds of session use the same `send_session_message` tool for communication when messaging is enabled. What to communicate, when to reply, and whether a task is finished are decisions for the agents and their instructions, skills, or workflows.
-
-Parents use `manage_subsession` with a direct child's `sessionId` and an `action`: `stop` interrupts its current run, `resume` continues its conversation, and `archive` archives it. The optional `prompt` supplies new instructions for `resume` only; other actions reject it. Stop interrupts work rather than freezing a process or undoing changes; a later resume or message can start another run. Resume rejects a child that is already working. Archive requires the child to be idle; stop it first if needed. These controls do not extend to unrelated sessions or grandchildren.
-
-`sessionMessages` controls whether sessions, including tracked children, receive `send_session_message`. It defaults to `true`, independently of the spawning flags. Set it to `false` or set `PI_WEB_SESSION_MESSAGES=0` to remove the tool and block session-message delivery after restarting the session daemon. It sends a message to a known session ID in any workspace of the same registered project on the same machine. An idle recipient starts a turn; a busy recipient receives steering at the next safe agent boundary rather than after its run finishes. Messages do not interrupt an executing tool; delivery during compaction or standalone shell execution waits until that activity ends. Sending creates no parent/child relationship, grants no inspection or control rights, and subscribes to no results. Messages include the runtime-provided sender session ID so recipients can reply. Children also receive their parent's session ID in runtime context; neither identity implies additional permissions or a required collaboration workflow. The tool returns acceptance, not an answer or confirmation that the message was read. Queued messages use the runtime's normal queue and are not a durable mailbox; stopping or closing the recipient can discard pending work. Archived sessions cannot receive messages.
+Independent sessions run in a workspace of the same project without granting management rights or sending automatic lifecycle notices to the initiating session. Tracked subsessions run in the parent's working directory by default, or in any workspace of the project when `cwd` is passed to `spawn_subsession`, and give the parent inspection and lifecycle controls. The child stays nested under its parent in the web UI while appearing in its own workspace's session tree. When a tracked child's run ends, the parent receives an idle or error notice—not the child's final answer or a claim that its task is complete. A working parent receives notices at the next safe turn boundary, without waiting for its run to finish. The parent can keep working, use `wait_subsessions` to block until a notice arrives, or use `yield_to_subsessions` to suspend until a new notice arrives. Received notices are not automatically repeated; explicit inspection remains available through `check_subsession` and `read_subsession`.
 
 Agent-created tracked subsessions are collapsed under their parent. Use **Agent subsessions** to expand them. User-created forks and clones, unknown-origin sessions, children without an available parent, and independent sessions remain visible.
+
+A tracked subsession can run in any workspace of the project: pass `cwd` to `spawn_subsession` to target another worktree, and the child still stays nested under this session in the web UI while appearing in that workspace's session tree. This is the preferred way to delegate work across the project's workspaces while staying attached. `spawn_session` is the escape hatch for work that should be a fully independent, untracked session.
+
+A parent can redirect a running child with `steer_subsession` instead of waiting for it to finish: the message is delivered after the child's current turn finishes its tool calls and before its next model call, so it lands mid-run. Steering an idle child starts a new turn. The tool accepts only the caller's own tracked children.
 
 New sessions inherit the parent's model and thinking level unless another model is requested, for example with a `#provider/model-id` prompt reference. Thinking levels are limited to what the chosen model supports.
 

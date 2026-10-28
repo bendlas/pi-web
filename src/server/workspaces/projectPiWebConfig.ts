@@ -1,8 +1,8 @@
 import { constants } from "node:fs";
 import { open, stat } from "node:fs/promises";
-import { join } from "node:path";
-import { effectiveAttachmentsConfig, effectiveUploadsConfig, overlayPiWebConfig, parseAttachmentsConfig, parsePathAccessConfig, parseUploadsConfig, type PiWebConfig } from "../../config.js";
-import type { JsonObject, JsonValue, PiWebAttachmentsConfig, PiWebPathAccessConfig, PiWebUploadsConfig } from "../../shared/apiTypes.js";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
+import { effectiveAttachmentsConfig, effectiveUploadsConfig, overlayPiWebConfig, parseAttachmentsConfig, parseGitConfig as parsePiWebGitConfig, parsePathAccessConfig, parseUploadsConfig, type PiWebConfig } from "../../config.js";
+import type { JsonObject, JsonValue, PiWebGitConfig, PiWebAttachmentsConfig, PiWebPathAccessConfig, PiWebUploadsConfig } from "../../shared/apiTypes.js";
 import { isPiWebPluginId, piWebPluginIdPattern } from "../../shared/pluginIds.js";
 import { piWebConfigNamespaceFields } from "../../shared/configResolution.js";
 
@@ -10,6 +10,7 @@ export const PROJECT_PI_WEB_CONFIG_PATH = ".pi-web/config.json";
 
 export interface ProjectPiWebConfig {
   version?: 1;
+  git?: PiWebGitConfig;
   pathAccess?: PiWebPathAccessConfig;
   uploads?: PiWebUploadsConfig;
   attachments?: PiWebAttachmentsConfig;
@@ -24,6 +25,25 @@ export interface LoadedProjectPiWebConfig {
   path: string;
   exists: boolean;
   config: ProjectPiWebConfig;
+}
+
+/**
+ * Resolve the absolute directory where PI WEB should create new git worktrees.
+ * Project config wins over global config; when neither sets it, PI WEB uses a
+ * sibling `<repo>-worktrees` directory next to the main checkout.
+ */
+export async function loadEffectiveWorktreeParentDir(projectPath: string, globalConfig: PiWebConfig): Promise<string> {
+  const projectConfig = await loadProjectPiWebConfig(projectPath);
+  const raw = projectConfig.config.git?.worktreeParentDir ?? globalConfig.git?.worktreeParentDir;
+  return resolveWorktreeParentDir(raw, projectPath);
+}
+
+/** Resolve a single `git.worktreeParentDir` value to an absolute directory. */
+export function resolveWorktreeParentDir(raw: string | undefined, projectPath: string): string {
+  if (raw === undefined || raw === "") {
+    return resolve(dirname(projectPath), `${basename(projectPath)}-worktrees`);
+  }
+  return isAbsolute(raw) ? resolve(raw) : resolve(projectPath, raw);
 }
 
 export async function loadProjectPiWebConfig(projectPath: string, signal?: AbortSignal): Promise<LoadedProjectPiWebConfig> {
@@ -105,6 +125,7 @@ function parseProjectPiWebConfig(value: Record<string, unknown>, path: string): 
   if (Object.hasOwn(value, "basePaths")) throw new Error(`PI WEB project config basePaths is not supported; path bases are global: ${path}`);
   return {
     ...(version !== undefined ? { version: parseProjectConfigVersion(version, path) } : {}),
+    ...(value["git"] !== undefined ? { git: parsePiWebGitConfig(value["git"], path, "PI WEB project git") } : {}),
     ...(value["pathAccess"] !== undefined ? { pathAccess: parsePathAccessConfig(value["pathAccess"], path) } : {}),
     ...(value["uploads"] !== undefined ? { uploads: parseUploadsConfig(value["uploads"], path) } : {}),
     ...(value["attachments"] !== undefined ? { attachments: parseAttachmentsConfig(value["attachments"], path) } : {}),

@@ -3,11 +3,11 @@ import type { PtyHandlers, PtyProvider, PtySpawnOptions } from "./ptyProvider.js
 import { TerminalService } from "./terminalService.js";
 
 function fakeProvider() {
-  const processes: { options: PtySpawnOptions; handlers: PtyHandlers; write: ReturnType<typeof vi.fn>; resize: ReturnType<typeof vi.fn>; dispose: ReturnType<typeof vi.fn> }[] = [];
+  const processes: { options: PtySpawnOptions; handlers: PtyHandlers; write: ReturnType<typeof vi.fn>; resize: ReturnType<typeof vi.fn>; kill: ReturnType<typeof vi.fn>; dispose: ReturnType<typeof vi.fn> }[] = [];
   const provider: PtyProvider = {
     kind: "node",
     spawn(options, handlers) {
-      const child = { options, handlers, write: vi.fn(), resize: vi.fn(), dispose: vi.fn() };
+      const child = { options, handlers, pid: 999_999, write: vi.fn(), resize: vi.fn(), kill: vi.fn(), dispose: vi.fn() };
       processes.push(child);
       return child;
     },
@@ -131,7 +131,7 @@ describe("TerminalService with an injected PTY provider", () => {
       spawn(_options, handlers) {
         handlers.output("immediate");
         handlers.exit(0);
-        return { write: vi.fn(), resize: vi.fn(), dispose };
+        return { pid: 999_998, write: vi.fn(), resize: vi.fn(), kill: vi.fn(), dispose };
       },
     };
     const service = new TerminalService(provider);

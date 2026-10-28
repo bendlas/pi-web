@@ -3,7 +3,7 @@ import type { IPty, spawn } from "node-pty";
 import type { PtyProvider } from "./ptyProvider.js";
 import { ensureNodePtySpawnHelper } from "./nodePtySpawnHelper.js";
 
-type NodePtyProcess = Pick<IPty, "write" | "resize" | "kill" | "onData" | "onExit">;
+type NodePtyProcess = Pick<IPty, "pid" | "write" | "resize" | "kill" | "onData" | "onExit">;
 interface NodePtyModule { spawn(...args: Parameters<typeof spawn>): NodePtyProcess }
 
 function loadNodePty(): NodePtyModule {
@@ -59,7 +59,9 @@ export function createNodePtyProvider(load: () => NodePtyModule = loadNodePty): 
       });
       if (state.exited) state.exitSubscription.dispose();
       return {
+        pid: child.pid,
         write(data) { if (!disposed && !state.exited) child.write(data); },
+        kill(signal) { if (!disposed && !state.exited) child.kill(signal); },
         resize(cols, rows) { if (!disposed && !state.exited) child.resize(cols, rows); },
         dispose() {
           if (disposed) return;

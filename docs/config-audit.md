@@ -83,7 +83,7 @@ Project resolution currently happens after global effective config. New environm
 | `plugins.<id>.enabled` | boolean; package `defaultEnabled`, otherwise `true` | Add env enforcement/provenance and deletion-based reset. Terminal is required and cannot be disabled by ordinary config; retain this invariant. Language plugins default disabled. |
 | `plugins.<id>.settings` | Open **dictionary** of plugin-owned values | External plugins may contain arbitrary nested objects/arrays. Whole-map env JSON is possible; do not invent per-key types for opaque external settings. |
 | `plugins.git.settings.workspaceDiscoveryHooks` | boolean, default `true` | Only bundled plugin-specific setting currently consumed. Project value overrides global. Share its validation/metadata if exposing individual env controls. |
-| Workspace Tasks `.pi-web/tasks.json`: `version`, `tasks` | Version literal `1`; **array of objects** with `id`, `title`, `command`, optional `description`, `group`, `confirm` (default `false`) | Plugin-owned project file; no global merge. Keep outside core config layering unless a separate plugin migration is designed. |
+| Workspace Scripts `.pi-web/scripts.json` (earlier `.pi-web/tasks.json` still read): `version`, `tasks` | Version literal `1`; **array of objects** with `id`, `title`, `command`, optional `description`, `group`, `confirm` (default `false`) | Plugin-owned project file; no global merge. Keep outside core config layering unless a separate plugin migration is designed. |
 
 Other bundled plugins consume no plugin-specific settings: info, updates, terminal, code highlight, Mermaid, files, language packs, workflows, and relays. Their enablement still follows the common plugin mechanism.
 
