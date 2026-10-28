@@ -28,14 +28,11 @@ import { AnchoredPopupController } from "./anchoredPopup";
 import { thinkingGauge, thinkingLevelLabel } from "../../../shared/thinkingLevels";
 import "./AutocompleteMenu";
 
-// Image inputs let mobile browsers offer photo-library sources; capture is a
-// separate camera preference, not a guarantee of a specific native chooser.
-// https://web.dev/articles/media-capturing-images
-// Keep the direct file dialog for fine-pointer devices, regardless of width.
-const ATTACH_SOURCE_MENU_MEDIA_QUERY = "(pointer: coarse)";
-
-function createAttachSourceMenuMedia(): Pick<MediaQueryList, "matches"> | undefined {
-  return typeof window !== "undefined" && "matchMedia" in window ? window.matchMedia(ATTACH_SOURCE_MENU_MEDIA_QUERY) : undefined;
+function shouldShowAttachSourceMenu(): boolean {
+  // Android needs an image-only input to offer photo-library sources. Other
+  // platforms use their native chooser directly, including unknown devices;
+  // pointer type does not tell us which native attachment sources are offered.
+  return typeof navigator !== "undefined" && /Android/i.test(navigator.userAgent);
 }
 
 // Text nodes inside contenteditable can become iOS keyboard context, even in
@@ -189,7 +186,7 @@ export class PromptEditor extends LitElement {
     const queuesInput = this.canSteer || this.isCompacting;
     const keyboardSteers = this.defaultSendBehavior() === "steer";
     const busy = this.busy;
-    const sourceMenu = createAttachSourceMenuMedia()?.matches === true;
+    const sourceMenu = shouldShowAttachSourceMenu();
     return html`
       <footer class=${shellMode ? "shell-mode" : ""} @paste=${(event: ClipboardEvent) => { void this.handlePaste(event); }} @dragover=${(event: DragEvent) => { this.handleDragOver(event); }} @drop=${(event: DragEvent) => { void this.handleDrop(event); }}>
         <div class="editor-wrap">
@@ -356,7 +353,7 @@ export class PromptEditor extends LitElement {
 
   private handleAttachClick(): void {
     if (this.busy) return;
-    if (createAttachSourceMenuMedia()?.matches === true) {
+    if (shouldShowAttachSourceMenu()) {
       this.attachSourceOpen = !this.attachSourceOpen;
       return;
     }
