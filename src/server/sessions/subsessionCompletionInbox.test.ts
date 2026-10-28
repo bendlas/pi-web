@@ -334,7 +334,7 @@ describe("renderSubsessionCompletions", () => {
       "--- SUBSESSION OUTPUT: child-2 ---",
       "partial answer",
       "",
-      "Still working: child-3, child-4. Continue working, or call yield_to_subsessions alone and last at the next join point. Further unread results arrive automatically; do not poll.",
+      "Still working: child-3, child-4. Continue working, or call wait_subsessions to block until a result arrives, or yield_to_subsessions alone and last to end the run. Further unread results arrive automatically; do not poll.",
     ].join("\n"));
   });
 

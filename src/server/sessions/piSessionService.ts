@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { sessionNotificationSources, type SessionNotificationPresentation } from "../../shared/sessionNotificationPresentation.js";
 import { randomUUID } from "node:crypto";
-import { statSync } from "node:fs";
+import * as fs from "node:fs";
 import { join } from "node:path";
 import { readFile, writeFile } from "node:fs/promises";
 import type { ImageContent } from "@earendil-works/pi-ai";
@@ -106,7 +106,7 @@ import { DEFAULT_EXTENSION_DIALOGS_TIMEOUT_MS } from "../../config.js";
 import { createSpawnSessionToolDefinition, type SpawnSessionInvocation, type SpawnSessionResult } from "./spawnSessionTool.js";
 import type { SessionUiMetadata } from "../../shared/pluginApiTypes.js";
 import { readSessionUiMetadata, requireSessionUiMetadata, SESSION_UI_METADATA_CUSTOM_TYPE } from "./sessionMetadata.js";
-import { createSubsessionToolDefinitions, type SpawnSubsessionInvocation, type SpawnSubsessionResult, type SubsessionCheckResult, type SubsessionJoinResult, type SubsessionReadQuery, type SubsessionReadResult, type SubsessionStatus, type SubsessionSummary, type SubsessionToolDeps } from "./spawnSubsessionTool.js";
+import { createSubsessionToolDefinitions, type SpawnSubsessionInvocation, type SpawnSubsessionResult, type SteerSubsessionResult, type SubsessionCheckResult, type SubsessionJoinResult, type SubsessionReadQuery, type SubsessionReadResult, type SubsessionStatus, type SubsessionSummary, type SubsessionToolDeps } from "./spawnSubsessionTool.js";
 import { buildTranscriptView, type TranscriptView } from "./subsessionTranscript.js";
 import { createSubsessionCompletionDelivery, type SubsessionCompletionDeliveryDeps } from "./subsessionCompletionDelivery.js";
 import { completionReceiptIds, persistedSubsessionCompletions, renderSubsessionCompletions, SUBSESSION_COMPLETION_ENTRY_TYPE, SUBSESSION_NOTIFICATION_CUSTOM_TYPE, SUBSESSION_RECEIPT_ENTRY_TYPE, SubsessionCompletionInbox, type SubsessionCompletion } from "./subsessionCompletionInbox.js";
@@ -169,14 +169,6 @@ function spawnTargetError(decision: Extract<SpawnTargetDecision, { allowed: fals
   return new Error(`cwd must be a workspace of this project. Allowed: ${decision.allowedCwds.join(", ")}`);
 }
 
-/**
- * Tracked subsessions are worktree-scoped, so a requested target other than the
- * parent's own cwd fails closed instead of being silently retargeted. The
- * message names the rule and both supported ways to get work done elsewhere.
- */
-function subsessionCwdError(spawningCwd: string, requestedCwd: string): Error {
-  return new Error(`A tracked subsession runs in this session's working directory (${spawningCwd}); ${requestedCwd} was requested. Instruct the child to work elsewhere from this workspace, or use spawn_session for an independent session in another workspace.`);
-}
 
 function modelSpecOf(model: { provider: string; id: string }): string {
   return `${model.provider}/${model.id}`;
@@ -443,6 +435,17 @@ export interface PiSessionManagerGateway {
    * `resolveSessionFile`.
    */
   listAll(): Promise<PiSessionListEntry[]>;
+  /**
+   * Lightweight streaming summary of a single session file (memoized). The
+   * session-name file watch uses this to re-read only the file that changed
+   * instead of re-listing every session.
+   */
+  readSessionSummary?(sessionFile: string): Promise<PiSessionListEntry | undefined>;
+  /**
+   * Root directories whose session files should be watched for external renames:
+   * the default pi store plus any env-configured session dir.
+   */
+  listWatchRoots?(): string[];
   open(path: string): PiSessionManager;
 }
 
@@ -1115,6 +1118,11 @@ export interface PiSessionServiceDependencies {
   createAgentRuntime?: CreateAgentRuntime;
   modelRuntime: ModelRuntime;
   heartbeatIntervalMs?: number;
+  /** When true, watch the session-store directories for external renames and
+   *  re-read only the changed file instead of re-enumerating every session on a
+   *  timer. Production (sessiond) enables this; tests leave it off so they can
+   *  drive name detection manually. */
+  watchSessionNames?: boolean;
   /**
    * How often to sweep the unread catalog for cwds that no longer host any
    * live session (e.g. a deleted git worktree) and drop their stale records.
@@ -1184,6 +1192,12 @@ export interface PiSessionServiceDependencies {
    */
   config?: Pick<PiWebConfigService, "read">;
 }
+
+/** How often the background session-name scan re-enumerates every session. Names change rarely, so
+ * this is decoupled from the 2s heartbeat: the scan only needs to catch renames written outside the
+ * daemon, not track active work. */
+/** Collapse the burst of fs events a single session rename emits into one rescan. */
+const SESSION_FILE_WATCH_DEBOUNCE_MS = 100;
 
 export class PiSessionService implements SessionRouteService {
   private readonly active = new Map<string, ActiveSession<PiSessionRuntime>>();
@@ -1336,6 +1350,7 @@ export class PiSessionService implements SessionRouteService {
         prepare: (parentSessionId, parentSessionFile) => this.prepareSubsessionDelivery(parentSessionId, parentSessionFile),
         check: (parentSessionId, sessionId, parentSessionFile, toolCallId) => this.checkSubsession(parentSessionId, sessionId, parentSessionFile, toolCallId),
         read: (parentSessionId, sessionId, query, parentSessionFile, toolCallId) => this.readSubsession(parentSessionId, sessionId, query, parentSessionFile, toolCallId),
+        steer: (parentSessionId, sessionId, text, parentSessionFile) => this.steerSubsession(parentSessionId, sessionId, text, parentSessionFile),
       },
       deps.askUserEnabled === true,
       deps.appendSystemPromptSections ?? [],
@@ -1379,6 +1394,7 @@ export class PiSessionService implements SessionRouteService {
       },
       { listSessionNames: (cwd) => this.listSessionNames(cwd) },
     );
+    if (deps.watchSessionNames === true) this.startSessionNameWatching();
   }
 
   activeCount(): number {
@@ -1508,6 +1524,19 @@ export class PiSessionService implements SessionRouteService {
     this.unreadPublicationStopped = true;
     this.clearUnreadPublicationRetry();
     clearInterval(this.heartbeat);
+    if (this.sessionWatchTimer !== undefined) {
+      clearTimeout(this.sessionWatchTimer);
+      this.sessionWatchTimer = undefined;
+    }
+    for (const watcher of this.sessionWatches) {
+      try {
+        watcher.close();
+      } catch {
+        // already closed
+      }
+    }
+    this.sessionWatches.length = 0;
+    this.sessionWatchPaths.clear();
     this.clearCompactionDrainTimers();
     // Same startup-park hazard as closeActive(): settle `session_start` dialogs
     // of sessions still binding extensions before awaiting their pending opens.
@@ -1552,13 +1581,17 @@ export class PiSessionService implements SessionRouteService {
 
   async list(cwd: string): Promise<ClientSession[]> {
     const [sessions, archivedRecords] = await Promise.all([this.sessionManager.list(cwd), this.archiveStore.list()]);
-    const sessionsById = new Map(sessions.map((session) => [session.id, session]));
+    // A tracked subsession may run in another workspace of the project. Its own
+    // cwd already places it in that workspace's list; also surface it here so it
+    // still appears nested under its parent in this workspace's list.
+    const allSessions = await this.includeCrossWorktreeSubsessionChildren(cwd, sessions);
+    const sessionsById = new Map(allSessions.map((session) => [session.id, session]));
     const archivedForCwd = archivedRecords.filter((record) => record.cwd === cwd);
     const archivedById = new Map(archivedForCwd.map((record) => [record.sessionId, record]));
     for (const record of archivedForCwd) {
       this.publishNotificationMutations(this.notificationStore.clearSession(record.sessionId, "archive-reconcile"));
     }
-    const unarchivedById = new Map(sessions.filter((session) => !archivedById.has(session.id))
+    const unarchivedById = new Map(allSessions.filter((session) => !archivedById.has(session.id))
       .map((session) => [session.id, clientSessionFromListEntry(session)]));
     // Pi can fork before the first conversational entry without creating a file.
     // Enumerate already-hosted runtimes only; listing must not open cold sessions.
@@ -1578,7 +1611,9 @@ export class PiSessionService implements SessionRouteService {
       unarchivedById.set(session.sessionId, info);
     }
     const unarchivedSessions = [...unarchivedById.values()].sort((a, b) => Date.parse(b.modified) - Date.parse(a.modified));
-    const reconcilableSessionIds = this.reconcilableSessionIds(cwd, unarchivedSessions.map((session) => session.id), archivedById);
+    // Cross-worktree children belong to their own workspace's unread records, so
+    // reconcile this cwd against its own file listing (plus any active runtimes).
+    const reconcilableSessionIds = this.reconcilableSessionIds(cwd, sessions.map((session) => session.id), archivedById);
     this.workspaceActivity?.reconcileSessionActivity(cwd, reconcilableSessionIds);
     await this.publishUnreadMutations(this.unreadStore.reconcileCwd(canonicalizeStoredCwd(cwd), reconcilableSessionIds));
     const archivedSessions = archivedForCwd
@@ -1643,6 +1678,44 @@ export class PiSessionService implements SessionRouteService {
       .filter(isDefined);
     return [...sessions.map(clientSessionFromListEntry), ...archived];
   }
+
+  /**
+   * Append the tracked subsession children that live in a different workspace of
+   * the project to a workspace listing, so they still render nested under their
+   * parent there. Children in the same workspace are already part of `sessions`
+   * (via their own cwd); this only adds the cross-workspace ones whose parent
+   * session is in this listing, and only when not already present.
+   *
+   * Reads the child entry from its own workspace listing, which already carries
+   * `parentSessionPath`, so the client groups it under the parent. Relies on
+   * in-memory tracked-subsession links (populated when a parent or child session
+   * is opened/hydrated in this session daemon); a workspace whose parent
+   * sessions have never been opened here will list its cross-workspace children
+   * only in their own workspace, not nested under the parent.
+   */
+  private async includeCrossWorktreeSubsessionChildren(cwd: string, sessions: PiSessionListEntry[]): Promise<PiSessionListEntry[]> {
+    if (this.subsessionLinks.size === 0) return sessions;
+    const inWorktreeIds = new Set(sessions.map((session) => session.id));
+    const entriesByChildCwd = new Map<string, Map<string, PiSessionListEntry>>();
+    const extra: PiSessionListEntry[] = [];
+    for (const link of this.subsessionLinks.values()) {
+      if (link.parentSessionId === undefined || !inWorktreeIds.has(link.parentSessionId)) continue;
+      if (link.cwd === undefined || cwdPathsEqual(link.cwd, cwd)) continue;
+      if (inWorktreeIds.has(link.childSessionId)) continue;
+      let byId = entriesByChildCwd.get(link.cwd);
+      if (byId === undefined) {
+        const childList = await this.sessionManager.list(link.cwd);
+        byId = new Map(childList.map((entry) => [entry.id, entry]));
+        entriesByChildCwd.set(link.cwd, byId);
+      }
+      const entry = byId.get(link.childSessionId);
+      if (entry === undefined) continue;
+      extra.push(entry);
+      inWorktreeIds.add(entry.id);
+    }
+    return extra.length === 0 ? sessions : [...sessions, ...extra];
+  }
+
   async start(cwd: string, options: StartSessionOptions = {}): Promise<ClientSession> {
     return this.startSession(cwd, options);
   }
@@ -1779,20 +1852,21 @@ export class PiSessionService implements SessionRouteService {
 
   /**
    * Start a *tracked* child session on behalf of a LLM. Unlike
-   * {@link spawnSession}, a tracked child always runs in the parent's own
-   * workspace: parent/child trees are worktree-scoped, so a child elsewhere
-   * would be invisible to the parent's listing. The child records its parent
-   * (so it shows in the session tree) and is registered so the parent is
-   * notified when it stops working and can inspect it later.
+   * {@link spawnSession}, a tracked child records its parent and is registered
+   * so the parent is notified when it stops working and can inspect it later.
+   * The child may run in any workspace of the parent's project (including the
+   * parent's own); the resolver rejects out-of-project cwds so the child stays
+   * visible in the web UI. Because listings are worktree-scoped by cwd, a child
+   * in another workspace appears there as a top-level session (with a dimmed
+   * "child of another workspace" marker) rather than nested under the parent.
    */
   async spawnSubsession(input: SpawnSubsessionInvocation): Promise<SpawnSubsessionResult> {
     if (this.spawnTargets === undefined) throw new Error("Spawning sessions is disabled");
-    if (input.cwd !== undefined && input.cwd !== "" && !cwdPathsEqual(input.cwd, input.spawningCwd)) {
-      throw subsessionCwdError(input.spawningCwd, input.cwd);
-    }
-    // Resolved against the parent's own cwd only: this still refuses spawning
-    // from an unregistered directory, which keeps the child visible in the UI.
-    const decision = await this.spawnTargets.resolveSpawnTarget(input.spawningCwd, undefined);
+    // A tracked child may run in any workspace of the parent's project (the
+    // parent keeps monitoring it across worktrees). The resolver still refuses
+    // spawning from an unregistered directory and rejects out-of-project cwds,
+    // naming the allowed workspaces so the child stays visible in the web UI.
+    const decision = await this.spawnTargets.resolveSpawnTarget(input.spawningCwd, input.cwd);
     if (!decision.allowed) throw spawnTargetError(decision);
     // A model spec overrides the inherited model and is resolved against the
     // parent's model runtime; only a spec resolves against the parent.
@@ -2273,6 +2347,20 @@ export class PiSessionService implements SessionRouteService {
       content: renderSubsessionCompletions(completions, this.workingSubsessionIds(parentId)),
       details: { sessionId: completions[0]?.sessionId, completionIds: completions.map(({ completionId }) => completionId) },
     };
+  }
+
+  /**
+   * Send a steering message to one of the caller's tracked children. A working
+   * child queues it for the turn after its current tool calls; an idle child
+   * receives it as a new turn. Routes through the ordinary prompt path so
+   * queueing, compaction deferral, and duplicate suppression match the browser.
+   */
+  async steerSubsession(parentSessionId: string, sessionId: string, text: string, parentSessionFile?: string): Promise<SteerSubsessionResult> {
+    const session = await this.openSubsession(parentSessionId, sessionId, parentSessionFile);
+    const cwd = session.sessionManager.getCwd();
+    const status = this.subsessionStatus(session);
+    await this.prompt({ id: sessionId, cwd }, text, "steer", undefined, { echoUserMessage: false });
+    return { sessionId, cwd, status };
   }
 
   /** Open a session after verifying it is one of the caller's tracked children. */
@@ -3953,7 +4041,7 @@ export class PiSessionService implements SessionRouteService {
   /** True when `cwd` still exists as a directory on disk; a missing cwd hosts no session. */
   private cwdDirectoryExists(cwd: string): boolean {
     try {
-      return statSync(cwd).isDirectory();
+      return fs.statSync(cwd).isDirectory();
     } catch {
       return false;
     }
@@ -5006,12 +5094,145 @@ export class PiSessionService implements SessionRouteService {
     }
   }
 
+  /** Last session name seen per session id, used to detect external `session_info` renames.
+   *  Populated on the first detection pass; afterwards a divergence emits a global `session.name` event. */
+  private readonly lastKnownSessionNames = new Map<string, string | undefined>();
+  /** Guards against emitting for every session on the very first detection pass (priming only). */
+  private sessionNamesPrimed = false;
+  /** Coalesces the background name scan. `listAll` can outlast a trigger, so without this guard
+   *  scans pile up and re-enumerate every session concurrently — the same unbounded pile-up the
+   *  workspace topology watcher had. At most one scan is ever in flight. The periodic 2s heartbeat no
+   *  longer drives this scan (it is now file-watch-triggered, see `startSessionNameWatching`), so the
+   *  only full pass is the startup prime; the file-watch path re-reads only the changed file. */
+  private nameScanRunning = false;
+  /** File-watch state for external session renames: the changed paths seen since
+   *  the last debounced flush, the flush timer, and the open store watches. */
+  private readonly sessionWatchPaths = new Set<string>();
+  private sessionWatchTimer: ReturnType<typeof setTimeout> | undefined;
+  private readonly sessionWatches: fs.FSWatcher[] = [];
+
   private publishSessionName(session: PiAgentSession): void {
     const event = session.sessionName === undefined
       ? { type: "session.name", sessionId: session.sessionId } as const
       : { type: "session.name", sessionId: session.sessionId, name: session.sessionName } as const;
     this.events.publish(session.sessionId, event);
     this.events.publishGlobal(event);
+    // Keep the change-detection cache in sync so the background scan does not re-emit it.
+    this.lastKnownSessionNames.set(session.sessionId, session.sessionName);
+    // The rename appends a session_info entry, so the cached summary is already stale: drop it now.
+    if (session.sessionFile !== undefined && session.sessionFile !== "") this.sessionManager.invalidateSessionFile(session.sessionFile);
+  }
+
+  /**
+   * Detect sessions whose displayed name changed outside the daemon (e.g. an extension's
+   * `setSessionName` or any writer appending a `session_info` entry) and emit a global
+   * `session.name` event so clients live-update the listing without a manual reload.
+   *
+   * The first pass only primes the cache; subsequent passes diff against it and emit for deviations.
+   */
+  private detectSessionNameChanges(): Promise<void> {
+    if (this.nameScanRunning) return Promise.resolve();
+    this.nameScanRunning = true;
+    return this.sessionManager.listAll()
+      .then((entries) => {
+        const current = new Map<string, string | undefined>();
+        for (const entry of entries) current.set(entry.id, entry.name);
+        if (!this.sessionNamesPrimed) {
+          this.lastKnownSessionNames.clear();
+          for (const [id, name] of current) this.lastKnownSessionNames.set(id, name);
+          this.sessionNamesPrimed = true;
+          return;
+        }
+        for (const entry of entries) {
+          if (this.lastKnownSessionNames.get(entry.id) !== entry.name) {
+            this.events.publishGlobal({
+              type: "session.name",
+              sessionId: entry.id,
+              ...(entry.name === undefined ? {} : { name: entry.name }),
+            });
+          }
+        }
+        this.lastKnownSessionNames.clear();
+        for (const [id, name] of current) this.lastKnownSessionNames.set(id, name);
+      })
+      .catch(() => undefined)
+      .finally(() => { this.nameScanRunning = false; });
+  }
+
+  /** Begin file-watch-driven session-name detection: prime the known-name cache
+   *  against the current store, then watch the session-store roots so an external
+   *  rename (a `session_info` append) re-reads only the file that changed. Replaces
+   *  the old interval poll that re-enumerated every session on every heartbeat. */
+  private startSessionNameWatching(): void {
+    void this.detectSessionNameChanges().catch(() => undefined);
+    for (const root of this.sessionManager.listWatchRoots?.() ?? []) {
+      let watcher: fs.FSWatcher;
+      try {
+        watcher = fs.watch(root, { recursive: true }, (event, filename) => {
+          this.onSessionFileEvent(root, filename);
+        });
+      } catch (error) {
+        this.logger.info({ err: String(error), root }, "session name watch: failed to watch session store");
+        continue;
+      }
+      watcher.on("error", () => undefined);
+      this.sessionWatches.push(watcher);
+    }
+  }
+
+  private onSessionFileEvent(root: string, filename: string | Buffer | null): void {
+    if (filename === null) return;
+    const name = typeof filename === "string" ? filename : filename.toString("utf8");
+    if (!name.endsWith(".jsonl")) return;
+    this.sessionWatchPaths.add(join(root, name));
+    if (this.sessionWatchTimer !== undefined) clearTimeout(this.sessionWatchTimer);
+    this.sessionWatchTimer = setTimeout(() => {
+      this.sessionWatchTimer = undefined;
+      const paths = [...this.sessionWatchPaths];
+      this.sessionWatchPaths.clear();
+      void this.detectSessionNameChangesForFiles(paths);
+    }, SESSION_FILE_WATCH_DEBOUNCE_MS);
+  }
+
+  /** Process a burst of changed session files, coalesced by the watch debounce. */
+  private async detectSessionNameChangesForFiles(paths: string[]): Promise<void> {
+    if (this.nameScanRunning) return;
+    this.nameScanRunning = true;
+    try {
+      for (const path of paths) {
+        await this.detectSessionNameChangeForFile(path);
+      }
+    } finally {
+      this.nameScanRunning = false;
+    }
+  }
+
+  /** Re-read one changed session file and emit a `session.name` event if its name
+   *  diverged from the last seen name. Reads only the changed file (the scanner
+   *  memoizes it), so a single rename costs one file read rather than a full
+   *  store re-enumeration. */
+  private async detectSessionNameChangeForFile(path: string): Promise<void> {
+    let summary: PiSessionListEntry | undefined;
+    try {
+      summary = await this.sessionManager.readSessionSummary?.(path);
+    } catch {
+      return;
+    }
+    if (summary === undefined) return;
+    const previous = this.lastKnownSessionNames.get(summary.id);
+    if (previous === undefined) {
+      this.lastKnownSessionNames.set(summary.id, summary.name);
+      return;
+    }
+    if (previous !== summary.name) {
+      this.lastKnownSessionNames.set(summary.id, summary.name);
+      const event = summary.name === undefined
+        ? { type: "session.name", sessionId: summary.id } as const
+        : { type: "session.name", sessionId: summary.id, name: summary.name } as const;
+      this.events.publish(summary.id, event);
+      this.events.publishGlobal(event);
+      this.sessionManager.invalidateSessionFile(path);
+    }
   }
 
   private publishHeartbeats(): void {
@@ -5789,7 +6010,7 @@ function sessionPathsEqual(a: string, b: string): boolean {
 function sessionFileExists(sessionFile: string | undefined): sessionFile is string {
   if (sessionFile === undefined || sessionFile === "") return false;
   try {
-    return statSync(sessionFile).isFile();
+    return fs.statSync(sessionFile).isFile();
   } catch {
     return false;
   }

@@ -111,7 +111,7 @@ export class SettingsSessiondPanel extends LitElement {
               <span>${sessiondMessages.t("subsessions")}</span>
             </label>
             <small id="subsessions-help">
-              ${sessiondMessages.rich("subsessionsHelp", { code: codeTag, spawn: "spawn_subsession", list: "list_subsessions", check: "check_subsession", read: "read_subsession" })}
+              ${sessiondMessages.rich("subsessionsHelp", { code: codeTag, spawn: "spawn_subsession", list: "list_subsessions", check: "check_subsession", read: "read_subsession", steer: "steer_subsession" })}
               ${sessiondMessages.t(!effectiveSpawn ? "enableSpawn" : "spawnRequired")}
               ${subsessionsOverridden ? sessiondMessages.rich("envOverride", { variable: "PI_WEB_SUBSESSIONS", code: codeTag }) : null}
             </small>

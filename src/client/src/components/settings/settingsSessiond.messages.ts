@@ -9,7 +9,7 @@ export default {
   spawn: message("Allow agents to start sessions", "Agent session spawning permission toggle"),
   spawnHelp: message<{ code: Rich; tool: string }>("Agents can start sessions in any workspace of the same registered project with <code>{tool}</code>.", "Session spawning guidance; tool is an untranslated tool identifier"),
   subsessions: message("Allow agents to track child sessions", "Tracked child session permission toggle"),
-  subsessionsHelp: message<{ code: Rich; spawn: string; list: string; check: string; read: string }>("Agents can start child sessions, check progress, and receive completion notifications with <code>{spawn}</code>, <code>{list}</code>, <code>{check}</code>, and <code>{read}</code>.", "Tracked child session guidance; spawn/list/check/read are untranslated tool identifiers"),
+  subsessionsHelp: message<{ code: Rich; spawn: string; list: string; check: string; read: string; steer: string }>("Agents can start child sessions, check progress, and receive completion notifications with <code>{spawn}</code>, <code>{list}</code>, <code>{check}</code>, <code>{read}</code>, and <code>{steer}</code>.", "Tracked child session guidance; spawn/list/check/read/steer are untranslated tool identifiers"),
   spawnRequired: message("Requires “Allow agents to start sessions”.", "Child-session permission dependency when session spawning is enabled"),
   enableSpawn: message("Enable “Allow agents to start sessions” first.", "Child-session permission dependency when session spawning is disabled"),
   askUser: message("Allow agents to ask you questions", "Question form permission toggle"),

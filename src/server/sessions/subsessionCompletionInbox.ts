@@ -138,7 +138,7 @@ export function renderSubsessionCompletion(completion: SubsessionCompletion): st
 export function renderSubsessionCompletions(completions: readonly SubsessionCompletion[], workingIds: readonly string[]): string {
   const next = workingIds.length === 0
     ? "No other tracked subsessions are working."
-    : `Still working: ${workingIds.join(", ")}. Continue working, or call yield_to_subsessions alone and last at the next join point. Further unread results arrive automatically; do not poll.`;
+    : `Still working: ${workingIds.join(", ")}. Continue working, or call wait_subsessions to block until a result arrives, or yield_to_subsessions alone and last to end the run. Further unread results arrive automatically; do not poll.`;
   return `${completions.map(renderSubsessionCompletion).join("\n\n")}\n\n${next}`;
 }
 

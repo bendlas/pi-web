@@ -89,6 +89,7 @@ async function runYieldBatch(subsessions: SubsessionSummary[], includeSentinel =
     join: async (parentId, parentFile) => ({ subsessions: await list(parentId, parentFile), completions: [] }),
     check: vi.fn(() => Promise.resolve({ sessionId: "child-1", cwd: "/workspace", status: "idle" as const, finalText: "", messageCount: 0 })),
     read: vi.fn(() => Promise.resolve({ sessionId: "child-1", cwd: "/workspace", status: "idle" as const, entries: [], total: 0, matched: 0, start: 0, hasMore: false })),
+    steer: vi.fn(() => Promise.resolve({ sessionId: "child-1", cwd: "/workspace", status: "idle" as const })),
   };
   const yieldDefinition = createSubsessionToolDefinitions("/workspace", deps)
     .find(({ name }) => name === "yield_to_subsessions");

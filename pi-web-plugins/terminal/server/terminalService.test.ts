@@ -1,4 +1,5 @@
-import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -408,6 +409,148 @@ describe.skipIf(process.platform === "win32")("TerminalService command runs", ()
   });
 });
 
+// A pty is created with forkpty, so the shell leads the process group and the
+// command started in it is the terminal's child. Closing the terminal hangs the
+// shell up, like closing a real terminal window: an interactive shell forwards
+// SIGHUP to the job it started, while a job the user disowned keeps running.
+describe.skipIf(process.platform === "win32")("terminal close process handling", () => {
+  it("terminates a running command's child when the terminal is closed", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "pi-web-term-close-run-"));
+    const service = new TerminalService(createDefaultPtyProvider());
+    let childPid: number | undefined;
+    try {
+      const run = service.runCommand({
+        origin: "core",
+        projectId: "p1",
+        workspaceId: "w1",
+        cwd: process.cwd(),
+        title: "Long-running command",
+        // Background the process and `wait` for it so the shell stays alive.
+        // Without job control the child shares the shell's process group.
+        command: `${longRunningChildCommand(join(dir, "child.pid"))} & wait`,
+      });
+      childPid = await readChildPid(join(dir, "child.pid"));
+      expect(processIsAlive(childPid)).toBe(true);
+
+      service.close(scope(), run.terminalId);
+
+      await expectProcessExit(childPid);
+    } finally {
+      killIfAlive(childPid);
+      service.dispose();
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("terminates a command's child when the shell ignores the hangup", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "pi-web-term-close-hup-"));
+    const service = new TerminalService(createDefaultPtyProvider());
+    let childPid: number | undefined;
+    try {
+      const run = service.runCommand({
+        origin: "core",
+        projectId: "p1",
+        workspaceId: "w1",
+        cwd: process.cwd(),
+        title: "Stubborn command",
+        // Ignore SIGHUP so the hangup alone cannot reach the backgrounded child;
+        // the process-group fallback has to stop it.
+        command: `trap '' HUP; ${longRunningChildCommand(join(dir, "child.pid"))} & wait`,
+      });
+      childPid = await readChildPid(join(dir, "child.pid"));
+      expect(processIsAlive(childPid)).toBe(true);
+
+      service.close(scope(), run.terminalId);
+
+      await expectProcessExit(childPid);
+    } finally {
+      killIfAlive(childPid);
+      service.dispose();
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("terminates a foreground process when an interactive terminal is closed", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "pi-web-term-close-fg-"));
+    const service = new TerminalService(createDefaultPtyProvider());
+    let childPid: number | undefined;
+    try {
+      const terminal = await openInteractiveTerminal(service);
+      terminal.write(`${longRunningChildCommand(join(dir, "child.pid"))}\n`);
+      childPid = await readChildPid(join(dir, "child.pid"));
+      expect(processIsAlive(childPid)).toBe(true);
+
+      terminal.close();
+
+      await expectProcessExit(childPid);
+    } finally {
+      killIfAlive(childPid);
+      service.dispose();
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("terminates a backgrounded process when an interactive terminal is closed", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "pi-web-term-close-bg-"));
+    const service = new TerminalService(createDefaultPtyProvider());
+    let childPid: number | undefined;
+    try {
+      const terminal = await openInteractiveTerminal(service);
+      terminal.write(`${longRunningChildCommand(join(dir, "child.pid"))} &\n`);
+      childPid = await readChildPid(join(dir, "child.pid"));
+      expect(processIsAlive(childPid)).toBe(true);
+
+      terminal.close();
+
+      // An interactive shell forwards SIGHUP to the jobs in its table, so a
+      // backgrounded job dies with the terminal.
+      await expectProcessExit(childPid);
+    } finally {
+      killIfAlive(childPid);
+      service.dispose();
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("leaves a disowned process running when an interactive terminal is closed", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "pi-web-term-close-disown-"));
+    const service = new TerminalService(createDefaultPtyProvider());
+    let childPid: number | undefined;
+    try {
+      const terminal = await openInteractiveTerminal(service);
+      terminal.write(`${longRunningChildCommand(join(dir, "child.pid"))}\n`);
+      childPid = await readChildPid(join(dir, "child.pid"));
+      expect(processIsAlive(childPid)).toBe(true);
+
+      terminal.write("\x1a"); // C-z stops the foreground job.
+      await expectProcessStopped(childPid);
+      // Round-trip a marker before `bg` so the shell has finished its
+      // job-control bookkeeping and the stopped job is ready to resume. The
+      // arithmetic makes the marker distinct from the echoed input line.
+      terminal.write("echo __PI_WEB_AFTER_STOP__$((6*7))\n");
+      await waitForTerminalOutput(service, terminal.terminalId, "__PI_WEB_AFTER_STOP__42");
+      terminal.write("bg\n");
+      await expectProcessRunning(childPid);
+      terminal.write("disown; echo __PI_WEB_DISOWNED__$((7*6))\n");
+      await waitForTerminalOutput(service, terminal.terminalId, "__PI_WEB_DISOWNED__42");
+      expect(processIsAlive(childPid)).toBe(true);
+
+      terminal.close();
+
+      await delay(500);
+      // A disowned job has left the shell's job table, so the hangup does not
+      // reach it and it survives the terminal.
+      // FIXME: it is only orphaned, not inherited and reaped by the session
+      // daemon, so it outlives the daemon that should own it.
+      expect(processIsAlive(childPid)).toBe(true);
+    } finally {
+      killIfAlive(childPid);
+      service.dispose();
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
+
 interface WorkspaceActivityRecorder extends TerminalActivitySink {
   readonly updated: TerminalActivityUpdate[];
   readonly removed: TerminalActivityRemoval[];
@@ -507,4 +650,113 @@ function terminalExit(service: TerminalService, terminalId: string, terminalScop
 
 function scope(cwd = process.cwd()): TerminalWorkspaceScope {
   return { projectId: "p1", workspaceId: "w1", cwd };
+}
+
+interface InteractiveTerminal {
+  terminalId: string;
+  write(data: string): void;
+  close(): void;
+}
+
+async function openInteractiveTerminal(service: TerminalService): Promise<InteractiveTerminal> {
+  const terminal = service.create(scope());
+  await firstLiveTerminalOutput(service, terminal.id);
+  return {
+    terminalId: terminal.id,
+    write: (data) => { service.write(scope(), terminal.id, data); },
+    close: () => { service.close(scope(), terminal.id); },
+  };
+}
+
+function longRunningChildCommand(pidPath: string): string {
+  return `node -e 'require("fs").writeFileSync(${JSON.stringify(pidPath)}, String(process.pid)); setInterval(() => {}, 1000)'`;
+}
+
+function processIsAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function readChildPid(pidPath: string): Promise<number> {
+  for (let attempt = 0; attempt < 150; attempt += 1) {
+    try {
+      return Number(await readFile(pidPath, "utf8"));
+    } catch {
+      await delay(20);
+    }
+  }
+  throw new Error(`Child pid file ${pidPath} never appeared`);
+}
+
+async function expectProcessExit(pid: number): Promise<void> {
+  for (let attempt = 0; attempt < 150; attempt += 1) {
+    if (!processIsAlive(pid)) return;
+    await delay(20);
+  }
+  throw new Error(`Process ${String(pid)} survived terminal close`);
+}
+
+function processState(pid: number): string | undefined {
+  try {
+    const state = execFileSync("ps", ["-o", "stat=", "-p", String(pid)], { encoding: "utf8" }).trim();
+    return state === "" ? undefined : state;
+  } catch {
+    return undefined;
+  }
+}
+
+async function expectProcessStopped(pid: number): Promise<void> {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    if (processState(pid)?.includes("T") === true) return;
+    await delay(20);
+  }
+  throw new Error(`Process ${String(pid)} was never stopped`);
+}
+
+async function expectProcessRunning(pid: number): Promise<void> {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const state = processState(pid);
+    if (state !== undefined && !state.includes("T")) return;
+    await delay(20);
+  }
+  throw new Error(`Process ${String(pid)} was never resumed`);
+}
+
+/** Resolves once `text` has reached the terminal, whether through replay or live output. */
+function waitForTerminalOutput(service: TerminalService, terminalId: string, text: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    let detach: (() => void) | undefined;
+    let settled = false;
+    const finish = (callback: () => void): void => {
+      if (settled) return;
+      settled = true;
+      detach?.();
+      callback();
+    };
+    try {
+      detach = service.attach(scope(), terminalId, {
+        output: (data) => { if (data.includes(text)) finish(resolve); },
+        exit: () => { finish(() => { reject(new Error("Terminal exited before its output appeared")); }); },
+      });
+    } catch (error) {
+      reject(error instanceof Error ? error : new Error(String(error)));
+    }
+  });
+}
+
+function killIfAlive(pid: number | undefined): void {
+  if (pid === undefined || !processIsAlive(pid)) return;
+  try {
+    process.kill(pid, "SIGKILL");
+  } catch {
+    // The process exited after the liveness check.
+  }
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => { setTimeout(resolve, ms); });
 }

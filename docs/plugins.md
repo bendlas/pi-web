@@ -206,6 +206,8 @@ A plugin can instead provide an independent highlighting system as a `contentRen
 
 The bundled Mermaid plugin contributes both a **Diagram** renderer and a source grammar for `mermaid` fences and `.mmd`/`.mermaid` files. Its grammar adds **Highlighted** to those sources without loading the diagram engine. Diagram rendering stays manual; **Raw**, **Highlighted**, and **Diagram** retain the same source text. The lightweight grammar colours common Mermaid syntax; it does not validate diagrams.
 
+The bundled **Nix** plugin contributes only a grammar: **Highlighted** covers `nix` fences and `.nix` files, and its parser stays inside the plugin bundle.
+
 Older hosts ignore syntax-highlighter contributions; require the host capability `{ pluginId: "pi-web", id: "syntax-highlighting", version: 1 }` when your plugin depends on this feature. This capability exposes `supports()` and `highlight()` for renderers that consume semantic token contributions. See `SyntaxHighlighterContribution`, `SyntaxHighlightingCapability`, and `ContentRendererContributionV5` in the [public browser contract](https://github.com/jmfederico/pi-web/blob/main/src/plugin-api.ts).
 
 ### Binary resources and media delivery
@@ -313,6 +315,8 @@ Requests and channels are bounded and can fail, time out, or disconnect. A succe
 
 A provider decides which workspaces belong to a project. A primary provider can replace bundled Git for projects it claims. Git is the fallback; without a claimant, the project folder remains usable as a workspace.
 
+PI WEB bundles two providers. **Git** is the fallback and discovers Git worktrees. **Jujutsu** is a primary provider: it claims any project inside a Jujutsu workspace and lists that repository's Jujutsu workspaces instead, including for colocated `jj git` repositories. Creation, removal, and listing then follow Jujutsu. The Jujutsu provider is inactive where the `jj` executable is not installed, and disabling it in **Settings → PI WEB plugins** restores Git behavior for those projects.
+
 Conflicting claims produce a visible error. A provider that claims a project and then fails does not silently hand ownership to another provider. Providers can also offer workspace removal, which runs as a visible terminal operation.
 
 External integrations can send a project-scoped discovery hint through the core CLI on the project's machine:
@@ -356,7 +360,7 @@ Server plugins receive frozen, resolved JSON in `context.settings` during activa
 
 No configuration UI or registered schema is required. Plugins own defaults and semantic validation of their setting names and values. Core validates the JSON/envelope structure, not plugin-specific meanings. Settings currently edits enablement, not arbitrary plugin settings. Browser-only plugins do not yet receive an equivalent generic settings context.
 
-Generic plugin settings are visible through the authenticated configuration API; do not use them as a secret store. Plugin-owned domain files, such as Workspace Tasks' `.pi-web/tasks.json`, remain separate from PI WEB configuration.
+Generic plugin settings are visible through the authenticated configuration API; do not use them as a secret store. Plugin-owned domain files, such as Workspace Scripts' `.pi-web/scripts.json`, remain separate from PI WEB configuration.
 
 ### Local development
 
@@ -395,9 +399,11 @@ Keep gateways and targets compatible. During this plugin API transition, upgrade
 - **Git** discovers Git workspaces and provides status/diff, including [automatic discovery of new worktrees](#automatic-git-worktree-discovery) on supported Git builds. Disabling it leaves the project-folder workspace available unless another provider takes over.
 - **Mermaid** uses the default manual mode: choose **Render** to preview `mermaid` fences and `.mmd`/`.mermaid` text files. Its bundled engine runs locally in an opaque-origin sandbox with network access blocked; no diagram service receives your source. Interactive links and external resources are intentionally unavailable. Disable Mermaid in plugin Settings to keep plain code rendering. Only a browser reload is needed after changing this browser-only plugin.
 - **Code highlighting** colours completed chat code fences in common languages automatically, including JavaScript/TypeScript, Python, shell, HTML/CSS, JSON, Go, Rust, SQL, and diff. Choose **Raw** to view plain source or **Preview** to restore colours; Copy always copies the source. Unsupported, unlabelled, incomplete, and oversized blocks stay plain. Highlighting runs locally without executing code. Disable Code highlighting in plugin Settings to keep plain code rendering; reload the browser after changing this browser-only plugin.
+- **Jujutsu** discovers Jujutsu workspaces and takes over from Git for projects inside a `jj` repository, including colocated repositories. It is active only where `jj` is installed; disable it to keep Git in charge.
 - **Info** displays machine and PI WEB status without requiring a workspace, adds workspace details when selected, and provides copyable diagnostics.
 - **Updates** shows update/restart guidance when relevant and offers a manual update check. Run uses the selected machine's maintenance terminal in `$PI_WEB_DATA_DIR/maintenance` (default `~/.pi-web/maintenance`), whether or not a workspace is selected. It requires an available Terminal provider on that machine; guidance and Copy remain available without one.
-- **Workspace Tasks** turns project commands into runnable buttons.
+- **Workspace Scripts** turns project commands into runnable buttons.
+- **Tasks** shows the Pi agent's `TaskCreate` task list for the active workspace.
 - **Spanish / Español** and **Swedish / Svenska** are optional interface language packs, included but disabled by default. See [Language packs](#language-packs) to enable them.
 
 ### Language packs
@@ -418,9 +424,9 @@ Running dev and production on the same repositories? Docker dev handles this aut
 
 Unsupported Git builds are left untouched, and `git worktree add --no-checkout` skips the notification. When hooks are skipped, disabled, or unavailable, discovery catches up on browser focus, navigation, manual refresh, or reconnect.
 
-### Workspace Tasks
+### Workspace Scripts
 
-Create `.pi-web/tasks.json` in a project:
+Create `.pi-web/scripts.json` in a project:
 
 ```json
 {
@@ -432,7 +438,11 @@ Create `.pi-web/tasks.json` in a project:
 }
 ```
 
-Open the **Tasks** tab to run a command in a workspace terminal. Tasks can also have a `description`. Review commands before running them, especially in shared repositories. Disabling the plugin hides the tab without changing the project file.
+Open the **Scripts** tab to run a command in a workspace terminal. Scripts can also have a `description`. Review commands before running them, especially in shared repositories. A `.pi-web/tasks.json` from an earlier PI WEB version is still read and copied to `.pi-web/scripts.json` when first loaded. Disabling the plugin (bundled id `workspace-tasks`; the name is historical) hides the tab without changing the project file.
+
+### Tasks
+
+The built-in **Tasks** tab (bundled plugin id `tintinweb-pi-tasks`, named after the `@tintinweb/pi-tasks` extension that writes these files) lists the Pi agent's tasks for the active workspace, read from `.pi/tasks/` (`tasks-<sessionId>.json` per session plus a shared `tasks.json`). It refreshes when the workspace's files change and is view-only: use the Pi `TaskCreate`/`TaskUpdate` tools to change the list. Scripts are separate; see [Workspace Scripts](#workspace-scripts).
 
 ### Workflows
 

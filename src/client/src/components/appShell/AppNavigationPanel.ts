@@ -87,6 +87,8 @@ export class AppNavigationPanel extends LitElement {
   @property({ attribute: false }) onMoveSessionPin?: (session: SessionInfo, direction: -1 | 1) => void;
   @property({ attribute: false }) onSelectWorkspace?: (workspace: Workspace) => void | Promise<void>;
   @property({ attribute: false }) onDeleteWorkspace?: (workspace: Workspace) => void | Promise<void>;
+  @property({ type: Boolean }) canCreateWorkspace = false;
+  @property({ attribute: false }) onCreateWorkspace?: () => void | Promise<void>;
   @property({ attribute: false }) onStartSession?: () => void | Promise<void>;
   @property({ attribute: false }) onSelectSession?: (session: SessionInfo) => void | Promise<void>;
   @property({ attribute: false }) onArchiveSession?: (session: SessionInfo) => void | Promise<void>;
@@ -184,6 +186,7 @@ export class AppNavigationPanel extends LitElement {
     toggleWorkspaces: () => { this.onToggleWorkspaces?.(); },
     selectWorkspace: (workspace: Workspace) => this.onSelectWorkspace?.(workspace),
     deleteWorkspace: (workspace: Workspace) => this.onDeleteWorkspace?.(workspace),
+    createWorkspace: () => this.onCreateWorkspace?.(),
     toggleSessions: () => { this.onToggleSessions?.(); },
     archivedCollapsed: () => this.onArchivedCollapsed?.(),
     startSession: () => this.onStartSession?.(),
@@ -290,10 +293,12 @@ export class AppNavigationPanel extends LitElement {
         .collapsible=${this.collapsible}
         .collapsed=${this.workspacesCollapsed}
         .workspaceLabelItems=${this.workspaceLabelItems}
+        .canCreateWorkspace=${this.canCreateWorkspace}
         .onToggleCollapsed=${this.childCallbacks.toggleWorkspaces}
         .onSelect=${this.childCallbacks.selectWorkspace}
         .onDelete=${this.childCallbacks.deleteWorkspace}
         .onMove=${this.childCallbacks.moveWorkspace}
+        .onCreateWorkspace=${this.childCallbacks.createWorkspace}
         .unmappedGroups=${this.workspaceUnmappedGroups}
         .selectedUnmappedSessionId=${this.selectedUnmappedSessionId}
         .onSelectUnmappedSession=${this.childCallbacks.selectUnmappedSession}

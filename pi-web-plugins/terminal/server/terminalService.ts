@@ -7,6 +7,10 @@ import type { PtyHandle, PtyProvider } from "./ptyProvider.js";
 import type { ServerPluginNoticeInput } from "@jmfederico/pi-web/server-plugin-api";
 
 const MAX_REPLAY_BUFFER = 200_000;
+// A hung-up shell forwards SIGHUP to the job it started before it exits. Give it
+// that moment, then kill the pty's process group so a shell or command that
+// ignores the hangup cannot leak.
+const HANGUP_GRACE_MS = 250;
 
 export type TerminalCommandRunStatus = "queued" | "running" | "succeeded" | "failed";
 
@@ -483,14 +487,26 @@ export class TerminalService {
     // Closing is final even if a provider never publishes an exit after disposal.
     terminal.generation += 1;
     this.completeCommandRun(terminal.commandRunId, undefined, undefined);
+    const pty = terminal.pty;
+    // Hang up the shell like a real terminal: an interactive shell forwards
+    // SIGHUP to the job it started and leaves a disowned job alone, so the
+    // backgrounded job dies while a disowned one survives the terminal.
+    if (!terminal.exited) pty?.kill("SIGHUP");
     try {
-      terminal.pty?.dispose();
+      pty?.dispose();
     } finally {
       delete terminal.pty;
       terminal.events.emit("closed");
       terminal.events.removeAllListeners();
       this.activitySink?.removeTerminal(terminal.id, terminal.cwd);
     }
+    if (terminal.exited || pty === undefined) return;
+    const pid = pty.pid;
+    // Fall back to the pty's whole process group once the shell has had a
+    // moment to propagate the hangup. This stops a shell or job that ignores
+    // SIGHUP from leaking; a disowned job has left the group and is untouched.
+    const forceKill = setTimeout(() => { killProcessTree(pid, "SIGKILL"); }, HANGUP_GRACE_MS);
+    forceKill.unref();
   }
 
   private requireAvailable(): void {
@@ -515,6 +531,29 @@ function toInfo(record: TerminalRecord): TerminalInfo {
 function trimReplayBuffer(buffer: string): string {
   if (buffer.length <= MAX_REPLAY_BUFFER) return buffer;
   return buffer.slice(buffer.length - MAX_REPLAY_BUFFER);
+}
+
+/**
+ * Best-effort termination of a process and, on POSIX systems, its entire process
+ * group. A pty is created with forkpty, so the shell is the leader of the
+ * process group that carries its identifier, and a negative pid targets that
+ * group rather than only the shell.
+ */
+function killProcessTree(pid: number, signal: NodeJS.Signals = "SIGKILL"): void {
+  if (!Number.isInteger(pid) || pid <= 1) return;
+  if (process.platform !== "win32") {
+    try {
+      process.kill(-pid, signal);
+      return;
+    } catch {
+      // The group leader already exited; fall through to a direct signal.
+    }
+  }
+  try {
+    process.kill(pid, signal);
+  } catch {
+    // Termination is best-effort once the process is gone.
+  }
 }
 
 export function interactiveShellArgs(shell: string): string[] {

@@ -198,6 +198,8 @@ export interface PiWebConfigValues {
   plugins?: PiWebPluginConfigMap;
   /** Deployment base roots; combined with independently configurable path additions. */
   basePaths?: string[];
+  /** Git-specific PI WEB behavior. */
+  git?: PiWebGitConfig;
   /** Additional external filesystem roots PI WEB may expose outside a workspace. */
   pathAccess?: PiWebPathAccessConfig;
   /** Workspace-relative defaults for manual file uploads. */
@@ -220,9 +222,9 @@ export interface PiWebConfigValues {
   spawnSessions?: boolean;
   /**
    * When true, LLMs can start tracked child sessions via the
-   * spawn_subsession / list_subsessions / check_subsession / read_subsession
-   * tools. On by default; set to `false` to disable. Requires spawnSessions
-   * to be enabled.
+   * spawn_subsession / list_subsessions / check_subsession / read_subsession /
+   * steer_subsession tools. On by default; set to `false` to disable. Requires
+   * spawnSessions to be enabled.
    */
   subsessions?: boolean;
   /**
@@ -248,6 +250,26 @@ export interface PiWebConfigValues {
 }
 
 export type PiWebPluginScope = "bundled" | "local" | "user" | "project";
+
+/** Git-specific PI WEB behavior, honored both globally and per project. */
+export interface PiWebGitConfig {
+  /**
+   * Absolute path, or a path relative to the project root, where PI WEB creates
+   * new git worktrees from the Add-workspace action. When unset, PI WEB uses a
+   * sibling directory named `<repo>-worktrees` next to the main checkout.
+   */
+  worktreeParentDir?: string;
+}
+
+/** Request to create a new git worktree for a project (Add-workspace action). */
+export interface CreateWorkspaceRequest {
+  /** Directory name of the new worktree under the configured worktree parent. */
+  name: string;
+  /** Optional base ref (branch/commit/tag) to branch from; defaults to HEAD. */
+  baseRef?: string;
+  /** Optional new branch name; defaults to `name`. */
+  branchName?: string;
+}
 
 export const PI_WEB_PLUGIN_LIFECYCLE_VERSION = 2;
 

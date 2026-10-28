@@ -72,7 +72,7 @@ describe("PiSessionService", () => {
       await service.dispose();
     });
 
-    it("resolves the tracked child against the parent's own cwd, ignoring any requested target", async () => {
+    it("forwards the requested target to the project resolver", async () => {
       const requestedTargets: (string | undefined)[] = [];
       const parent = fakeRuntime("parent-1", { sessionFile: "/tmp/parent-1.jsonl" });
       const child = fakeRuntime("child-1", { sessionFile: "/tmp/child-1.jsonl", sessionManager: fakeSessionManager("/workspace") });
@@ -105,12 +105,132 @@ describe("PiSessionService", () => {
       await service.dispose();
     });
 
-    it("refuses a target workspace other than the parent's own and names both alternatives", async () => {
-      const { service } = subsessionService({ allowed: true, cwd: "/workspace" });
+    it("allows a tracked child to run in another workspace of the parent's project", async () => {
+      const requestedTargets: (string | undefined)[] = [];
+      const parent = fakeRuntime("parent-1", { sessionFile: "/tmp/parent-1.jsonl" });
+      const child = fakeRuntime("child-1", { sessionFile: "/tmp/child-1.jsonl", sessionManager: fakeSessionManager("/workspace-feature") });
+      const runtimes = [parent.runtime, child.runtime];
+      let index = 0;
+      const service = new PiSessionService(new CapturingSessionEventHub(), {
+        agentDir: TEST_AGENT_DIR,
+        modelRuntime: testModelRuntime,
+        createAgentRuntime: () => {
+          const runtime = runtimes[index] ?? child.runtime;
+          index += 1;
+          return Promise.resolve(runtime);
+        },
+        sessionManager: sessionGateway([]),
+        archiveStore: emptyArchiveStore(),
+        spawnTargets: {
+          resolveSpawnTarget: (_spawningCwd, requestedCwd) => {
+            requestedTargets.push(requestedCwd);
+            return Promise.resolve({ allowed: true, cwd: "/workspace-feature" });
+          },
+        },
+        heartbeatIntervalMs: 60_000,
+      });
+
+      await service.start("/workspace");
+      const result = await service.spawnSubsession({ spawningCwd: "/workspace", parentSessionId: "parent-1", parentSessionFile: "/tmp/parent-1.jsonl", prompt: "do the slice", cwd: "/workspace-feature" });
+
+      expect(requestedTargets).toEqual(["/workspace-feature"]);
+      expect(result.cwd).toBe("/workspace-feature");
+      await expect(service.listSubsessions("parent-1")).resolves.toEqual([
+        { sessionId: "child-1", cwd: "/workspace-feature", status: "idle" },
+      ]);
+      await service.dispose();
+    });
+
+    it("surfaces a cross-workspace tracked child nested under its parent in the parent workspace listing", async () => {
+      const parentFile = "/workspace/parent-1.jsonl";
+      const childFile = "/workspace-feature/child-1.jsonl";
+      const parentRecord = { ...sessionRecord("parent-1", "/workspace"), path: parentFile };
+      const childRecord = { ...sessionRecord("child-1", "/workspace-feature"), path: childFile, parentSessionPath: parentFile };
+      const parent = fakeRuntime("parent-1", { sessionFile: parentFile, sessionManager: fakeSessionManager("/workspace") });
+      const child = fakeRuntime("child-1", { sessionFile: childFile, sessionManager: fakeSessionManager("/workspace-feature") });
+      const runtimes = [parent.runtime, child.runtime];
+      let index = 0;
+      const service = new PiSessionService(new CapturingSessionEventHub(), {
+        agentDir: TEST_AGENT_DIR,
+        modelRuntime: testModelRuntime,
+        createAgentRuntime: () => {
+          const runtime = runtimes[index] ?? child.runtime;
+          index += 1;
+          return Promise.resolve(runtime);
+        },
+        sessionManager: {
+          create: (cwd) => fakeSessionManager(cwd),
+          list: (cwd: string) => Promise.resolve(cwd === "/workspace" ? [parentRecord] : [childRecord]),
+          listAll: () => Promise.resolve([parentRecord, childRecord]),
+          invalidateSessionFile: () => undefined,
+          resolveSessionFile: resolveSessionFileFromList((cwd: string) => Promise.resolve(cwd === "/workspace" ? [parentRecord] : [childRecord])),
+          open: () => fakeSessionManager(),
+        },
+        archiveStore: emptyArchiveStore(),
+        spawnTargets: { resolveSpawnTarget: () => Promise.resolve({ allowed: true, cwd: "/workspace-feature" }) },
+        heartbeatIntervalMs: 60_000,
+      });
+
+      await service.start("/workspace");
+      await service.spawnSubsession({ spawningCwd: "/workspace", parentSessionId: "parent-1", parentSessionFile: parentFile, prompt: "do the slice", cwd: "/workspace-feature" });
+
+      const parentListing = await service.list("/workspace");
+      const childListing = await service.list("/workspace-feature");
+
+      // The child appears nested under the parent in the parent workspace...
+      expect(parentListing.map((session) => session.id).sort()).toEqual(["child-1", "parent-1"]);
+      const listedChild = parentListing.find((session) => session.id === "child-1");
+      expect(listedChild?.parentSessionPath).toBe(parentFile);
+      expect(listedChild?.cwd).toBe("/workspace-feature");
+      // ...and top-level in the workspace it actually runs in.
+      expect(childListing.map((session) => session.id)).toEqual(["child-1"]);
+      await service.dispose();
+    });
+
+    it("does not duplicate a tracked child that already lives in the parent workspace", async () => {
+      const parentFile = "/workspace/parent-1.jsonl";
+      const childFile = "/workspace/child-1.jsonl";
+      const childRecord = { ...sessionRecord("child-1", "/workspace"), path: childFile, parentSessionPath: parentFile };
+      const parent = fakeRuntime("parent-1", { sessionFile: parentFile, sessionManager: fakeSessionManager("/workspace") });
+      const child = fakeRuntime("child-1", { sessionFile: childFile, sessionManager: fakeSessionManager("/workspace") });
+      const runtimes = [parent.runtime, child.runtime];
+      let index = 0;
+      const service = new PiSessionService(new CapturingSessionEventHub(), {
+        agentDir: TEST_AGENT_DIR,
+        modelRuntime: testModelRuntime,
+        createAgentRuntime: () => {
+          const runtime = runtimes[index] ?? child.runtime;
+          index += 1;
+          return Promise.resolve(runtime);
+        },
+        sessionManager: {
+          create: (cwd) => fakeSessionManager(cwd),
+          list: (cwd: string) => Promise.resolve(cwd === "/workspace" ? [childRecord, { ...sessionRecord("parent-1", "/workspace"), path: parentFile }] : []),
+          listAll: () => Promise.resolve([]),
+          invalidateSessionFile: () => undefined,
+          resolveSessionFile: () => Promise.resolve(undefined),
+          open: () => fakeSessionManager(),
+        },
+        archiveStore: emptyArchiveStore(),
+        spawnTargets: { resolveSpawnTarget: () => Promise.resolve({ allowed: true, cwd: "/workspace" }) },
+        heartbeatIntervalMs: 60_000,
+      });
+
+      await service.start("/workspace");
+      await service.spawnSubsession({ spawningCwd: "/workspace", parentSessionId: "parent-1", parentSessionFile: parentFile, prompt: "do the slice" });
+
+      const listing = await service.list("/workspace");
+      const childIds = listing.filter((session) => session.id === "child-1").map((session) => session.id);
+      expect(childIds).toEqual(["child-1"]);
+      await service.dispose();
+    });
+
+    it("refuses an out-of-project target and names the allowed workspaces", async () => {
+      const { service } = subsessionService({ allowed: false, reason: "out-of-project", allowedCwds: ["/workspace"] });
       await service.start("/workspace");
 
-      await expect(service.spawnSubsession({ spawningCwd: "/workspace", parentSessionId: "parent-1", parentSessionFile: "/tmp/parent-1.jsonl", prompt: "do the slice", cwd: "/workspace-feature" }))
-        .rejects.toThrow("A tracked subsession runs in this session's working directory (/workspace); /workspace-feature was requested. Instruct the child to work elsewhere from this workspace, or use spawn_session for an independent session in another workspace.");
+      await expect(service.spawnSubsession({ spawningCwd: "/workspace", parentSessionId: "parent-1", parentSessionFile: "/tmp/parent-1.jsonl", prompt: "do the slice", cwd: "/workspace-elsewhere" }))
+        .rejects.toThrow("cwd must be a workspace of this project. Allowed: /workspace");
       await expect(service.listSubsessions("parent-1")).resolves.toEqual([]);
       await service.dispose();
     });
@@ -1174,7 +1294,7 @@ describe("PiSessionService", () => {
       });
 
       expect(parent.calls.sendCustomMessage[0]?.message.content).toBe(
-        "Subsession child-1 stopped working (idle).\n\n--- SUBSESSION OUTPUT: child-1 ---\n(no output)\n\nStill working: child-2. Continue working, or call yield_to_subsessions alone and last at the next join point. Further unread results arrive automatically; do not poll.",
+        "Subsession child-1 stopped working (idle).\n\n--- SUBSESSION OUTPUT: child-1 ---\n(no output)\n\nStill working: child-2. Continue working, or call wait_subsessions to block until a result arrives, or yield_to_subsessions alone and last to end the run. Further unread results arrive automatically; do not poll.",
       );
 
       second.session.isStreaming = false;
@@ -1255,13 +1375,30 @@ describe("PiSessionService", () => {
       await service.dispose();
     });
 
-    it("check_subsession and read_subsession refuse sessions that are not the caller's children", async () => {
+    it("check_subsession, read_subsession, and steer_subsession refuse sessions that are not the caller's children", async () => {
       const { service } = subsessionService({ allowed: true, cwd: "/workspace" });
       await service.start("/workspace");
       await service.spawnSubsession({ spawningCwd: "/workspace", parentSessionId: "parent-1", parentSessionFile: "/tmp/parent-1.jsonl", prompt: "go" });
 
       await expect(service.checkSubsession("someone-else", "child-1")).rejects.toThrow("not one of your subsessions");
       await expect(service.readSubsession("someone-else", "child-1", {})).rejects.toThrow("not one of your subsessions");
+      await expect(service.steerSubsession("someone-else", "child-1", "stop")).rejects.toThrow("not one of your subsessions");
+      await service.dispose();
+    });
+
+    it("steer_subsession steers a working child and starts a new turn for an idle one", async () => {
+      const { child, service } = subsessionService({ allowed: true, cwd: "/workspace" });
+      await service.start("/workspace");
+      await service.spawnSubsession({ spawningCwd: "/workspace", parentSessionId: "parent-1", parentSessionFile: "/tmp/parent-1.jsonl", prompt: "go" });
+      child.calls.prompt.length = 0;
+
+      child.session.isStreaming = true;
+      await expect(service.steerSubsession("parent-1", "child-1", "change of plan")).resolves.toEqual({ sessionId: "child-1", cwd: "/workspace", status: "working" });
+      expect(child.calls.prompt).toEqual([{ text: "change of plan", options: { streamingBehavior: "steer" } }]);
+
+      child.session.isStreaming = false;
+      await expect(service.steerSubsession("parent-1", "child-1", "and then stop")).resolves.toEqual({ sessionId: "child-1", cwd: "/workspace", status: "idle" });
+      expect(child.calls.prompt.at(-1)).toEqual({ text: "and then stop", options: undefined });
       await service.dispose();
     });
 

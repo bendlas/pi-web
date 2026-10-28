@@ -1,0 +1,12 @@
+#!/bin/sh
+
+set -euo pipefail
+
+branchName="$1"
+commitRange="$2"
+commitMessage="$3"
+
+git worktree add ".worktrees/$branchName" upstream/main
+cd ".worktrees/$branchName"
+git cherry-pick "$commitRange"
+git commit --no-verify --amend -m "$commitMessage"

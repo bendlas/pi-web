@@ -25,6 +25,7 @@ function tools(deps: Partial<SubsessionToolDeps>) {
     join: deps.join ?? (async (parentId, parentFile) => ({ subsessions: await list(parentId, parentFile), completions: [] })),
     check: deps.check ?? vi.fn(() => Promise.resolve({ sessionId: "x", cwd: "/repos/a", status: "idle" as const, finalText: "", messageCount: 0 })),
     read: deps.read ?? vi.fn(() => Promise.resolve({ sessionId: "x", cwd: "/repos/a", status: "idle" as const, entries: [], total: 0, matched: 0, start: 0, hasMore: false })),
+    steer: deps.steer ?? vi.fn(() => Promise.resolve({ sessionId: "x", cwd: "/repos/a", status: "idle" as const })),
   };
   const definitions = createSubsessionToolDefinitions("/repos/a", full);
   const find = (name: string) => {
@@ -37,12 +38,14 @@ function tools(deps: Partial<SubsessionToolDeps>) {
     list: find("list_subsessions"),
     check: find("check_subsession"),
     read: find("read_subsession"),
+    steer: find("steer_subsession"),
     yield: find("yield_to_subsessions"),
+    wait: find("wait_subsessions"),
   };
 }
 
 function workingGuidance(sessionId: string): string {
-  return `Subsession ${sessionId} is working; partial output is withheld. Continue other work, or call yield_to_subsessions alone and last at the join point. Completion notices wake you; do not poll.`;
+  return `Subsession ${sessionId} is working; partial output is withheld. Continue other work, call wait_subsessions to block until a result arrives, or call yield_to_subsessions alone and last to end the run; do not poll.`;
 }
 
 function firstText(content: readonly (TextContent | ImageContent)[]): string {
@@ -54,7 +57,8 @@ describe("createSubsessionToolDefinitions", () => {
   it("keeps run-ending yield model-only while other subsession tools remain callable", () => {
     const definitions = tools({});
     expect(definitions.yield.exposure).toBe("model-only");
-    for (const name of ["spawn", "list", "check", "read"] as const) {
+    expect(definitions.wait.exposure).toBe("model-only");
+    for (const name of ["spawn", "list", "check", "read", "steer"] as const) {
       expect(definitions[name].exposure ?? "direct").toBe("direct");
     }
   });
@@ -76,12 +80,12 @@ describe("createSubsessionToolDefinitions", () => {
     expect(firstText(result.content)).toContain("Started tracked subsession child-1");
   });
 
-  it("spawn_subsession offers no way to target another workspace", () => {
+  it("spawn_subsession can target another workspace of the project via cwd", () => {
     const { spawn: spawnTool } = tools({});
 
-    expect(spawnTool.parameters).toMatchObject({ type: "object", properties: { prompt: {}, model: {} } });
-    expect(spawnTool.parameters).not.toHaveProperty(["properties", "cwd"]);
-    expect(spawnTool.description).toContain("in this session's working directory");
+    expect(spawnTool.parameters).toMatchObject({ type: "object", properties: { prompt: {}, cwd: {}, model: {} } });
+    expect(spawnTool.parameters).toHaveProperty(["properties", "cwd"]);
+    expect(spawnTool.description).toContain("another workspace of this project");
   });
 
   it("describes tracked child work whose result remains available to the parent", async () => {
@@ -89,12 +93,12 @@ describe("createSubsessionToolDefinitions", () => {
       spawn: vi.fn(() => Promise.resolve({ sessionId: "child-1", cwd: "/repos/a" })),
     });
 
-    expect(spawnTool.description).toBe("Start a tracked child session in this session's working directory to carry out part of the current task and return immediately. Its transcript and result are available here after it finishes.");
-    expect(spawnTool.promptSnippet).toBe("spawn_subsession: tracked child work in this workspace; result available after completion");
+    expect(spawnTool.description).toBe("Start a tracked child session in this session's working directory (or another workspace of this project) to carry out part of the current task and return immediately. Its transcript and result are available here after it finishes.");
+    expect(spawnTool.promptSnippet).toBe("spawn_subsession: tracked child work in a workspace of this project; result available after completion");
     expect(spawnTool.description).not.toMatch(/spawn_session|fully independent/i);
 
     const result = await spawnTool.execute("call-contract", { prompt: "do it" }, undefined, undefined, ctxFor("parent-1", undefined));
-    expect(firstText(result.content)).toBe("Started tracked subsession child-1 in /repos/a. Continue other work, then join with yield_to_subsessions; do not poll.");
+    expect(firstText(result.content)).toBe("Started tracked subsession child-1 in /repos/a. Continue other work, then block with wait_subsessions or end your turn with yield_to_subsessions; do not poll.");
   });
 
   it("distinguishes status inspection from yielding in tool metadata", () => {
@@ -106,6 +110,8 @@ describe("createSubsessionToolDefinitions", () => {
     expect(definitions.check.promptSnippet).toBe("check_subsession: inspect child status and available output; never yields");
     expect(definitions.read.description).toContain("Returning its complete latest final output marks that completion read; filtered or historical-only reads do not.");
     expect(definitions.read.promptSnippet).toBe("read_subsession: inspect an available child transcript; never yields");
+    expect(definitions.steer.description).toBe("Send a steering message to a tracked child without waiting for it. A working child receives it after its current turn finishes its tool calls, before its next model call; an idle child receives it as a new turn. Never yields; do not poll.");
+    expect(definitions.steer.promptSnippet).toBe("steer_subsession: redirect a tracked child's next turn without waiting");
   });
 
   it("registers the parameterless yield action with terminal-batch guidance", () => {
@@ -149,7 +155,7 @@ describe("createSubsessionToolDefinitions", () => {
       modelSpec: "openai/gpt-5",
     });
     expect(result.details).toEqual({ sessionId: "child-3", cwd: "/repos/a", model: "openai/gpt-5" });
-    expect(firstText(result.content)).toBe("Started tracked subsession child-3 in /repos/a using model openai/gpt-5. Continue other work, then join with yield_to_subsessions; do not poll.");
+    expect(firstText(result.content)).toBe("Started tracked subsession child-3 in /repos/a using model openai/gpt-5. Continue other work, then block with wait_subsessions or end your turn with yield_to_subsessions; do not poll.");
   });
 
   it("spawn_subsession restricts model overrides to instructions without priming a concrete model", () => {
@@ -256,6 +262,52 @@ describe("createSubsessionToolDefinitions", () => {
     expect(result.details).toMatchObject({ completions: [completion] });
     expect(result.terminate).toBeUndefined();
   });
+
+  it("wait_subsessions returns ready results immediately without polling", async () => {
+    const completion = { completionId: "run-1", sessionId: "child-1", cwd: "/repos/a", status: "idle" as const, finalText: "Ready answer", messageCount: 3 };
+    const join = vi.fn(() => Promise.resolve({
+      subsessions: [{ sessionId: "child-1", cwd: "/repos/a", status: "idle" as const }, { sessionId: "child-2", cwd: "/repos/a", status: "working" as const }],
+      completions: [completion],
+    }));
+    const { wait: waitTool } = tools({ join });
+    const result = await waitTool.execute("wait-ready", { timeout: 30 }, undefined, undefined, ctxFor("parent-1", "/sessions/parent-1.jsonl"));
+    expect(join).toHaveBeenCalledWith("parent-1", "/sessions/parent-1.jsonl", "wait-ready");
+    expect(join).toHaveBeenCalledTimes(1);
+    expect(firstText(result.content)).toContain("Ready answer");
+    expect(firstText(result.content)).toContain("Still working: child-2");
+    expect(result.terminate).toBeUndefined();
+  });
+
+  it("wait_subsessions blocks until a child result arrives", async () => {
+    const completion = { completionId: "run-9", sessionId: "child-1", cwd: "/repos/a", status: "idle" as const, finalText: "Late answer", messageCount: 1 };
+    const working = { subsessions: [{ sessionId: "child-1", cwd: "/repos/a", status: "working" as const }], completions: [] };
+    const done = { subsessions: [{ sessionId: "child-1", cwd: "/repos/a", status: "idle" as const }], completions: [completion] };
+    let calls = 0;
+    const join = vi.fn(() => Promise.resolve(calls++ === 0 ? working : done));
+    const { wait: waitTool } = tools({ join });
+    const result = await waitTool.execute("wait-late", { timeout: 30 }, undefined, undefined, ctxFor("parent-1", undefined));
+    expect(join).toHaveBeenCalledTimes(2);
+    expect(firstText(result.content)).toContain("Late answer");
+    expect(result.terminate).toBeUndefined();
+  }, 5000);
+
+  it("wait_subsessions returns immediately when nothing is working", async () => {
+    const join = vi.fn(() => Promise.resolve({ subsessions: [{ sessionId: "child-1", cwd: "/repos/a", status: "idle" as const }], completions: [] }));
+    const { wait: waitTool } = tools({ join });
+    const result = await waitTool.execute("wait-none", { timeout: 30 }, undefined, undefined, ctxFor("parent-1", undefined));
+    expect(join).toHaveBeenCalledTimes(1);
+    expect(firstText(result.content)).toBe("No unread child results; no tracked subsessions are working. Continuing.");
+    expect(result.terminate).toBeUndefined();
+  });
+
+  it("wait_subsessions times out while a child keeps working", async () => {
+    const join = vi.fn(() => Promise.resolve({ subsessions: [{ sessionId: "child-1", cwd: "/repos/a", status: "working" as const }], completions: [] }));
+    const { wait: waitTool } = tools({ join });
+    const result = await waitTool.execute("wait-timeout", { timeout: 1 }, undefined, undefined, ctxFor("parent-1", undefined));
+    expect(firstText(result.content)).toContain("timed out after 1s");
+    expect(firstText(result.content)).toContain("child-1");
+    expect(result.terminate).toBeUndefined();
+  }, 5000);
 
   it.each([
     { label: "an empty list", subsessions: [] },
@@ -396,6 +448,38 @@ describe("createSubsessionToolDefinitions", () => {
     const { read: readTool } = tools({ read });
 
     await expect(readTool.execute("call-9", { sessionId: "child-9" }, undefined, undefined, ctxFor("parent-1", undefined)))
+      .rejects.toThrow("not one of your subsessions");
+  });
+
+  it("steer_subsession forwards parent identity and reports a working child as a steering delivery", async () => {
+    const steer = vi.fn(() => Promise.resolve({ sessionId: "child-1", cwd: "/repos/a", status: "working" as const }));
+    const { steer: steerTool } = tools({ steer });
+
+    const result = await steerTool.execute("call-steer", { sessionId: "child-1", text: "change of plan" }, undefined, undefined, ctxFor("parent-1", "/sessions/parent-1.jsonl"));
+
+    expect(steer).toHaveBeenCalledWith("parent-1", "child-1", "change of plan", "/sessions/parent-1.jsonl");
+    expect(result.details).toEqual({ sessionId: "child-1", cwd: "/repos/a", status: "working" });
+    expect(firstText(result.content)).toBe("Steered subsession child-1 [working] in /repos/a. The steering message is delivered after its current turn's tool calls. Continue other work; completion notices wake you, so do not poll.");
+    expect(result.terminate).toBeUndefined();
+  });
+
+  it("steer_subsession reports an idle child as a new turn and requires only sessionId and text", async () => {
+    const steer = vi.fn(() => Promise.resolve({ sessionId: "child-2", cwd: "/repos/a", status: "idle" as const }));
+    const { steer: steerTool } = tools({ steer });
+
+    expect(steerTool.parameters).toMatchObject({ type: "object", properties: { sessionId: {}, text: {} } });
+    const result = await steerTool.execute("call-steer-idle", { sessionId: "child-2", text: "start over" }, undefined, undefined, ctxFor("parent-1", undefined));
+
+    expect(steer).toHaveBeenCalledWith("parent-1", "child-2", "start over", undefined);
+    expect(firstText(result.content)).toBe("Steered subsession child-2 [idle] in /repos/a. The message starts a new turn. Continue other work; completion notices wake you, so do not poll.");
+    expect(result.terminate).toBeUndefined();
+  });
+
+  it("steer_subsession propagates scope errors so the agent loop reports them", async () => {
+    const steer = vi.fn(() => Promise.reject(new Error("Session child-9 is not one of your subsessions")));
+    const { steer: steerTool } = tools({ steer });
+
+    await expect(steerTool.execute("call-steer-9", { sessionId: "child-9", text: "nope" }, undefined, undefined, ctxFor("parent-1", undefined)))
       .rejects.toThrow("not one of your subsessions");
   });
 });

@@ -17,7 +17,7 @@ function bunFixture() {
     },
     spawn(_command, options) {
       callbacks = options;
-      return { terminal, kill };
+      return { pid: 4_243, terminal, kill };
     },
   };
   return {
@@ -61,6 +61,7 @@ describe("Node PTY lifecycle adapter", () => {
     const kill = vi.fn();
     const provider = createNodePtyProvider(() => ({
       spawn: () => ({
+        pid: 4_242,
         write: vi.fn(), resize: vi.fn(), kill,
         onData(callback) { onData = callback; return { dispose: unsubscribeData }; },
         onExit(callback) { onExit = callback; return { dispose: unsubscribeExit }; },

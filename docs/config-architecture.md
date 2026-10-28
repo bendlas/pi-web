@@ -35,7 +35,7 @@ For each schema-declared setting, the highest-priority supplied value replaces t
 
 Approved namespaces:
 
-- Static containers: `uploads.defaultFolder`, `attachments.defaultFolder`, `sessionNaming.model`, `sessionNaming.maxTokens`, `sessionNaming.thinkingLevel`, `sessionNaming.timeoutMs`, `sessionArchive.directory`, `pathAccess.allowedPaths`, and `defaultLocalization.language`, `.formatLocale`, `.timeZone`, `.hourCycle`. Keep the existing object representations and scopes. Empty project `uploads`/`attachments` objects preserve inherited folder defaults.
+- Static containers: `uploads.defaultFolder`, `attachments.defaultFolder`, `sessionNaming.model`, `sessionNaming.maxTokens`, `sessionNaming.thinkingLevel`, `sessionNaming.timeoutMs`, `sessionArchive.directory`, `git.worktreeParentDir`, `pathAccess.allowedPaths`, and `defaultLocalization.language`, `.formatLocale`, `.timeZone`, `.hourCycle`. Keep the existing object representations and scopes. Empty project `uploads`/`attachments` objects preserve inherited folder defaults.
 - Plugins: plugin IDs coexist; each plugin's `enabled` and each top-level plugin-specific setting resolve independently. An individual plugin setting's object/array value replaces completely. No recursive merging inside it. Preserve required-plugin and project-enablement constraints.
 
 `defaultTheme` remains one atomic, coherent preference; `shortcuts` remains an atomic dictionary, and deprecated `agent` remains atomic. Their object shape does not make them namespaces.

@@ -1,5 +1,5 @@
 import type { PluginLocalization } from "@jmfederico/pi-web/plugin-api";
-import { TASKS_CONFIG_PATH, TASKS_CONFIG_VERSION, type ConfigIssue } from "./config.js";
+import { TASKS_CONFIG_VERSION, type ConfigIssue } from "./config.js";
 import definitions from "./tasks.messages.js";
 import type { TasksLoadIssue } from "./workspaceTasksClient.js";
 
@@ -10,10 +10,10 @@ export function createTasksLocalization(localization: PluginLocalization) {
     messages,
     loadIssue: (issue: TasksLoadIssue): string => {
       switch (issue.kind) {
-        case "read": return messages.t("readError", { path: TASKS_CONFIG_PATH, error: issue.error });
+        case "read": return messages.t("readError", { path: issue.path, error: issue.error });
         case "unexpected": return issue.error;
-        case "binary": return messages.t("binary", { path: TASKS_CONFIG_PATH });
-        case "truncated": return messages.t("truncated", { path: TASKS_CONFIG_PATH });
+        case "binary": return messages.t("binary", { path: issue.path });
+        case "truncated": return messages.t("truncated", { path: issue.path });
         case "config": return configIssue(issue.issue);
       }
     },

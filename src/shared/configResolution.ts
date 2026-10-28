@@ -5,7 +5,7 @@ export const PI_WEB_CONFIG_DEFINITIONS = {
   installationName: "string", host: "string", port: "number", allowedHosts: "allowedHosts",
   shortcuts: "json", defaultTheme: "json", defaultLocalization: "json",
   defaultStreamingBehavior: "string", quietMode: "boolean", plugins: "json",
-  basePaths: "json", pathAccess: "json", uploads: "json", attachments: "json",
+  basePaths: "json", git: "json", pathAccess: "json", uploads: "json", attachments: "json",
   maxUploadBytes: "number", sessionNaming: "json", sessionArchive: "json",
   spawnSessions: "boolean", subsessions: "boolean", askUser: "boolean",
   environmentFacts: "boolean", extensionDialogsTimeoutMs: "number",
@@ -18,6 +18,7 @@ const PI_WEB_CONFIG_NAMESPACES = {
   attachments: ["defaultFolder"],
   sessionNaming: ["model", "maxTokens", "thinkingLevel", "timeoutMs"],
   sessionArchive: ["directory"],
+  git: ["worktreeParentDir"],
   pathAccess: ["allowedPaths"],
 } as const satisfies { [Key in keyof PiWebConfigValues]?: readonly (keyof NonNullable<PiWebConfigValues[Key]>)[] };
 

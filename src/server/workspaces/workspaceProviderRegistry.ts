@@ -6,6 +6,7 @@ import { isAbsolute, resolve } from "node:path";
 import type {
   ProjectInput,
   ProviderClaim,
+  ProviderCreateInput,
   ProviderWorkspace,
   WorkspaceRemovalPresentation as ProviderWorkspaceRemovalPresentation,
   WorkspaceRemovePlan,
@@ -34,7 +35,7 @@ export type {
 const DEFAULT_PROVIDER_TIMEOUT_MS = 10_000;
 
 type ProviderTier = WorkspaceProviderTier;
-type ProviderOperation = "probe" | "list" | "prepareRemove" | "reconcileIntegration" | "acceptNotification";
+type ProviderOperation = "probe" | "list" | "prepareRemove" | "reconcileIntegration" | "acceptNotification" | "createWorkspace";
 
 export interface WorkspaceProviderRegistryLogger {
   warn(details: Record<string, unknown>, message: string): void;
@@ -69,6 +70,29 @@ export type WorkspaceProviderRemovalErrorCode =
   | "preparation-failed"
   | "preparation-timeout"
   | "invalid-plan";
+
+export type WorkspaceProviderCreateErrorCode =
+  | "owner-conflict"
+  | "owner-unavailable"
+  | "creation-unavailable"
+  | "resolution-failed"
+  | "resolution-timeout"
+  | "creation-failed"
+  | "creation-timeout"
+  | "invalid-input";
+
+export class WorkspaceProviderCreateError extends Error {
+  override name = "WorkspaceProviderCreateError";
+
+  constructor(
+    readonly code: WorkspaceProviderCreateErrorCode,
+    readonly statusCode: number,
+    message: string,
+    options: ErrorOptions = {},
+  ) {
+    super(message, options);
+  }
+}
 
 export class WorkspaceProviderRemovalError extends Error {
   override name = "WorkspaceProviderRemovalError";
@@ -372,6 +396,112 @@ export class WorkspaceProviderRegistry {
     throw providerRemovalError("owner-unavailable", 409, `No workspace provider currently owns project ${input.id}`);
   }
 
+  /**
+   * Create a new workspace for the project through its current owner provider.
+   * Re-resolves the live owner and invokes its bounded `createWorkspace`
+   * operation, then validates the returned workspace and returns it as a
+   * public listing the caller can select immediately.
+   */
+  async createWorkspace(
+    project: Project,
+    input: ProviderCreateInput,
+    worktreeParentDir: string,
+    signal?: AbortSignal,
+  ): Promise<WorkspaceListing> {
+    const parsedInput = parseProviderCreateInput(input);
+    const resolvedInput: ProviderCreateInput = Object.freeze({
+      name: parsedInput.name,
+      ...(parsedInput.baseRef === undefined ? {} : { baseRef: parsedInput.baseRef }),
+      ...(parsedInput.branchName === undefined ? {} : { branchName: parsedInput.branchName }),
+    });
+    const input2 = snapshotProject(project);
+    const diagnostics: WorkspaceProviderDiagnostic[] = [];
+
+    for (const tier of ["primary", "fallback"] as const) {
+      const selection = await this.selectInTier(input2, tier, diagnostics, signal);
+      if (selection.kind === "none") continue;
+      if (selection.kind === "conflict") {
+        throw providerCreateError(
+          "owner-conflict",
+          409,
+          `Workspace owner conflict prevents creation: ${selection.pluginIds.join(", ")}`,
+        );
+      }
+
+      const contribution = selection.contribution;
+      const callback = contribution.provider.createWorkspace?.bind(contribution.provider);
+      if (callback === undefined) {
+        throw providerCreateError(
+          "creation-unavailable",
+          409,
+          `Server plugin ${contribution.pluginId} does not support workspace creation`,
+        );
+      }
+
+      let value: unknown;
+      try {
+        value = await runBoundedProviderOperation(
+          contribution.pluginId,
+          "createWorkspace",
+          this.providerTimeoutMs,
+          (operationSignal) => callback(Object.freeze({
+            project: input2,
+            worktreeParentDir,
+            input: resolvedInput,
+            signal: operationSignal,
+          })),
+          signal,
+        );
+      } catch (error) {
+        if (signal?.aborted === true) throw abortError(signal);
+        if (error instanceof WorkspaceProviderTimeoutError) {
+          throw providerCreateError("creation-timeout", 504, boundedErrorMessage(error), error);
+        }
+        throw providerCreateError(
+          "creation-failed",
+          502,
+          `Server plugin ${contribution.pluginId} failed to create workspace: ${boundedErrorMessage(error)}`,
+          error,
+        );
+      }
+
+      const validated = await validateCreatedWorkspace(input2, contribution, value, this.pathInspector, signal);
+      const hostRemoval = classifyHostRemoval(
+        input2,
+        contribution,
+        validated.key,
+        validated.path,
+        validated.removal,
+        `Workspace provider ${contribution.pluginId} created workspace`,
+      );
+      return Object.freeze({
+        id: workspaceId(input2.id, validated.key),
+        projectId: input2.id,
+        path: validated.path,
+        label: validated.label,
+        isMain: validated.isMain,
+        provider: Object.freeze({
+          pluginId: contribution.pluginId,
+          capabilities: Object.freeze({
+            remove: hostRemoval.remove,
+            create: true,
+          }),
+          ...(validated.publicMetadata !== undefined && validated.publicMetadata !== null ? { metadata: cloneJsonObject(validated.publicMetadata, "workspace publicMetadata") } : {}),
+        }),
+        ...(hostRemoval.removal === undefined ? {} : { removal: hostRemoval.removal }),
+      });
+    }
+
+    const failedProbe = diagnostics.find(({ code }) => code === "probe-failed");
+    if (failedProbe !== undefined) {
+      throw providerCreateError(
+        "resolution-failed",
+        502,
+        `Workspace owner resolution failed before creation: ${boundedErrorMessage(failedProbe.message)}`,
+      );
+    }
+    throw providerCreateError("owner-unavailable", 409, `No workspace provider currently owns project ${input2.id}`);
+  }
   private async selectInTier(
     project: ProjectInput,
     tier: ProviderTier,
@@ -549,16 +679,13 @@ async function validateProviderWorkspaces(
     const data = candidate.data === undefined
       ? undefined
       : cloneJsonValue(candidate.data, new Set<object>(), `${label} data`);
-    const removal = candidate.removal === undefined ? undefined : parseRemoval(candidate.removal, `${label} removal`);
-    if (removal !== undefined && contribution.provider.prepareRemove === undefined) {
-      throw new WorkspaceProviderContractError(`${label} advertises removal without a prepareRemove capability`);
-    }
-    const publicRemoval = removal === undefined
-      ? undefined
-      : hostRemovalPresentation(project, contribution, candidate.key, path, removal);
+    const hostRemoval = classifyHostRemoval(project, contribution, candidate.key, path, candidate.removal, label);
     const provider = Object.freeze({
       pluginId: contribution.pluginId,
-      capabilities: Object.freeze({ remove: removal !== undefined }),
+      capabilities: Object.freeze({
+        remove: hostRemoval.remove,
+        ...(contribution.provider.createWorkspace !== undefined ? { create: true } : {}),
+      }),
       ...(metadata === undefined ? {} : { metadata }),
     });
     const workspace: WorkspaceListing = {
@@ -568,7 +695,7 @@ async function validateProviderWorkspaces(
       label: candidate.label,
       isMain: candidate.isMain,
       provider,
-      ...(publicRemoval === undefined ? {} : { removal: publicRemoval }),
+      ...(hostRemoval.removal === undefined ? {} : { removal: hostRemoval.removal }),
     };
     const providerWorkspace: Readonly<ProviderWorkspace> = Object.freeze({
       key: candidate.key,
@@ -577,7 +704,7 @@ async function validateProviderWorkspaces(
       isMain: candidate.isMain,
       ...(data === undefined ? {} : { data }),
       ...(metadata === undefined ? {} : { publicMetadata: metadata }),
-      ...(removal === undefined ? {} : { removal }),
+      ...(hostRemoval.parsed === undefined ? {} : { removal: hostRemoval.parsed }),
     });
     workspaces.push(Object.freeze({ workspace: Object.freeze(workspace), providerWorkspace }));
   }
@@ -586,6 +713,27 @@ async function validateProviderWorkspaces(
     throw new WorkspaceProviderContractError(`Workspace provider ${contribution.pluginId} must return exactly one main workspace`);
   }
   return workspaces;
+}
+
+function parseProviderCreateInput(value: unknown): ProviderCreateInput {
+  if (!isRecord(value)) throw new WorkspaceProviderCreateError("invalid-input", 400, "Workspace creation input must be an object");
+  const name = value["name"];
+  const baseRef = value["baseRef"];
+  const branchName = value["branchName"];
+  if (typeof name !== "string" || name === "") {
+    throw new WorkspaceProviderCreateError("invalid-input", 400, "Workspace creation name must be a non-empty string");
+  }
+  if (baseRef !== undefined && typeof baseRef !== "string") {
+    throw new WorkspaceProviderCreateError("invalid-input", 400, "Workspace creation baseRef must be a string");
+  }
+  if (branchName !== undefined && typeof branchName !== "string") {
+    throw new WorkspaceProviderCreateError("invalid-input", 400, "Workspace creation branchName must be a string");
+  }
+  return Object.freeze({
+    name,
+    ...(baseRef === undefined || baseRef === "" ? {} : { baseRef }),
+    ...(branchName === undefined || branchName === "" ? {} : { branchName }),
+  });
 }
 
 function parseProviderWorkspace(value: unknown, label: string): ParsedProviderWorkspace {
@@ -618,6 +766,34 @@ function parseRemoval(value: unknown, label: string): ProviderWorkspaceRemovalPr
   if (typeof confirmation !== "string" || confirmation === "") throw new WorkspaceProviderContractError(`${label} confirmation must be a non-empty string`);
   const localization = parseWorkspaceRemovalLocalization(value["localization"]);
   return Object.freeze({ actionLabel, confirmation, ...(localization === undefined ? {} : { localization }) });
+}
+
+interface HostRemovalClassification {
+  remove: boolean;
+  parsed?: ProviderWorkspaceRemovalPresentation;
+  removal?: WorkspaceRemovalHostState;
+}
+
+/**
+ * Classify a provider-advertised removal the same way for listing and creation:
+ * a workspace is removable exactly when its owner supplies a presentation and a
+ * `prepareRemove` operation. Creation must not silently advertise `remove: false`
+ * for a workspace the listing would let the user delete.
+ */
+function classifyHostRemoval(
+  project: ProjectInput,
+  contribution: ServerPluginProviderContribution,
+  providerKey: string,
+  path: string,
+  removal: unknown,
+  label: string,
+): HostRemovalClassification {
+  const parsed = removal === undefined ? undefined : parseRemoval(removal, `${label} removal`);
+  if (parsed === undefined) return { remove: false };
+  if (contribution.provider.prepareRemove === undefined) {
+    throw new WorkspaceProviderContractError(`${label} advertises removal without a prepareRemove capability`);
+  }
+  return { remove: true, parsed, removal: hostRemovalPresentation(project, contribution, providerKey, path, parsed) };
 }
 
 function hostRemovalPresentation(
@@ -680,6 +856,26 @@ function folderWorkspace(project: ProjectInput): WorkspaceListing {
 
 function workspaceId(projectId: string, providerKey: string): string {
   return createHash("sha1").update(`${projectId}:${providerKey}`).digest("hex").slice(0, 12);
+}
+
+/** Validate one provider-created workspace the same way listed workspaces are. */
+async function validateCreatedWorkspace(
+  project: ProjectInput,
+  contribution: ServerPluginProviderContribution,
+  value: unknown,
+  pathInspector: WorkspacePathInspector,
+  signal?: AbortSignal,
+): Promise<ParsedProviderWorkspace> {
+  throwIfAborted(signal);
+  const candidate = parseProviderWorkspace(value, `Workspace provider ${contribution.pluginId} created workspace`);
+  const path = normalizeAbsolutePath(candidate.path, `${candidate.key} path`);
+  if (!(await pathInspector(path))) {
+    throw new WorkspaceProviderContractError(`${candidate.key} path is not an accessible directory: ${path}`);
+  }
+  if (candidate.isMain) {
+    throw new WorkspaceProviderContractError(`Workspace provider ${contribution.pluginId} created workspace must not be the main workspace`);
+  }
+  return { ...candidate, path };
 }
 
 function normalizeAbsolutePath(path: string, label: string): string {
@@ -784,6 +980,15 @@ function providerRemovalError(
   cause?: unknown,
 ): WorkspaceProviderRemovalError {
   return new WorkspaceProviderRemovalError(code, statusCode, message, cause === undefined ? {} : { cause });
+}
+
+function providerCreateError(
+  code: WorkspaceProviderCreateErrorCode,
+  statusCode: number,
+  message: string,
+  cause?: unknown,
+): WorkspaceProviderCreateError {
+  return new WorkspaceProviderCreateError(code, statusCode, message, cause === undefined ? {} : { cause });
 }
 
 function parseWorkspaceRemovePlan(value: unknown, pluginId: string): WorkspaceRemovePlan {

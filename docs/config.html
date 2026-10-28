@@ -88,6 +88,7 @@
 <a href="#file-settings">Files &amp; uploads</a>
 <a href="#session-tools">Session daemon</a>
 <a href="#plugin-config">Plugins</a>
+<a href="#add-workspace-worktree-location">Add workspace</a>
 <a href="#network">Networking</a>
 <a href="#storage">Storage</a>
 <a href="#providers">Providers &amp; trust</a>
@@ -135,7 +136,7 @@
 </tbody></table></div>
 <p id="precedence"><strong>Highest priority first:</strong> enforced environment → browser-local choice (where applicable) → supported project override → writable machine config → deployment defaults → built-in defaults.</p>
 <p>Without a deployment file, existing writable config behavior is unchanged. A missing writable file means no saved overrides. Deployment defaults supply starting values, not locks; use environment policy to enforce values. Mount deployment defaults read-only and keep <code>PI_WEB_CONFIG</code> writable; it must not select the defaults file.</p>
-<p>Each declared setting replaces its lower-layer value; there is no general recursive merge. The schema declares these independent namespace leaves: <code>uploads.defaultFolder</code>, <code>attachments.defaultFolder</code>, <code>sessionNaming.model</code>, <code>.maxTokens</code>, <code>.thinkingLevel</code>, <code>.timeoutMs</code>, <code>sessionArchive.directory</code>, <code>pathAccess.allowedPaths</code>, and <code>defaultLocalization.language</code>, <code>.formatLocale</code>, <code>.timeZone</code>, <code>.hourCycle</code>. Leaves inherit independently across deployment defaults, writable config, applicable project config, and environment policy. Empty namespaces <code>{}</code> contribute no overrides; missing leaves inherit.</p>
+<p>Each declared setting replaces its lower-layer value; there is no general recursive merge. The schema declares these independent namespace leaves: <code>uploads.defaultFolder</code>, <code>attachments.defaultFolder</code>, <code>sessionNaming.model</code>, <code>.maxTokens</code>, <code>.thinkingLevel</code>, <code>.timeoutMs</code>, <code>sessionArchive.directory</code>, <code>git.worktreeParentDir</code>, <code>pathAccess.allowedPaths</code>, and <code>defaultLocalization.language</code>, <code>.formatLocale</code>, <code>.timeZone</code>, <code>.hourCycle</code>. Leaves inherit independently across deployment defaults, writable config, applicable project config, and environment policy. Empty namespaces <code>{}</code> contribute no overrides; missing leaves inherit.</p>
 <p>Each plugin’s <code>enabled</code> and each top-level plugin setting also resolve independently. Individual array/dictionary-valued settings replace entirely, including explicit empty values. <code>defaultTheme</code> remains one atomic, coherent preference; <code>shortcuts</code> and deprecated <code>agent</code> are also atomic. JSON depth alone does not define a setting.</p>
 <details class="config-details" id="config-resets"><summary>Sources, saves, resets, and the config API</summary>
 <p>Settings shows inherited sources and environment policy; enforced controls are read-only. Where a saved override has a <strong>Reset saved override</strong> control, it deletes the override to expose the next applicable layer, rather than saving today’s default. Loading deployment defaults keeps them separate from writable overrides. Enforced theme/localization temporarily masks browser choices without erasing them; removing policy restores those choices.</p>
@@ -177,7 +178,7 @@
 </tr>
 <tr>
 <th scope="row">Other core keys</th>
-<td>Not supported in project config. Plugins may own separate files, such as <code>.pi-web/tasks.json</code>.</td>
+<td>Not supported in project config. Plugins may own separate files, such as <code>.pi-web/scripts.json</code>.</td>
 </tr>
 </tbody></table></div>
 <details class="config-details"><summary>Minimal project config example</summary><p>Merge these keys into the existing file; preserve other settings.</p><div class="code-card"><div class="copy-row"><strong>.pi-web/config.json</strong><button class="copy-button" data-copy="#project-config-example">Copy</button></div><pre id="project-config-example"><code>{
@@ -463,7 +464,7 @@
 <p>Saved model, budget, thinking-level, and timeout changes apply to the next naming request without a restart or reload. Existing names and in-progress naming requests are unchanged. Agent permission changes in the same panel still require a session-daemon restart. Naming failures use the first-message fallback and are recorded in daemon logs.</p>
 </details>
 <details class="config-details"><summary>Independent sessions vs. tracked subsessions</summary>
-<p>Independent sessions run in a workspace of the same project without returning output to their parent. Tracked subsessions run in the parent’s working directory and return results automatically; the parent can keep working or wait for them. Delivered results are not automatically repeated, but remain available for review.</p>
+<p>Independent sessions run in a workspace of the same project without returning output to their parent. Tracked subsessions run in the parent’s working directory by default, or in any workspace of the project when <code>cwd</code> is passed to <code>spawn_subsession</code>, and return results automatically; the parent can keep working or wait for them. The child stays nested under its parent in the web UI while appearing in its own workspace’s session tree. Delivered results are not automatically repeated, but remain available for review.</p>
 <p>Agent-created tracked subsessions are collapsed under their parent. Use <strong>Agent subsessions</strong> to expand them. User-created forks and clones, unknown-origin sessions, children without an available parent, and independent sessions remain visible.</p>
 <p>New sessions inherit the parent’s model and thinking level unless another model is requested, for example with a <code>#provider/model-id</code> prompt reference. Thinking levels are limited to what the chosen model supports.</p>
 </details>
@@ -913,6 +914,7 @@ PI_WEB_PLUGINS='{"git":{"settings":{"workspaceDiscoveryHooks":false}}}'</code></
 <tr><th scope="row"><code>basePaths</code></th><td><code>PI_WEB_BASE_PATHS</code></td><td>JSON string array</td></tr>
 <tr><th scope="row"><code>pathAccess</code></th><td><code>PI_WEB_PATH_ACCESS</code></td><td>JSON object, e.g. <code>{"allowedPaths":[]}</code></td></tr>
 <tr><th scope="row"><code>uploads</code></th><td><code>PI_WEB_UPLOADS</code></td><td>JSON object with <code>defaultFolder</code></td></tr>
+<tr><th scope="row"><code>git</code></th><td><code>PI_WEB_GIT</code></td><td>JSON object with <code>worktreeParentDir</code></td></tr>
 <tr><th scope="row"><code>attachments</code></th><td><code>PI_WEB_ATTACHMENTS</code></td><td>JSON object with <code>defaultFolder</code></td></tr>
 <tr><th scope="row"><code>sessionNaming</code></th><td><code>PI_WEB_SESSION_NAMING</code></td><td>JSON object; only supplied naming fields are enforced</td></tr>
 <tr><th scope="row"><code>defaultTheme</code></th><td><code>PI_WEB_DEFAULT_THEME</code></td><td>JSON object with <code>themeId</code> and <code>auto</code></td></tr>
@@ -921,6 +923,24 @@ PI_WEB_PLUGINS='{"git":{"settings":{"workspaceDiscoveryHooks":false}}}'</code></
 <tr><th scope="row"><code>plugins</code></th><td><code>PI_WEB_PLUGINS</code></td><td>JSON plugin map; enablement and each top-level setting resolve independently</td></tr>
 </tbody></table></div>
 <p><strong>Environment-only settings:</strong> config paths are under <a href="#files">Config files</a>; daemon endpoints under <a href="#network">Networking</a>; directory overrides under <a href="#storage">Storage</a>; offline flags under <a href="#providers">Providers</a>.</p>
+</section>
+<section id="add-workspace-worktree-location"><h2>Add-workspace worktree location</h2>
+<p>The Add-workspace action creates a new git worktree directly from the UI, without starting a session. PI WEB places each new worktree under a configured parent directory. Set it per project in <code>.pi-web/config.json</code> or globally in your PI WEB config:</p>
+<pre><code>{ "git": { "worktreeParentDir": "../my-repo-worktrees" } }</code></pre>
+<div class="table-scroll" role="region" aria-label="Worktree parent directory rules" tabindex="0">
+<table class="reference-table ">
+<caption>Worktree parent directory rules</caption>
+<thead><tr>
+<th scope="col">Item</th>
+<th scope="col">Behavior</th>
+</tr></thead>
+<tbody>
+<tr><th scope="row">Value</th><td>An absolute path, or a path relative to the project root. Relative paths are resolved against the registered project directory.</td></tr>
+<tr><th scope="row">Default</th><td>When unset, a sibling directory named <code>&lt;repo&gt;-worktrees</code> next to the main checkout, for example <code>../my-repo-worktrees</code> for a project at <code>./my-repo</code>.</td></tr>
+<tr><th scope="row">Precedence</th><td>Project-local <code>.pi-web/config.json</code> overrides the global config; the sibling default applies when neither is set.</td></tr>
+<tr><th scope="row">Environment policy</th><td><code>PI_WEB_GIT</code> with <code>{"worktreeParentDir":"/srv/worktrees"}</code> enforces the leaf over project and global config. The global value is read when the session daemon starts, so restart the daemon after changing it; a project config change applies to the next creation.</td></tr>
+</tbody></table></div>
+<p>The action opens a dialog collecting the worktree name, an optional base ref (branch, commit, or tag to branch from, defaulting to the current branch), and an optional new branch name (defaulting to the worktree name). PI WEB runs <code>git worktree add &lt;parent&gt;/&lt;name&gt; -b &lt;branch&gt; [&lt;baseRef&gt;]</code>, then surfaces the new workspace immediately. The parent directory is created when missing. Because creation runs through the Git workspace provider, the action is available only for Git projects.</p>
 </section>
 <section id="worktree-pre-remove-hook"><h2>Workspace cleanup hook</h2>
 <p>Optional executable script at <code>.pi-web/hooks/worktree-pre-remove</code>. Use it to stop containers or release workspace resources before removal.</p>

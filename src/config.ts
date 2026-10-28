@@ -367,6 +367,7 @@ export function parsePiWebConfig(value: Record<string, unknown>, path = "request
     ...(value["quietMode"] !== undefined ? { quietMode: parseBooleanKey(value["quietMode"], "quietMode", path) } : {}),
     ...(value["plugins"] !== undefined ? { plugins: parsePlugins(value["plugins"], path) } : {}),
     ...(value["basePaths"] !== undefined ? { basePaths: parseBasePaths(value["basePaths"], path) } : {}),
+    ...(value["git"] !== undefined ? { git: parseGitConfig(value["git"], path) } : {}),
     ...(value["pathAccess"] !== undefined ? { pathAccess: parsePathAccessConfig(value["pathAccess"], path) } : {}),
     ...(value["uploads"] !== undefined ? { uploads: parseUploadsConfig(value["uploads"], path) } : {}),
     ...(value["attachments"] !== undefined ? { attachments: parseAttachmentsConfig(value["attachments"], path) } : {}),
@@ -379,6 +380,19 @@ export function parsePiWebConfig(value: Record<string, unknown>, path = "request
     ...(value["environmentFacts"] !== undefined ? { environmentFacts: parseBooleanKey(value["environmentFacts"], "environmentFacts", path) } : {}),
     ...(value["extensionDialogsTimeoutMs"] !== undefined ? { extensionDialogsTimeoutMs: parseExtensionDialogsTimeoutMs(value["extensionDialogsTimeoutMs"], path) } : {}),
     ...(value["agent"] !== undefined ? { agent: parseAgentConfig(value["agent"], path, pathHost) } : {}),
+  };
+}
+
+/** Parse the `git` namespace, shared by the global config and project config files. */
+export function parseGitConfig(value: unknown, path: string, label = "PI WEB config git"): NonNullable<PiWebConfigValues["git"]> {
+  if (!isRecord(value)) throw new Error(`${label} config must be an object: ${path}`);
+  requireNamespaceKeys(value, "git", path);
+  const worktreeParentDir = value["worktreeParentDir"];
+  if (worktreeParentDir !== undefined && (typeof worktreeParentDir !== "string" || worktreeParentDir.trim() === "" || worktreeParentDir.includes("\u0000"))) {
+    throw new Error(`${label}.worktreeParentDir must be a non-empty path: ${path}`);
+  }
+  return {
+    ...(worktreeParentDir === undefined ? {} : { worktreeParentDir }),
   };
 }
 

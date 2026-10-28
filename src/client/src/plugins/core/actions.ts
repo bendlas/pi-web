@@ -3,6 +3,7 @@ import { isSessionActive } from "../../../../shared/activity";
 import type { AppState } from "../../appState";
 import { isArchivableSessionInfo, isTransientNewSessionInfo } from "../../sessionPersistence";
 import { canDeleteWorkspace, isWorkspaceDeletionPending } from "../../workspaceDeletion";
+import { canCreateWorkspace } from "../../workspaceCreation";
 import type { PluginAction } from "../types";
 
 export function createCoreActions(): PluginAction[] {
@@ -129,12 +130,29 @@ export function createCoreActions(): PluginAction[] {
       run: (context) => context.deleteWorkspace(),
     },
     {
+      id: "workspace.create",
+      get title() { return m.t("workspace_create_title"); },
+      get description() { return m.t("workspace_create_description"); },
+      get group() { return m.t("groupWorkspace"); },
+      enabled: hasCreatableWorkspace,
+      run: (context) => context.createWorkspace(),
+    },
+    {
       id: "session.start",
       get title() { return m.t("session_start_title"); },
       shortcut: "mod+enter",
       get group() { return m.t("groupSession"); },
       enabled: hasWorkspace,
       run: (context) => context.startSession(),
+    },
+    {
+      id: "prompt.steer",
+      get title() { return m.t("prompt_steer_title"); },
+      get description() { return m.t("prompt_steer_description"); },
+      shortcut: "mod+shift+enter",
+      get group() { return m.t("groupSession"); },
+      enabled: hasStreamingSession,
+      run: (context) => { context.steerPrompt(); },
     },
     {
       id: "model.select",
@@ -149,6 +167,7 @@ export function createCoreActions(): PluginAction[] {
       get title() { return m.t("thinking_select_title"); },
       get description() { return m.t("thinking_select_description"); },
       get group() { return m.t("groupSession"); },
+      shortcut: "mod+shift+t",
       enabled: hasSelectableSession,
       run: (context) => context.openThinkingLevelPicker(),
     },
@@ -196,9 +215,19 @@ function hasDeletableWorkspace(context: { state: AppState }): boolean {
   return canDeleteWorkspace(workspace) && !isWorkspaceDeletionPending(context.state, workspace);
 }
 
+function hasCreatableWorkspace(context: { state: AppState }): boolean {
+  return canCreateWorkspace(context.state.selectedWorkspace);
+}
+
 function hasSelectableSession(context: { state: AppState }): boolean {
   const session = context.state.selectedSession;
   return session !== undefined && session.archived !== true;
+}
+
+function hasStreamingSession(context: { state: AppState }): boolean {
+  const session = context.state.selectedSession;
+  const { status } = context.state;
+  return session !== undefined && session.archived !== true && status?.isStreaming === true && !status.isCompacting;
 }
 
 function hasArchivableSession(context: { state: AppState }): boolean {
