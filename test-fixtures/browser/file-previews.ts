@@ -4,6 +4,7 @@ import { WorkspaceFileViewer } from "../../pi-web-plugins/files/FilesViewer";
 import { createFilesContent } from "../../pi-web-plugins/files/filesLocalization";
 import type { FileContentResponse, WorkspaceFilesCapabilityV1 } from "../../src/plugin-api";
 import { LocalizationService } from "../../src/client/src/localization/service";
+import { FileIconService, fileIconsCapabilityToken } from "../../src/client/src/fileIconService";
 import { createPluginLocalization } from "../../src/client/src/plugins/localization";
 import { adaptPublicPlugin } from "../../src/client/src/plugins/publicContext";
 import { PluginRegistry } from "../../src/client/src/plugins/registry";
@@ -11,7 +12,10 @@ import type { PiWebPlugin as InternalPlugin } from "../../src/client/src/plugins
 
 const service = new LocalizationService();
 const lifetime = new AbortController();
-const registry = new PluginRegistry({ localization: service });
+const registry = new PluginRegistry({
+  localization: service,
+  hostCapabilities: [{ capability: fileIconsCapabilityToken, value: new FileIconService().capability }],
+});
 const filesEntry: unknown = filesPlugin;
 // The real loader validates opaque external callbacks; this fixture supplies a known public-v5 entry at that boundary.
 // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- Public-v5 callbacks are adapted to internal services by PluginRegistry at runtime.
