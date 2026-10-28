@@ -1,9 +1,11 @@
 import { EventEmitter, once } from "node:events";
-import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it, vi } from "vitest";
-import { startDevelopmentProcess } from "./dev-processes.mjs";
+import { developmentRuntimeEnvironment, startDevelopmentProcess } from "./dev-processes.mjs";
+import { runDevelopmentClient } from "./dev-client.mjs";
+import { runDevelopmentServices } from "./dev-services.mjs";
 import { runDevelopmentWeb } from "./dev-web.mjs";
 import { runDevelopmentSessiond, waitForPluginBuild } from "./dev-sessiond.mjs";
 
@@ -81,6 +83,92 @@ it("builds through the Docker source mount without changing API runtime cwd", as
   expect(options.launch.mock.calls[1][3]).toBeUndefined();
   options.children[0].finish(0);
   expect(await running).toBe(0);
+});
+
+it.skipIf(process.platform === "win32")("pins runtime Node independently of the PATH used by runtime subprocesses", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-web-runtime-tools-"));
+  let child;
+  try {
+    await writeFile(join(root, "node"), "#!/bin/sh\nprintf 'user-selected-node'\n");
+    await chmod(join(root, "node"), 0o755);
+    const env = developmentRuntimeEnvironment({
+      ...process.env,
+      PATH: "/lifecycle/node:/npm/bin",
+      PI_WEB_SERVICE_ORIGINAL_PATH: root,
+      PI_WEB_DEV_SUPERVISED: "1",
+    });
+    child = startDevelopmentProcess("-e", [
+      `const { spawnSync } = require('node:child_process');
+const tool = spawnSync('node', [], { encoding: 'utf8' });
+process.send({ executable: process.execPath, tool: tool.stdout, path: process.env.PATH, snapshot: process.env.PI_WEB_SERVICE_ORIGINAL_PATH, group: process.env.PI_WEB_DEV_SUPERVISED });`,
+    ], env, { ipc: true });
+    const exited = once(child, "exit");
+    const [report] = await once(child, "message");
+    expect(await exited).toEqual([0, null]);
+    expect(report).toEqual({ executable: process.execPath, tool: "user-selected-node", path: root });
+  } finally {
+    if (child?.exitCode === null) child.kill();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+it("keeps lifecycle tooling pinned but restores the API's original tool environment", async () => {
+  const options = harness();
+  options.env = { PATH: "/pinned/node:/npm/bin:/user/tools", PI_WEB_SERVICE_ORIGINAL_PATH: "/user/tools" };
+  const running = runDevelopmentWeb(options);
+  options.children[0].emit("message", { type: "plugin-build-ready" });
+  expect(options.launch.mock.calls[0][2]).toMatchObject(options.env);
+  expect(options.launch.mock.calls[1][2]).toEqual({ PATH: "/user/tools", PI_WEB_DEV_PLUGIN_PAIRING: "1" });
+  expect(options.env.PI_WEB_SERVICE_ORIGINAL_PATH).toBe("/user/tools");
+  options.children[0].finish(0);
+  expect(await running).toBe(0);
+});
+
+it("restores the daemon's tool environment without changing the launcher environment", async () => {
+  const options = harness();
+  options.env = { PATH: "/pinned/node:/npm/bin:/user/tools", PI_WEB_SERVICE_ORIGINAL_PATH: "/user/tools" };
+  const running = runDevelopmentSessiond({ ...options, wait: () => Promise.resolve() });
+  await vi.waitFor(() => expect(options.launch).toHaveBeenCalledOnce());
+  expect(options.launch.mock.calls[0][2]).toEqual({ PATH: "/user/tools" });
+  expect(options.env.PI_WEB_SERVICE_ORIGINAL_PATH).toBe("/user/tools");
+  options.children[0].finish(0);
+  expect(await running).toBe(0);
+});
+
+it.each([{ PATH: "/local/tools" }, { PATH: "/pinned", PI_WEB_SERVICE_ORIGINAL_PATH: "" }])("preserves local and empty tooling PATH contracts (%j)", (env) => {
+  const runtime = developmentRuntimeEnvironment(env);
+  expect(runtime.PATH).toBe(env.PI_WEB_SERVICE_ORIGINAL_PATH ?? env.PATH);
+  expect(runtime).not.toHaveProperty("PI_WEB_SERVICE_ORIGINAL_PATH");
+  expect(runtime).not.toBe(env);
+});
+
+it.each([undefined, "dev"])("launches Vite through the selected Node with the source cwd for Docker (%s)", async (mode) => {
+  const options = harness();
+  options.env = mode === undefined ? {} : { PI_WEB_DOCKER_MODE: mode };
+  const running = runDevelopmentClient(["--host", "0.0.0.0"], options);
+  expect(options.launch.mock.calls[0][0]).toMatch(/vite[/\\\\]bin[/\\\\]vite\.js$/u);
+  expect(options.launch.mock.calls[0][1]).toEqual(["--host", "0.0.0.0"]);
+  expect(options.launch.mock.calls[0][3]).toEqual(mode === "dev" ? { cwd: "/build/pi-web" } : undefined);
+  options.children[0].finish(0);
+  expect(await running).toBe(0);
+});
+
+it("supervises npm lifecycles rather than bypassing hooks with direct entrypoints", async () => {
+  const options = harness();
+  options.env = { npm_execpath: "/selected/npm-cli.js" };
+  const running = runDevelopmentServices(["fixture:first", "fixture:second"], options);
+  expect(options.launch.mock.calls.map(call => call.slice(0, 2))).toEqual([
+    ["/selected/npm-cli.js", ["run", "fixture:first"]],
+    ["/selected/npm-cli.js", ["run", "fixture:second"]],
+  ]);
+  options.children[0].finish(7);
+  expect(await running).toBe(7);
+  expect(options.stop).toHaveBeenCalledWith(options.children[1]);
+});
+
+it("rejects groups without scripts or an npm lifecycle context", () => {
+  expect(() => runDevelopmentServices([])).toThrow("At least one");
+  expect(() => runDevelopmentServices(["fixture:service"], { env: {} })).toThrow("through npm run");
 });
 
 it("does not start the API when the initial build fails", async () => {

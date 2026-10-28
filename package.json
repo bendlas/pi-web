@@ -46,12 +46,13 @@
     "server-plugin-api.d.ts"
   ],
   "scripts": {
-    "dev": "bash -c 'trap \"kill 0\" EXIT; npm run dev:sessiond & npm run dev:web & npm run dev:client & wait'",
+    "dev": "node scripts/dev-services.mjs dev:sessiond dev:web dev:client",
+    "dev:ui": "node scripts/dev-services.mjs dev:web dev:client",
     "dev:sessiond": "node scripts/dev-sessiond.mjs --watch",
     "dev:web": "tsc -p tsconfig.plugins.json && node scripts/dev-web.mjs",
     "dev:server": "npm run dev:web",
     "predev:client": "npm run generate:material-icons",
-    "dev:client": "vite --host 0.0.0.0",
+    "dev:client": "node scripts/dev-client.mjs --host 0.0.0.0",
     "dev:plugins": "node scripts/build-plugins.mjs --watch",
     "generate:material-icons": "node scripts/import-material-file-icons.mjs",
     "prebuild": "npm run generate:material-icons",

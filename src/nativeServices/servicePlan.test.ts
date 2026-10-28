@@ -451,8 +451,8 @@ describe("development native service planning", () => {
         },
         {
           id: "uiDev",
-          shellCommand: "exec /usr/bin/env bash -c 'trap \"kill 0\" EXIT; npm run dev:web & npm run dev:client & wait'",
-          strategy: { kind: "development-npm-script-group", scripts: ["dev:web", "dev:client"], interpreter: "bash" },
+          shellCommand: "exec npm run dev:ui",
+          strategy: { kind: "development-npm-script", script: "dev:ui" },
           restart: "never",
           workingDirectory: "/checkout with space",
           after: [],
@@ -460,8 +460,7 @@ describe("development native service planning", () => {
           prerequisites: [
             { id: "uiDev.node", kind: "node-version", minimumVersion: "22.19.0" },
             { id: "uiDev.command.npm", kind: "command-available", command: "npm" },
-            { id: "uiDev.command.bash", kind: "command-available", command: "bash" },
-            { id: "uiDev.package-scripts", kind: "package-scripts", scripts: ["dev:web", "dev:client"] },
+            { id: "uiDev.package-scripts", kind: "package-scripts", scripts: ["dev:ui"] },
           ],
         },
       ],
@@ -470,7 +469,7 @@ describe("development native service planning", () => {
     const serviceCommandRequirements = plan.services.flatMap((service) => service.prerequisites)
       .filter((prerequisite) => prerequisite.kind === "command-available")
       .map((prerequisite) => prerequisite.command);
-    expect(serviceCommandRequirements).toEqual(["npm", "npm", "bash"]);
+    expect(serviceCommandRequirements).toEqual(["npm", "npm"]);
     expect(serviceCommandRequirements).not.toContain("pi-web-server");
     expect(serviceCommandRequirements).not.toContain("pi-web-sessiond");
 
@@ -484,7 +483,6 @@ describe("development native service planning", () => {
           { id: "sessiond.package-scripts" },
           { id: "uiDev.node" },
           { id: "uiDev.command.npm" },
-          { id: "uiDev.command.bash" },
           { id: "uiDev.package-scripts" },
         ],
       },
