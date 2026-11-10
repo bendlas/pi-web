@@ -8,12 +8,13 @@ import { customElement, property, query, state } from "lit/decorators.js";
 import { guard } from "lit/directives/guard.js";
 import { markdownWorkspaceContext, type MarkdownWorkspaceContext, type WorkspaceFileOpenRequest } from "../formatting/workspaceLinks";
 import { DEFAULT_CHAT_BEHAVIORS, type ChatBehaviors } from "../chatBehaviors";
-import { configApi, projectsApi, effectiveWorkspaceAttachmentsFolder, effectiveWorkspaceUploadFolder, sessionsApi, workspacesApi, workspaceEffectiveAttachmentsFolder, workspaceEffectiveUploadFolder, type AskUserSubmission, type CommandOption, type ExtensionDialogAnswer, type Machine, type MachineHealth, type PiWebConfigResponse, type PiWebConfigValues, type PiWebShortcutConfig, type Project, type SessionCleanupExecuteResponse, type SessionCleanupPreviewResponse, type SessionCleanupRequest, type SessionInfo, type SessionLocation, type SessionModel, type SessionModelCatalogResponse, type SessionModelScopeMode, type SessionTreeForkResult, type SessionTreeNavigateResult, type SessionTreeSummaryChoice, type TerminalCommandRun, type Workspace } from "../api";
+import { configApi, projectsApi, effectiveWorkspaceAttachmentsFolder, effectiveWorkspaceUploadFolder, sessionsApi, workspacesApi, workspaceEffectiveAttachmentsFolder, workspaceEffectiveUploadFolder, type AskUserSubmission, type CommandOption, type CreateWorkspaceRequest, type ExtensionDialogAnswer, type Machine, type MachineHealth, type PiWebConfigResponse, type PiWebConfigValues, type PiWebShortcutConfig, type Project, type SessionCleanupExecuteResponse, type SessionCleanupPreviewResponse, type SessionCleanupRequest, type SessionInfo, type SessionLocation, type SessionModel, type SessionModelCatalogEntry, type SessionModelCatalogResponse, type SessionModelScopeMode, type SessionTreeForkResult, type SessionTreeNavigateResult, type SessionTreeSummaryChoice, type TerminalCommandRun, type Workspace } from "../api";
 import type { AppAction } from "../actions";
 import { initialAppState, type AppState, type ModelDialogOrigin } from "../appState";
 import { browserErrorContext, browserErrorScopeKey, BrowserErrorReporter, clearBrowserError, machineBrowserErrorScope, visibleBrowserErrors, workspaceBrowserErrorScope, type BrowserError, type BrowserErrorScope } from "../browserErrors";
 import { isSessionActive } from "../../../shared/activity";
 import { workspaceDeleteOperation } from "../../../shared/workspaceDeletion";
+import type { MachineStatusSnapshot } from "../../../shared/machineStatus";
 import { PI_WEB_CAPABILITIES, supportsPiWebCapability } from "../../../shared/capabilities";
 import { machineScopedBundledPluginId, machineScopedManifestPluginId } from "../../../shared/machinePluginIds";
 import { AuthController } from "../controllers/authController";
@@ -23,6 +24,7 @@ import { NavigationOrderController, type NavigationOrderScope } from "../control
 import { navigationOrderPort } from "../api/navigationOrder";
 import { moveOrderedId, orderItems } from "../navigationOrder";
 import { ProjectController, type ProjectTrustChoice } from "../controllers/projectController";
+import { UnmappedSessionController } from "../controllers/unmappedSessionController";
 import { PiWebStatusController } from "../controllers/piWebStatusController";
 import { SessionController } from "../controllers/sessionController";
 import { SessionWorkTransitions } from "../controllers/sessionWorkTransitions";
@@ -35,8 +37,11 @@ import { SessionStorageSessionSelectionMemory } from "../controllers/sessionSele
 import { SessionStorageWorkspaceSelectionMemory, shouldShowWorkspaceSelection } from "../controllers/workspaceSelection";
 import { KeyboardShortcutDispatcher } from "../keyboardShortcuts";
 import { selectedMachineId, type NavigationDestinationOptions, type NavigationFreshness, type NavigationScope, type NavigationSelection } from "../controllers/types";
+import { loadKeepUnreadEntries, loadKeepUnreadIds, reconcileKeepUnreadEntries, setKeepUnread, type KeepUnreadEntry } from "../keepUnreadSessions";
+import { attributeCwd, augmentStatusSnapshotWithUnread, reconcileVisibleUnread } from "../statusUnreadProjection";
 import { machineSessionKey } from "../machineKeys";
 import { appendPromptChipText, samePromptChipTarget, type PromptChipTarget, type StagedPromptChip } from "../promptChips";
+import { isReadOnlySession } from "../readOnlySession";
 import { HttpRequestError } from "../api/http";
 import { isSessionOnlyRoute, resolveSessionLink, sessionLinkMachineOrder, type SessionLinkResolution } from "../sessionLinkResolution";
 import { sessionCleanupRequestKey } from "../sessionCleanupUi";
@@ -83,18 +88,22 @@ import { applyActiveShortcutPreferences } from "../shortcutPreferences";
 import { loadNavigationPreferences, saveNavigationPreferences, pinnedNavigationTabs, type NavigationPreferences } from "../navigationPreferences";
 import "./appShell/NavigationDialog";
 import { canDeleteWorkspace, isWorkspaceDeletionPending, isWorkspaceDeletionRunPending, latestWorkspaceDeletionRuns, pendingWorkspaceDeletionIds, targetWorkspaceIdForRun, workspaceDeletionRunFilter, workspaceRemovalConfirmation } from "../workspaceDeletion";
+import { canCreateWorkspace } from "../workspaceCreation";
 import "./MachineList";
 import "./ProjectList";
 import "./WorkspaceList";
-import { sessionNavigationCandidates, unreadSessionCount } from "./SessionList";
+import "./WorkspaceCreateDialog";
+type WorkspaceCreateDraft = import("./WorkspaceCreateDialog").WorkspaceCreateDraft;
+import { sessionNavigationCandidates, sessionRowUnread, unreadSessionCount } from "./SessionList";
 import "./SessionCleanupDialog";
 import "./RestartDialog";
 import type { RestartDialog } from "./RestartDialog";
 import "./SessionTreeNavigator";
+import { ConversationLayout } from "./ConversationLayout";
 import "./ConversationLayout";
 import "./ConversationSyncNotice";
 import "./ChatView";
-import type { ChatView } from "./ChatView";
+import type { ChatView, ChatChromeVisibilityDetail } from "./ChatView";
 import "./PromptEditor";
 import type { PromptEditor } from "./PromptEditor";
 import "./StatusBar";
@@ -165,6 +174,12 @@ interface NavigationUrlContext {
   readonly navigation?: NavigationFreshness | undefined;
 }
 
+// Some Android Chrome builds only measure env(safe-area-inset-*) a moment after first paint
+// (or after the first viewport resize). Poll briefly so the bottom inset is reserved without
+// waiting for the user to background and resume the app.
+const SAFE_AREA_MEASURE_INTERVAL_MS = 150;
+const SAFE_AREA_MEASURE_RETRIES = 10;
+
 interface SessionCleanupDialogState {
   preview?: SessionCleanupPreviewResponse | undefined;
   previewRequest?: SessionCleanupRequest | undefined;
@@ -199,6 +214,21 @@ export class PiWebApp extends LitElement {
   @query("app-navigation-panel") private navigationPanel?: AppNavigationPanel;
   @query("#navigation-panel") private navigationPanelFrame?: HTMLElement;
   @query("#workspace-panel") private workspacePanelFrame?: HTMLElement;
+  /** Whether the chat scroll direction has slid the header and input area out of the way. */
+  @state() private chatChromeHidden = false;
+  @query(".top-chrome") private chromeTop?: HTMLElement;
+  @query("conversation-layout") private conversationLayout?: ConversationLayout;
+  /** Height (px) of the floating top chrome, mirrored into ChatView's reveal-at-start rule. */
+  @state() private chatChromeTopInset = 0;
+  /** Space (px) the transcript scroller keeps beside itself for its scrollbar. */
+  private chatScrollbarGutter = 0;
+  /** Reserves each floating chrome group's height at the matching end of the transcript. */
+  private chatChromeTopObserver: ResizeObserver | undefined;
+  private observedChatChromeTop: HTMLElement | null = null;
+  private chatChromeBottomObserver: ResizeObserver | undefined;
+  private observedChatChromeBottom: HTMLElement | null = null;
+  private chatScrollGutterObserver: ResizeObserver | undefined;
+  private observedChatScrollGutter: HTMLElement | null = null;
 
   private readonly sessionUnread = new SessionUnreadController({
     onChange: (machineId) => {
@@ -210,7 +240,22 @@ export class PiWebApp extends LitElement {
       console.warn(`Failed to ${operation} session unread state for ${machineId}`, error);
     },
   });
-  @state() private unreadSessionIds: ReadonlySet<string> = this.sessionUnread.unreadSessionIds(selectedMachineId(this.state), this.state.sessions);
+  /** Machine the cached keep-unread overrides below were loaded for. */
+  private keepUnreadMachineId: string = selectedMachineId(this.state);
+  /** Sessions the user pinned as unread on {@link keepUnreadMachineId}. */
+  @state() private keepUnreadSessionIds: ReadonlySet<string> = loadKeepUnreadIds(selectedMachineId(this.state));
+  /** Keep-unread pins on {@link keepUnreadMachineId}, carrying the ownership the nav needs to roll the marker up. */
+  @state() private keepUnreadEntries: readonly KeepUnreadEntry[] = loadKeepUnreadEntries(selectedMachineId(this.state));
+  /**
+   * Memoized {@link keepUnreadNodeIds} keyed on the {@link keepUnreadEntries}
+   * reference, so navigation lists receive a stable set across transcript-only
+   * updates and Lit skips re-rendering them.
+   */
+  private keepUnreadNodeIdsCache: { entries: readonly KeepUnreadEntry[]; ids: ReadonlySet<string> } | undefined;
+  @state() private unreadSessionIds: ReadonlySet<string> = unionStringSets(
+    this.sessionUnread.unreadSessionIds(selectedMachineId(this.state), this.state.sessions),
+    this.keepUnreadSessionIds,
+  );
   private unreadConnected = false;
   private committedChatIdentity: string | undefined;
   private chatWasVisible = false;
@@ -317,6 +362,10 @@ export class PiWebApp extends LitElement {
       navigateToProject: (project, options) => this.navigateToProjectFromController(project, options),
       captureNavigation: () => navigationSelectionFromState(this.state),
     },
+  );
+  private readonly unmapped = new UnmappedSessionController(
+    () => this.state,
+    (patch) => { this.setState(patch); },
   );
   private readonly machines = new MachineController(
     () => this.state,
@@ -454,6 +503,7 @@ export class PiWebApp extends LitElement {
   @state() private isRefreshingApp = false;
   @state() private sessionCleanupDialog: SessionCleanupDialogState | undefined;
   private sessionCleanupRequestEpoch = 0;
+  @state() private workspaceCreateDialog: { defaultBaseRef: string; error: string; loading: boolean } | undefined;
   @state() private settingsSection: SettingsSection | undefined = readSettingsSection();
   @state() private settingsTarget: string | undefined;
   @state() private shortcutConfig: PiWebShortcutConfig = {};
@@ -518,6 +568,9 @@ export class PiWebApp extends LitElement {
     this.plugins.notifySelectionChanged();
     this.syncFileIcons();
     this.syncPluginStylesheets();
+    this.observeChatChromeTop();
+    this.observeChatChromeBottom();
+    this.observeChatScrollGutter();
     const chatVisible = this.isChatVisible();
     if (chatVisible) {
       if (this.sessions.isChatLoadDeferred) this.scheduleSelectedChatLoad();
@@ -614,6 +667,9 @@ export class PiWebApp extends LitElement {
     const machineId = selectedMachineId(this.state);
     if (this.manuallyUnreadChatIdentity === unreadChatIdentity(machineId, session)
       || !this.isSessionSeen(machineId, session)) return;
+    // The user asked to keep this conversation unread, so reading it must not
+    // clear the marker: only an explicit mark-read or toggle-off does.
+    if (this.keepUnreadIds(machineId).has(session.id)) return;
     const completion = this.sessionUnread.completion(machineId, session);
     if (completion === undefined) return;
     const rendered = this.renderedUnreadCompletion;
@@ -643,6 +699,15 @@ export class PiWebApp extends LitElement {
 
   private markSessionsRead(sessions: readonly SessionInfo[]): void {
     const machineId = selectedMachineId(this.state);
+    const keepUnread = this.keepUnreadIds(machineId);
+    const pinned = sessions.filter((session) => keepUnread.has(session.id));
+    if (pinned.length > 0) {
+      for (const session of pinned) {
+        const owner = attributeCwd(session.cwd, this.allWorkspaces());
+        setKeepUnread(machineId, { id: session.id, cwd: session.cwd, workspaceId: owner?.workspaceId ?? "", projectId: owner?.projectId ?? "" }, false);
+      }
+      this.refreshKeepUnreadIds(machineId);
+    }
     for (const session of sessions) {
       if (this.manuallyUnreadChatIdentity === unreadChatIdentity(machineId, session)) this.manuallyUnreadChatIdentity = undefined;
       void this.sessionUnread.acknowledge(machineId, session);
@@ -662,6 +727,92 @@ export class PiWebApp extends LitElement {
     }
   }
 
+  /** Flip "keep unread" for one session of the selected machine. */
+  private toggleKeepUnread(session: SessionInfo): void {
+    const machineId = selectedMachineId(this.state);
+    const keep = !this.keepUnreadIds(machineId).has(session.id);
+    const owner = attributeCwd(session.cwd, this.allWorkspaces());
+    // Even without a resolvable owner we still record the pin so the session row
+    // stays unread; only the workspace/project/machine roll-up needs ownership.
+    setKeepUnread(machineId, { id: session.id, cwd: session.cwd, workspaceId: owner?.workspaceId ?? "", projectId: owner?.projectId ?? "" }, keep);
+    this.refreshKeepUnreadIds(machineId);
+    // Stop keeping unread must clear the marker now, exactly like Mark as read,
+    // so the two are the same action: ending up read and not pinned. Reading the
+    // conversation no longer does it, because the pin is gone.
+    if (!keep) void this.sessionUnread.acknowledge(machineId, session);
+  }
+
+  /** Every workspace of every project on the selected machine, not just the selected project's. */
+  private allWorkspaces(): Workspace[] {
+    return Object.values(this.state.workspacesByProjectId).flat();
+  }
+
+  /**
+   * Keep-unread overrides for `machineId`, re-read from browser storage when the
+   * selected machine changed (another tab may also have edited them).
+   */
+  private keepUnreadIds(machineId: string): ReadonlySet<string> {
+    if (this.keepUnreadMachineId !== machineId) this.refreshKeepUnreadIds(machineId);
+    return this.keepUnreadSessionIds;
+  }
+
+  private refreshKeepUnreadIds(machineId: string): void {
+    this.keepUnreadMachineId = machineId;
+    const nextIds = loadKeepUnreadIds(machineId);
+    if (!sameStringSet(nextIds, this.keepUnreadSessionIds)) this.keepUnreadSessionIds = nextIds;
+    const nextEntries = loadKeepUnreadEntries(machineId);
+    if (!sameKeepUnreadEntries(nextEntries, this.keepUnreadEntries)) this.keepUnreadEntries = nextEntries;
+    this.syncUnreadSessionIds();
+  }
+
+  /**
+   * Drop keep-unread pins that can no longer justify a marker: a pin whose
+   * workspace was removed, or a pin for a session the user explicitly deleted.
+   *
+   * The daemon already sweeps its own unread catalog for vanished cwds, but
+   * these browser-local pins were never reconciled, so a pinned session that is
+   * archived-then-deleted (or whose workspace is removed) kept its
+   * project/workspace/machine badge lit with no child session — the stale
+   * condition the daemon fix had eliminated for daemon-owned unread.
+   *
+   * Deleted session ids come from the authoritative delete paths; workspace
+   * removal is detected against the workspaces the client still tracks. We never
+   * infer deletion from a session list going empty, because a transient refresh
+   * can momentarily report no sessions and would otherwise prune live pins.
+   */
+  private reconcileKeepUnread(deletedSessionIds: ReadonlySet<string> = new Set()): void {
+    if (this.keepUnreadEntries.length === 0) return;
+    const liveWorkspaceIds = new Set(Object.values(this.state.workspacesByProjectId).flat().map((workspace) => workspace.id));
+    const selectedWorkspaceId = this.state.selectedWorkspace?.id ?? "";
+    const selectedSessions = selectedWorkspaceId === "" ? [] : this.state.sessions;
+    const selectedWorkspaceSessionIds = new Set(selectedSessions.map((session) => session.id));
+    const selectedWorkspaceArchivedIds = new Set(
+      selectedSessions.filter((session) => session.archived === true).map((session) => session.id),
+    );
+    const surviving = reconcileKeepUnreadEntries(this.keepUnreadEntries, {
+      liveWorkspaceIds,
+      knownProjectIds: new Set(this.state.projects.map((project) => project.id)),
+      loadedWorkspaceProjectIds: new Set(Object.keys(this.state.workspacesByProjectId)),
+      selectedWorkspaceId,
+      selectedWorkspaceSessionIds,
+      selectedWorkspaceArchivedIds,
+      deletedSessionIds,
+    });
+    if (surviving.length === this.keepUnreadEntries.length) return;
+    const survivingIds = new Set(surviving.map((entry) => entry.id));
+    const machineId = selectedMachineId(this.state);
+    for (const entry of this.keepUnreadEntries) {
+      if (!survivingIds.has(entry.id)) setKeepUnread(machineId, entry, false);
+    }
+    this.refreshKeepUnreadIds(machineId);
+  }
+
+  /** Prune pins for sessions the user explicitly deleted. */
+  private dropKeepUnreadForSessions(sessionIds: string[]): void {
+    if (sessionIds.length === 0) return;
+    this.reconcileKeepUnread(new Set(sessionIds));
+  }
+
   private async commitReadyChatAfterRender(machineId: string, session: SessionInfo): Promise<void> {
     const identity = unreadChatIdentity(machineId, session);
     await this.updateComplete;
@@ -671,7 +822,11 @@ export class PiWebApp extends LitElement {
   }
 
   private syncUnreadSessionIds(): void {
-    const next = this.sessionUnread.unreadSessionIds(selectedMachineId(this.state), this.state.sessions);
+    const machineId = selectedMachineId(this.state);
+    const next = unionStringSets(
+      this.sessionUnread.unreadSessionIds(machineId, this.state.sessions),
+      this.keepUnreadIds(machineId),
+    );
     if (!sameStringSet(next, this.unreadSessionIds)) this.unreadSessionIds = next;
   }
 
@@ -727,6 +882,7 @@ export class PiWebApp extends LitElement {
     window.addEventListener("blur", this.resetKeyboardSequence);
     this.systemLightThemeMedia?.addEventListener("change", this.onSystemLightThemeChange);
     this.applyPreferredTheme(false);
+    this.observeViewport();
     this.connectRealtime();
     this.syncSessionUnreadMachines();
     this.piWebStatusTimer = window.setInterval(() => { this.schedulePiWebStatusRefresh(); }, PI_WEB_STATUS_REFRESH_MS);
@@ -760,6 +916,13 @@ export class PiWebApp extends LitElement {
     window.removeEventListener("focusin", this.resetKeyboardSequence);
     window.removeEventListener("blur", this.resetKeyboardSequence);
     this.systemLightThemeMedia?.removeEventListener("change", this.onSystemLightThemeChange);
+    this.disconnectViewportObservers();
+    this.chatChromeTopObserver?.disconnect();
+    this.chatChromeTopObserver = undefined;
+    this.observedChatChromeTop = null;
+    this.chatChromeBottomObserver?.disconnect();
+    this.chatChromeBottomObserver = undefined;
+    this.observedChatChromeBottom = null;
     this.keyboard.reset();
     // A custom element can be removed before its constructor-scheduled built-in
     // batch reaches the registration queue. The shutdown owns that rejection.
@@ -782,6 +945,75 @@ export class PiWebApp extends LitElement {
     this.cancelWorkspaceDeletionRefresh();
     this.clearPendingRemoteRouteRestore();
     super.disconnectedCallback();
+  }
+
+  private safeAreaRetryId: number | undefined = undefined;
+
+  /** Size the root from the live viewport and keep the lower chrome clear of the OS bar.
+   *  The root height is driven from window.innerHeight (--pi-app-height) because 100dvh can
+   *  resolve to a stale value on first paint and only correct itself after a real viewport
+   *  resize (backgrounding/resuming the app) - the exact moment the cut-off self-corrects.
+   *  The bottom inset is env(safe-area-inset-bottom); some Android Chrome builds report 0 until
+   *  that same first resize, so we re-apply it as soon as it is measured and on every viewport
+   *  change, with a short retry loop to catch the browser measuring it shortly after first paint. */
+  private observeViewport(): void {
+    this.updateViewportMetrics();
+    if (typeof window === "undefined") return;
+    window.addEventListener("load", this.onViewportChange);
+    window.addEventListener("pageshow", this.onViewportChange);
+    window.addEventListener("resize", this.onViewportChange);
+    window.addEventListener("orientationchange", this.onViewportChange);
+    window.visualViewport?.addEventListener("resize", this.onViewportChange);
+    if (typeof requestAnimationFrame === "function") requestAnimationFrame(() => { this.updateViewportMetrics(); });
+    // env(safe-area-inset-*) is sometimes only measured by the browser a moment after first
+    // paint; poll briefly so the inset is reserved without waiting for an app-switch.
+    if (typeof window.setTimeout === "function") {
+      let tries = 0;
+      const tick = (): void => {
+        this.updateViewportMetrics();
+        tries += 1;
+        if (tries < SAFE_AREA_MEASURE_RETRIES) this.safeAreaRetryId = window.setTimeout(tick, SAFE_AREA_MEASURE_INTERVAL_MS);
+      };
+      this.safeAreaRetryId = window.setTimeout(tick, SAFE_AREA_MEASURE_INTERVAL_MS);
+    }
+  }
+
+  private disconnectViewportObservers(): void {
+    if (typeof window === "undefined") return;
+    window.removeEventListener("load", this.onViewportChange);
+    window.removeEventListener("pageshow", this.onViewportChange);
+    window.removeEventListener("resize", this.onViewportChange);
+    window.removeEventListener("orientationchange", this.onViewportChange);
+    window.visualViewport?.removeEventListener("resize", this.onViewportChange);
+    if (this.safeAreaRetryId !== undefined) {
+      window.clearTimeout(this.safeAreaRetryId);
+      this.safeAreaRetryId = undefined;
+    }
+  }
+
+  private readonly onViewportChange = (): void => {
+    this.updateViewportMetrics();
+  };
+
+  private updateViewportMetrics(): void {
+    const height = this.measureViewportHeight();
+    if (height > 0) this.style.setProperty("--pi-app-height", `${String(height)}px`);
+    this.style.setProperty("--pi-app-safe-area-bottom", `${String(this.measureEnvInset())}px`);
+  }
+
+  private measureViewportHeight(): number {
+    if (typeof window === "undefined") return 0;
+    return window.innerHeight > 0 ? window.innerHeight : 0;
+  }
+
+  private measureEnvInset(): number {
+    if (typeof document === "undefined") return 0;
+    const probe = document.createElement("div");
+    probe.style.cssText = "position:fixed;left:0;bottom:0;width:1px;height:env(safe-area-inset-bottom);visibility:hidden;pointer-events:none;";
+    document.body.appendChild(probe);
+    const height = probe.offsetHeight;
+    probe.remove();
+    return height > 0 ? height : 0;
   }
 
   private setState(patch: Partial<AppState>) {
@@ -820,6 +1052,12 @@ export class PiWebApp extends LitElement {
     this.handleWorkspaceChange(previous, this.state);
     this.handleMachineChange(previous, this.state);
     if (machineActivitySubscriptionInputsChanged(previous, this.state)) this.syncMachineActivitySubscriptions();
+    // A removed workspace/project orphans pins pointing at it, and a pinned
+    // session that was archived or deleted in the selected workspace can no
+    // longer show a row marker, so its parent badges must not stay lit. Prune
+    // such pins whenever the tracked topology or the selected session list
+    // changes.
+    if (keepUnreadReconcileInputsChanged(previous, this.state)) this.reconcileKeepUnread(new Set());
     this.notifications.syncEnvironment(previous, this.state);
     if (this.navigationOrderConnected && (
       selectedMachineId(previous) !== selectedMachineId(this.state)
@@ -839,13 +1077,17 @@ export class PiWebApp extends LitElement {
     const route = readRoute();
     if (!this.routeLocationMatchesUrl(route)) {
       await this.projects.loadProjects();
+      void this.unmapped.load();
       await this.withChatScrollTransition(async () => { await this.restoreRoute(false); });
       await this.refreshWorkspaceDeletionRuns();
       return;
     }
     const initialRouteMachineHealth = this.state.machineStatuses[route.machineId ?? "local"];
     // An unavailable machine must not turn its requested hierarchy into a local route.
-    if (selectedMachineId(this.state) === (route.machineId ?? "local")) await this.projects.loadProjects();
+    if (selectedMachineId(this.state) === (route.machineId ?? "local")) {
+      await this.projects.loadProjects();
+      void this.unmapped.load();
+    }
     // Project loading can outlive the initial URL capture; only hand the fixed
     // route to reconciliation while it is still the current destination.
     if (!this.routeLocationMatchesUrl(route)) {
@@ -930,7 +1172,7 @@ export class PiWebApp extends LitElement {
 
   private async refreshSelectedTranscript(): Promise<void> {
     const session = this.state.selectedSession;
-    if (session === undefined || session.archived === true || !this.isChatVisible() || document.visibilityState !== "visible") return;
+    if (session === undefined || isReadOnlySession(session) || !this.isChatVisible() || document.visibilityState !== "visible") return;
     await this.sessions.refreshSelectedSession(session.id, { silent: true });
   }
 
@@ -1457,6 +1699,7 @@ export class PiWebApp extends LitElement {
         return;
       }
       await this.projects.loadProjects();
+      void this.unmapped.load();
       if (!this.pendingRemoteRouteRestoreStillCurrent(route)) return;
       if (hasNewMachineError()) {
         this.scheduleNextRemoteRouteRestoreAttempt(route);
@@ -2074,9 +2317,11 @@ export class PiWebApp extends LitElement {
     else if (event.type === "notices.updated") this.serverNotices.applyEvent(machineId, event);
     else if (event.type === "machine.status") this.machineStatus.apply(machineId, event.status);
     else if (event.type === "workspaces.changed") {
-      if (selectedMachineId(this.state) === machineId && this.state.selectedProject?.id === event.projectId) {
-        void this.workspaces.refreshSelectedProjectTopology();
-        void this.sessions.refreshCurrentWorkspaceSessions(machineId, { recoverNetwork: true });
+      // Project ids are only unique per machine, so a topology event from another
+      // machine must not refresh the currently selected project of the same id.
+      if (selectedMachineId(this.state) === machineId) {
+        this.workspaces.applyGlobalEvent(event);
+        if (this.state.selectedProject?.id === event.projectId) void this.sessions.refreshCurrentWorkspaceSessions(machineId, { recoverNetwork: true });
       }
     } else {
       if (event.type === "status.update" || event.type === "activity.update") {
@@ -2275,6 +2520,32 @@ export class PiWebApp extends LitElement {
     return this.appShell.isDesktopSideBySideLayout && !this.panelCollapse.workspacePanelCollapsed;
   }
 
+  /**
+   * Whether the top chrome has to show the tab strip because no panel header can
+   * carry it: the side-by-side layout keeps the tabs in the workspace panel.
+   */
+  private showsPanelControlsInTopChrome(): boolean {
+    return (!this.appShell.isMobileNavigationLayout && this.panelCollapse.navigationPanelCollapsed)
+      || (this.appShell.isDesktopSideBySideLayout && this.panelCollapse.workspacePanelCollapsed);
+  }
+
+  /** The mobile navigation layout can drop the top chrome strip entirely. */
+  private rendersTopChromeStrip(): boolean {
+    return !(this.appShell.isMobileNavigationLayout && this.navigationPreferences.mobileCollapsed);
+  }
+
+  /**
+   * The workspace view replaces the transcript, so off the side-by-side layout a
+   * chrome that followed the last chat scroll would take the tab strip, the only
+   * route back to the chat and to the panels, out of reach. Everywhere the
+   * transcript is on screen an upward scroll brings the chrome back, so collapsed
+   * panels do not hold it in place.
+   */
+  private pinsChatChrome(): boolean {
+    if (!this.rendersTopChromeStrip()) return false;
+    return !this.isDesktopSideBySideLayout() && this.effectiveMainView() !== "chat";
+  }
+
   private measuredPanelWidth(side: ResizablePanelSide): number | undefined {
     const element = side === "navigation" ? this.navigationPanelFrame : this.workspacePanelFrame;
     const width = element?.getBoundingClientRect().width;
@@ -2291,6 +2562,25 @@ export class PiWebApp extends LitElement {
 
   private selectedMachineRuntime() {
     return this.state.machineRuntimes[selectedMachineId(this.state)];
+  }
+
+  /**
+   * Workspace and project node ids that carry a keep-unread pin, so the
+   * navigation badges can render those unread markers in the distinct
+   * keep-unread color rather than the daemon-completion accent.
+   */
+  private get keepUnreadNodeIds(): ReadonlySet<string> {
+    const cached = this.keepUnreadNodeIdsCache;
+    if (cached !== undefined) {
+      if (cached.entries === this.keepUnreadEntries) return cached.ids;
+    }
+    const ids = new Set<string>();
+    for (const entry of this.keepUnreadEntries) {
+      if (entry.workspaceId !== "") ids.add(entry.workspaceId);
+      if (entry.projectId !== "") ids.add(entry.projectId);
+    }
+    this.keepUnreadNodeIdsCache = { entries: this.keepUnreadEntries, ids };
+    return ids;
   }
 
   private openSessionCleanupDialog(): void {
@@ -2341,6 +2631,7 @@ export class PiWebApp extends LitElement {
       }
       // Closing or replacing the dialog must not skip reconciliation of completed work.
       await this.sessions.applySessionCleanupResult(result, machineId);
+      this.dropKeepUnreadForSessions(result.deletedSessionIds);
     } catch (error) {
       if (this.isCurrentSessionCleanupRequest(epoch, machineId)) this.sessionCleanupDialog = { ...this.sessionCleanupDialog, running: false, error: () => sessionCleanupMessages.t("runFailed", { error: errorMessage(error) }) };
     }
@@ -2363,9 +2654,13 @@ export class PiWebApp extends LitElement {
     archivedCollapsed: () => { void this.sessions.clearSelectionAfterArchivedCollapse(); },
     startSession: () => this.startSessionFromNavigation(),
     selectSession: (session: SessionInfo) => this.selectNavigationItem("sessions", "chat", () => this.selectSessionFromNavigation(session)),
+    // Unmapped sessions have no workspace route, so they open view-only without
+    // committing a navigation snapshot or touching the URL.
+    selectUnmappedSession: (session: SessionInfo) => this.selectNavigationItem("sessions", "chat", async () => { await this.sessions.selectSession(session, { updateUrl: false }); }),
     markSessionRead: (session: SessionInfo) => { this.markSessionsRead([session]); },
     markSessionUnread: (session: SessionInfo) => { void this.markSessionUnread(session); },
     markSessionsRead: (sessions: SessionInfo[]) => { this.markSessionsRead(sessions); },
+    toggleKeepUnread: (session: SessionInfo) => { this.toggleKeepUnread(session); },
     archiveSession: (session: SessionInfo) => this.sessions.archiveSession(session),
     archiveSessionWithDescendants: (session: SessionInfo) => this.sessions.archiveSessionWithDescendants(session),
     archiveSessions: (sessions: SessionInfo[]) => this.sessions.archiveSessions(sessions),
@@ -2373,9 +2668,9 @@ export class PiWebApp extends LitElement {
       const restored = await this.sessions.restoreSession(session);
       return restored === undefined ? false : this.selectSessionFromNavigation(restored);
     }),
-    deleteCachedNewSession: (session: SessionInfo) => this.sessions.deleteCachedNewSession(session),
-    deleteArchivedSession: (session: SessionInfo) => this.sessions.deleteArchivedSessions([session]),
-    deleteArchivedSessions: (sessions: SessionInfo[]) => this.sessions.deleteArchivedSessions(sessions),
+    deleteCachedNewSession: (session: SessionInfo) => { this.dropKeepUnreadForSessions([session.id]); void this.sessions.deleteCachedNewSession(session); },
+    deleteArchivedSession: (session: SessionInfo) => { this.dropKeepUnreadForSessions([session.id]); void this.sessions.deleteArchivedSessions([session]); },
+    deleteArchivedSessions: (sessions: SessionInfo[]) => { this.dropKeepUnreadForSessions(sessions.map((candidate) => candidate.id)); void this.sessions.deleteArchivedSessions(sessions); },
     detachParentSession: (session: SessionInfo) => this.sessions.detachParent(session),
     reloadSession: (session: SessionInfo) => this.sessions.reloadSession(session),
     cleanupSessions: () => { this.openSessionCleanupDialog(); },
@@ -2429,6 +2724,37 @@ export class PiWebApp extends LitElement {
     }).catch(() => undefined);
   }
 
+  /**
+   * `machineStatusSnapshots` with the keep-unread pins rolled up, so the
+   * workspace, project, and machine badges track the session rows even when the
+   * pinned session's workspace or project is not the one currently open. The
+   * daemon already rolls its own completions up into these nodes server-side, so
+   * the client only has to add the browser-local keep-unread ownership captured
+   * at pin time — which it can do without the selected-scoped session/workspace
+   * lists that would otherwise miss pins in other workspaces.
+   */
+  private get augmentedMachineStatusSnapshots(): Record<string, MachineStatusSnapshot> {
+    const machineId = selectedMachineId(this.state);
+    const augmented = augmentStatusSnapshotWithUnread(
+      this.state.machineStatusSnapshots[machineId],
+      this.keepUnreadEntries,
+    );
+    if (augmented === undefined || augmented === this.state.machineStatusSnapshots[machineId]) return this.state.machineStatusSnapshots;
+    // A workspace/project can be lit by the daemon for an unread session the client
+    // no longer shows (an orphaned record for a deleted worktree, or a session that
+    // is not a member of the workspace it was attributed to). When the selected
+    // workspace can be validated here, suppress its unread unless a visible session
+    // or a keep-unread pin actually justifies it, and cascade to its project/machine.
+    const selectedWorkspaceId = this.state.selectedWorkspace?.id ?? "";
+    const selectedWorkspaceJustified = this.keepUnreadNodeIds.has(selectedWorkspaceId)
+      || (selectedWorkspaceId !== "" && this.state.sessions.some((session) => sessionRowUnread(session, this.unreadSessionIds)));
+    const reconciled = reconcileVisibleUnread(augmented, selectedWorkspaceId, this.state.workspacesByProjectId, selectedWorkspaceJustified);
+    // `augmented` already carries the keep-unread flags, so it must be published
+    // even when `reconcileVisibleUnread` finds nothing to correct. Only the exact
+    // original snapshot can be returned unchanged.
+    return { ...this.state.machineStatusSnapshots, [machineId]: reconciled ?? augmented };
+  }
+
   private renderNavigationPanel() {
     if (this.workspaceDeletionInput !== this.state.workspaceDeletionRuns) {
       this.workspaceDeletionInput = this.state.workspaceDeletionRuns;
@@ -2443,7 +2769,7 @@ export class PiWebApp extends LitElement {
         .machines=${this.state.machines}
         .selectedMachine=${this.state.selectedMachine}
         .machineStatuses=${this.state.machineStatuses}
-        .machineStatusSnapshots=${this.state.machineStatusSnapshots}
+        .machineStatusSnapshots=${this.augmentedMachineStatusSnapshots}
         .machinesCollapsed=${this.navigationSections.isCollapsed("machines")}
         .onToggleMachines=${this.navigationActions.toggleMachines}
         .onSelectMachine=${this.navigationActions.selectMachine}
@@ -2454,6 +2780,8 @@ export class PiWebApp extends LitElement {
         .workspaces=${guard([this.state.workspaces, this.navigationOrderVersion, selectedMachineId(this.state), this.state.selectedProject?.id], () => orderItems(this.state.workspaces, workspaceScope ? this.navigationOrder.ids(workspaceScope) : []))}
         .selectedWorkspace=${this.state.selectedWorkspace}
         .deletingWorkspaceIds=${this.deletingWorkspaceIds}
+        .canCreateWorkspace=${canCreateWorkspace(this.state.selectedWorkspace)}
+        .onCreateWorkspace=${() => { this.openWorkspaceCreateDialog(); }}
         .sessions=${this.state.sessions}
         .projectSelectionLoading=${this.pendingProjectNavigation?.seq === this.navigationSelectionSeq && this.state.isLoadingWorkspaces}
         .sessionsLoading=${this.pendingProjectNavigation?.seq === this.navigationSelectionSeq && this.state.selectedWorkspace !== undefined && this.state.sessions.length === 0}
@@ -2462,6 +2790,8 @@ export class PiWebApp extends LitElement {
         .sessionActivities=${this.state.sessionActivities}
         .sendingPrompts=${this.state.sendingPrompts}
         .unreadSessionIds=${this.unreadSessionIds}
+        .keepUnreadSessionIds=${this.keepUnreadSessionIds}
+        .keepUnreadNodeIds=${this.keepUnreadNodeIds}
         .selectedSession=${this.state.selectedSession}
         .startingSessionCount=${this.state.startingSessionCount}
         .canStartSession=${!!this.state.selectedWorkspace}
@@ -2491,9 +2821,13 @@ export class PiWebApp extends LitElement {
         .onArchivedCollapsed=${this.navigationActions.archivedCollapsed}
         .onStartSession=${this.navigationActions.startSession}
         .onSelectSession=${this.navigationActions.selectSession}
+        .unmappedGroups=${this.state.unmappedGroups}
+        .selectedUnmappedSessionId=${this.state.selectedSession?.readOnly === true ? this.state.selectedSession.id : undefined}
+        .onSelectUnmappedSession=${this.navigationActions.selectUnmappedSession}
         .onMarkSessionRead=${this.navigationActions.markSessionRead}
         .onMarkSessionUnread=${this.navigationActions.markSessionUnread}
         .onMarkSessionsRead=${this.navigationActions.markSessionsRead}
+        .onToggleKeepUnread=${this.navigationActions.toggleKeepUnread}
         .onArchiveSession=${this.navigationActions.archiveSession}
         .onArchiveSessionWithDescendants=${this.navigationActions.archiveSessionWithDescendants}
         .onArchiveSessions=${this.navigationActions.archiveSessions}
@@ -3440,6 +3774,7 @@ export class PiWebApp extends LitElement {
       openThemePicker: () => { this.openThemeDialog(); },
       openModelPicker: () => this.openModelDialog(),
       openThinkingLevelPicker: () => this.openThinkingDialog(),
+      steerPrompt: () => { this.steerCurrentPrompt(); },
       selectMainView: (view) => { this.selectMainView(view); },
       navigate: (destination, options) => this.navigate(destination, options),
       selectWorkspaceTool: (tool) => { this.openWorkspaceTool(tool); },
@@ -3450,6 +3785,7 @@ export class PiWebApp extends LitElement {
       checkForPiWebUpdates: () => this.piWebStatusController.checkForUpdates().finally(() => { this.schedulePiWebStatusRetry(); }),
       reloadPage: () => { this.hardReloadApp(); },
       deleteWorkspace: (workspace) => this.deleteWorkspace(workspace),
+      createWorkspace: () => { this.openWorkspaceCreateDialog(); },
       startSession: () => this.withChatScrollTransition(() => this.startSessionAndOpenChat()),
       archiveSession: () => this.sessions.archiveSession(),
       reloadSession: () => this.sessions.reloadSession(),
@@ -3510,6 +3846,51 @@ export class PiWebApp extends LitElement {
     });
     if (!hasNotice()) await this.serverNotices.refresh(machineId);
     if (!hasNotice()) this.browserErrors.reportLocalized(scope, () => appFeedback.t("workspaceRemovalFailed", { detail: errorMessage(error) }));
+  }
+
+  private openWorkspaceCreateDialog(): void {
+    const machineId = selectedMachineId(this.state);
+    const projectId = this.state.selectedProject?.id;
+    if (projectId === undefined) return;
+    // Default the base ref to the current branch of the main checkout.
+    const mainWorkspace = this.state.workspaces.find((workspace) => workspace.isMain)
+      ?? this.state.selectedWorkspace;
+    const branch = mainWorkspace?.provider?.metadata?.["branch"];
+    const defaultBaseRef = typeof branch === "string" ? branch : "";
+    this.openWorkspaceCreateDialogFor = { machineId, projectId };
+    this.workspaceCreateDialog = { defaultBaseRef, error: "", loading: false };
+  }
+
+  private openWorkspaceCreateDialogFor: { machineId: string; projectId: string } | undefined;
+
+  private async createWorkspace(draft: WorkspaceCreateDraft): Promise<void> {
+    const target = this.openWorkspaceCreateDialogFor;
+    if (target === undefined) return;
+    const machineId = target.machineId;
+    const projectId = target.projectId;
+    this.workspaceCreateDialog = { ...(this.workspaceCreateDialog ?? { defaultBaseRef: "" }), loading: true, error: "" };
+    const request2: CreateWorkspaceRequest = {
+      name: draft.name,
+      ...(draft.baseRef === "" ? {} : { baseRef: draft.baseRef }),
+      ...(draft.branchName === "" ? {} : { branchName: draft.branchName }),
+    };
+    try {
+      const workspace = await workspacesApi.createWorkspace(projectId, request2, machineId);
+      if (selectedMachineId(this.state) !== machineId || this.state.selectedProject?.id !== projectId) return;
+      this.workspaceCreateDialog = undefined;
+      this.openWorkspaceCreateDialogFor = undefined;
+      this.workspaces.registerCreatedWorkspace(projectId, workspace);
+      await this.workspaces.selectWorkspace(workspace);
+    } catch (error) {
+      if (selectedMachineId(this.state) === machineId) {
+        this.workspaceCreateDialog = { ...(this.workspaceCreateDialog ?? { defaultBaseRef: "" }), loading: false, error: errorMessage(error) };
+      }
+    }
+  }
+
+  private closeWorkspaceCreateDialog(): void {
+    this.workspaceCreateDialog = undefined;
+    this.openWorkspaceCreateDialogFor = undefined;
   }
 
   private async workspaceForCommandRun(run: TerminalCommandRun, machineId: string): Promise<Workspace | undefined> {
@@ -4054,6 +4435,15 @@ export class PiWebApp extends LitElement {
     this.plugins.promptChips.removeByUser(chip);
   };
 
+  private steerCurrentPrompt(): void {
+    const text = this.promptEditor?.view?.state.doc.toString() ?? "";
+    void this.handleSendPrompt(text, "steer");
+    // Mirror a normal send: clear the composer once the steer is dispatched,
+    // so the typed text does not linger in the input. Steer is only enabled
+    // while the session is streaming (see the prompt.steer action gating).
+    this.promptEditor?.clearComposer();
+  }
+
   private readonly handleStopActiveWork = (): void => {
     void this.sessions.stopActiveWork();
   };
@@ -4168,7 +4558,7 @@ export class PiWebApp extends LitElement {
 
   private messageActionContext(state: AppState): Omit<MessageActionAvailabilityContext, "message"> | undefined {
     const session = publicPluginSelection(state).selectedSession;
-    if (session === undefined) return undefined;
+    if (session === undefined || isReadOnlySession(session)) return undefined;
     const context = {
       machine: Object.freeze(pluginMachineFromState(state)),
       session: Object.freeze({ ...session, busy: state.sendingPrompts[session.id] === true || isSessionActive(state.status, state.activity) }),
@@ -4276,6 +4666,7 @@ export class PiWebApp extends LitElement {
   private chatWorkspaceContext: MarkdownWorkspaceContext | undefined;
   private chatWorkspaceContextKey: string | undefined;
 
+
   private renderChatView(state: AppState, session: SessionInfo) {
     const workspaceContext = markdownWorkspaceContext(selectedMachineId(state), state.selectedWorkspace, session);
     const contextKey = JSON.stringify(workspaceContext);
@@ -4285,9 +4676,97 @@ export class PiWebApp extends LitElement {
       this.chatWorkspaceContext = workspaceContext;
     }
     return html`
-      <chat-view .onNavigationChange=${this.handleChatNavigationChange} .quietMode=${this.quietMode} .behaviors=${this.chatBehaviors} .contentRendering=${this.plugins.getChatContentRendering(selectedMachineId(state))} .transcriptRenderers=${this.plugins.getTranscriptRenderers(selectedMachineId(state))} .machineId=${selectedMachineId(state)} @workspace-file-open=${this.handleWorkspaceFileOpen} .workspaceContext=${this.chatWorkspaceContext} .sessionId=${session.id} .sessionCwd=${session.cwd} .onMessageAction=${this.handleMessageAction} .onDisplayedMessageAction=${this.handleDisplayedMessageAction} .messageActions=${this.plugins.getMessageActions(selectedMachineId(state))} .messageActionContext=${this.messageActionContext(state)} .messages=${state.messages} .messageStart=${state.messagePageStart} .messageEnd=${state.messagePageEnd} .messageTotal=${state.messagePageTotal} .hasMore=${state.messagePageStart > 0} .historyReady=${this.readyChatIdentity === selectedChatIdentity(state)} .loadingMore=${state.isLoadingEarlierMessages} .isSendingPrompt=${state.sendingPrompts[session.id] === true} .isCompacting=${state.status?.isCompacting === true} .pendingMessageCount=${state.status?.pendingMessageCount ?? 0} .clientQueuedMessages=${state.clientQueuedSessionMessages[session.id] ?? this.emptyClientQueue} .status=${state.status} .activity=${state.activity} .pendingDialogs=${state.pendingDialogs} .closedDialogs=${state.closedDialogs} .onAnswerDialog=${this.handleAnswerDialog} .onCancelDialog=${this.handleCancelDialog} .onDismissClosedDialog=${this.handleDismissClosedDialog} .askDraftSessionId=${machineSessionKey(selectedMachineId(state), session.id)} .onSubmitAsk=${session.archived === true ? undefined : this.handleSubmitAsk} .onClearServerQueue=${this.handleClearServerQueue} .onQueuedMessageAction=${session.archived === true ? undefined : this.handleQueuedMessageAction} .queuedMessageActionPending=${this.queuedMessageActionTarget !== undefined || this.messageRevertTarget !== undefined} .onLoadMore=${this.handleLoadEarlierMessages}></chat-view>
+      <chat-view @chat-chrome-visibility=${this.handleChatChromeVisibility} .onNavigationChange=${this.handleChatNavigationChange} .quietMode=${this.quietMode} .behaviors=${this.chatBehaviors} .contentRendering=${this.plugins.getChatContentRendering(selectedMachineId(state))} .transcriptRenderers=${this.plugins.getTranscriptRenderers(selectedMachineId(state))} .machineId=${selectedMachineId(state)} @workspace-file-open=${this.handleWorkspaceFileOpen} .workspaceContext=${this.chatWorkspaceContext} .sessionId=${session.id} .sessionCwd=${session.cwd} .chromeTopInset=${this.chatChromeTopInset} .chromePinned=${this.pinsChatChrome()} .onMessageAction=${this.handleMessageAction} .onDisplayedMessageAction=${this.handleDisplayedMessageAction} .messageActions=${this.plugins.getMessageActions(selectedMachineId(state))} .messageActionContext=${this.messageActionContext(state)} .messages=${state.messages} .messageStart=${state.messagePageStart} .messageEnd=${state.messagePageEnd} .messageTotal=${state.messagePageTotal} .hasMore=${state.messagePageStart > 0} .historyReady=${this.readyChatIdentity === selectedChatIdentity(state)} .loadingMore=${state.isLoadingEarlierMessages} .isSendingPrompt=${state.sendingPrompts[session.id] === true} .isCompacting=${state.status?.isCompacting === true} .pendingMessageCount=${state.status?.pendingMessageCount ?? 0} .clientQueuedMessages=${state.clientQueuedSessionMessages[session.id] ?? this.emptyClientQueue} .status=${state.status} .activity=${state.activity} .pendingDialogs=${state.pendingDialogs} .closedDialogs=${state.closedDialogs} .onAnswerDialog=${this.handleAnswerDialog} .onCancelDialog=${this.handleCancelDialog} .onDismissClosedDialog=${this.handleDismissClosedDialog} .askDraftSessionId=${machineSessionKey(selectedMachineId(state), session.id)} .onSubmitAsk=${isReadOnlySession(session) ? undefined : this.handleSubmitAsk} .onClearServerQueue=${this.handleClearServerQueue} .onQueuedMessageAction=${isReadOnlySession(session) ? undefined : this.handleQueuedMessageAction} .queuedMessageActionPending=${this.queuedMessageActionTarget !== undefined || this.messageRevertTarget !== undefined} .onLoadMore=${this.handleLoadEarlierMessages}></chat-view>
     `;
   }
+
+  private readonly handleChatChromeVisibility = (event: CustomEvent<ChatChromeVisibilityDetail>): void => {
+    const hidden = event.detail.hidden;
+    // Keep the input area reachable while the user is composing a message.
+    if (hidden && this.promptEditor?.contains(document.activeElement) === true) return;
+    this.chatChromeHidden = hidden;
+  };
+
+  /** Reserve the floating top chrome's height at the start of the transcript so
+   *  its first line clears the group while it is shown, and mirror the height
+   *  into ChatView so it keeps the group revealed near the transcript start. */
+  private observeChatChromeTop(): void {
+    const element = this.chromeTop ?? null;
+    if (element === this.observedChatChromeTop) return;
+    this.chatChromeTopObserver?.disconnect();
+    this.observedChatChromeTop = element;
+    if (element === null || typeof ResizeObserver === "undefined") return;
+    this.chatChromeTopObserver ??= new ResizeObserver(() => { this.measureChatChromeTop(); });
+    this.chatChromeTopObserver.observe(element);
+    this.measureChatChromeTop();
+  }
+
+  private measureChatChromeTop(): void {
+    const height = this.chromeTop?.getBoundingClientRect().height ?? 0;
+    const inset = height > 0 ? height : 0;
+    // Publish on the host so the transcript and the mobile navigation panel
+    // both reserve the floating top chrome's height.
+    this.style.setProperty("--pi-chat-top-inset", `${String(inset)}px`);
+    if (this.chatChromeTopInset !== inset) this.chatChromeTopInset = inset;
+  }
+
+  /** Reserve the floating composer's height at the end of the transcript so the
+   *  last message still clears it when the chrome is shown. */
+  private observeChatChromeBottom(): void {
+    const element = this.conversationLayout?.renderRoot.querySelector<HTMLElement>(".bottom-chrome") ?? null;
+    // Measure once when the composer appears and thereafter only on resize, so
+    // streaming renders do not force layout on every update.
+    if (element === this.observedChatChromeBottom) return;
+    this.chatChromeBottomObserver?.disconnect();
+    this.observedChatChromeBottom = element;
+    if (element === null || typeof ResizeObserver === "undefined") return;
+    this.chatChromeBottomObserver ??= new ResizeObserver(() => { this.measureChatChromeBottom(); });
+    this.chatChromeBottomObserver.observe(element);
+    this.measureChatChromeBottom();
+  }
+
+  private measureChatChromeBottom(): void {
+    const height = this.observedChatChromeBottom?.getBoundingClientRect().height ?? 0;
+    this.chatView?.style.setProperty("--pi-chat-bottom-inset", `${String(height > 0 ? height : 0)}px`);
+  }
+
+  /** Keep the transcript's scrollbar beside the floating chrome instead of
+   *  underneath it: the chrome groups stop where the scroller reserves its
+   *  scrollbar, so the thumb stays visible down to the composer. */
+  private observeChatScrollGutter(): void {
+    const element = this.chatView?.renderRoot.querySelector<HTMLElement>(".chat") ?? null;
+    if (element === this.observedChatScrollGutter) return;
+    this.chatScrollGutterObserver?.disconnect();
+    this.observedChatScrollGutter = element;
+    if (element === null || typeof ResizeObserver === "undefined") {
+      this.publishChatScrollGutter(0);
+      return;
+    }
+    // The scroller reserves the gutter with `scrollbar-gutter: stable`, so its
+    // width is settled: measure when it appears and again only on a resize.
+    this.chatScrollGutterObserver ??= new ResizeObserver(() => { this.measureChatScrollGutter(); });
+    this.chatScrollGutterObserver.observe(element);
+    this.measureChatScrollGutter();
+  }
+
+  private measureChatScrollGutter(): void {
+    const element = this.observedChatScrollGutter;
+    const gutter = element === null ? 0 : Math.max(0, element.offsetWidth - element.clientWidth);
+    this.publishChatScrollGutter(gutter);
+  }
+
+  private publishChatScrollGutter(gutter: number): void {
+    if (gutter === this.chatScrollbarGutter) return;
+    this.chatScrollbarGutter = gutter;
+    this.style.setProperty("--pi-chat-scrollbar-gutter", `${String(gutter)}px`);
+  }
+
+  private readonly handleChromeFocusIn = (event: FocusEvent): void => {
+    const target = event.target;
+    if (!(target instanceof Node)) return;
+    // `@query` resolves to `null` before the child renders, even though its type is optional.
+    if (this.promptEditor?.contains(target) === true) this.chatChromeHidden = false;
+  };
 
   private renderStatusBar(state: AppState) {
     return html`<status-bar slot="status" .status=${state.status}></status-bar>`;
@@ -4347,14 +4826,14 @@ export class PiWebApp extends LitElement {
   }
 
   private renderMobileMainTabs() {
-    if (this.appShell.isMobileNavigationLayout && this.navigationPreferences.mobileCollapsed) return null;
+    if (!this.rendersTopChromeStrip()) return null;
     const panels = this.visibleWorkspacePanels();
     const availableTabs = this.availableNavigationTabs(panels);
     const pinnedTabs = pinnedNavigationTabs(availableTabs, this.navigationPreferences.pinnedIds);
     const selectedTab = this.selectedNavigationTab(panels);
     return html`
       <app-mobile-main-tabs
-        ?panel-controls=${(!this.appShell.isMobileNavigationLayout && this.panelCollapse.navigationPanelCollapsed) || (this.appShell.isDesktopSideBySideLayout && this.panelCollapse.workspacePanelCollapsed)}
+        ?panel-controls=${this.showsPanelControlsInTopChrome()}
         .controlsOnly=${this.isDesktopSideBySideLayout()}
         .leadingControl=${!this.appShell.isMobileNavigationLayout && this.panelCollapse.navigationPanelCollapsed ? renderPanelToggleButton("navigation", true, this.navigationPanelActions.toggle) : null}
         .trailingControl=${this.appShell.isDesktopSideBySideLayout && this.panelCollapse.workspacePanelCollapsed ? renderPanelToggleButton("workspace", true, this.workspacePanelActions.toggle) : null}
@@ -4555,19 +5034,21 @@ export class PiWebApp extends LitElement {
       <div class=${`${this.panelCollapse.shellClass(mainView)}${this.isDesktopSideBySideLayout() ? "" : " two-column-layout"}`} style=${this.panelResize.shellStyle({ navigation: this.resizablePanelConstraints("navigation"), workspace: this.resizablePanelConstraints("workspace") })}>
         <aside id="navigation-panel">${this.appShell.isMobileNavigationLayout ? null : this.renderNavigationPanel()}</aside>
         ${this.renderNavigationPanelEdgeControl()}
-        <main class=${mainViewClass(mainView)}>
-          ${this.renderContextBar()}
-          ${guard([...this.workspaceSurfaceInputs(), state.sessions, this.unreadSessionIds, this.panelCollapse.navigationPanelCollapsed, this.panelCollapse.workspacePanelCollapsed], () => this.renderMobileMainTabs())}
-          ${this.unknownRouteView() === undefined ? null : html`<div class="error warning" role="alert"><span class="error-text">${routeFeedback.t("unknownView", { view: this.unknownRouteView() ?? "" })}</span></div>`}
-          ${this.renderNotificationArea(state)}
-          ${deprecatedAgentInputsBanner(deprecatedAgentInputsWarnings(state.machines, state.machineRuntimes))}
+        <main class=${`${mainViewClass(mainView)}${this.chatChromeHidden ? " chrome-hidden" : ""}`} @focusin=${this.handleChromeFocusIn}>
+          <div class="top-chrome">
+            ${this.renderContextBar()}
+            ${guard([...this.workspaceSurfaceInputs(), state.sessions, this.unreadSessionIds, this.panelCollapse.navigationPanelCollapsed, this.panelCollapse.workspacePanelCollapsed], () => this.renderMobileMainTabs())}
+            ${this.unknownRouteView() === undefined ? null : html`<div class="error warning" role="alert"><span class="error-text">${routeFeedback.t("unknownView", { view: this.unknownRouteView() ?? "" })}</span></div>`}
+            ${this.renderNotificationArea(state)}
+            ${deprecatedAgentInputsBanner(deprecatedAgentInputsWarnings(state.machines, state.machineRuntimes))}
+          </div>
           <div class="mobile-navigation-panel">${this.appShell.isMobileNavigationLayout ? this.renderNavigationPanel() : null}</div>
           ${state.selectedSession && !this.sessions.isChatLoadDeferred && (this.isChatVisible() || this.displayedChatIdentity === selectedChatIdentity(state)) ? html`
             ${this.isChatVisible() ? html`<conversation-sync-notice .state=${state.conversationSync} .onRetry=${() => { void this.sessions.resumeSelectedSession({ reconnect: true }); }}></conversation-sync-notice>` : null}
-            <conversation-layout .status=${state.status} .activity=${state.activity} .sending=${state.sendingPrompts[state.selectedSession.id] === true} .visualEffects=${this.chatBehaviors.visualEffects}>
+            <conversation-layout .status=${state.status} .activity=${state.activity} .sending=${state.sendingPrompts[state.selectedSession.id] === true} .visualEffects=${this.chatBehaviors.visualEffects} .chromeFloating=${true} ?chrome-hidden=${this.chatChromeHidden}>
             ${this.renderChatView(state, state.selectedSession)}
             <div class="composer-area" slot="composer">
-              <prompt-editor .chatNavigation=${this.chatNavigation} ?inert=${activityNoticeVisible || this.isRevertingMessage(state)} .promptChips=${this.selectedPromptChips()} .onRemoveChip=${this.handleRemovePromptChip} .shortcuts=${this.shortcutConfig} .defaultStreamingBehavior=${this.defaultStreamingBehavior} .sessionId=${state.selectedSession.id} .cwd=${state.selectedWorkspace?.path} .machineId=${selectedMachineId(state)} .projectId=${state.selectedWorkspace?.projectId} .workspaceId=${state.selectedWorkspace?.id} .attachmentsFolder=${workspaceEffectiveAttachmentsFolder(state.selectedWorkspace?.effectiveConfig, this.workspaceAttachmentsDefaultFolder)} .disabled=${state.selectedSession.archived === true || activityNoticeVisible || this.isRevertingMessage(state)} .canSteer=${state.status?.isStreaming === true} .isCompacting=${state.status?.isCompacting === true} .canStop=${state.status?.isStreaming === true || state.status?.isBashRunning === true || state.status?.isCompacting === true || (state.status?.pendingMessageCount ?? 0) > 0} .status=${state.status} .availableThinkingLevels=${state.availableThinkingLevels} .sending=${state.sendingPrompts[state.selectedSession.id] === true} .onSend=${this.handleSendPrompt} .onStop=${this.handleStopActiveWork} .onSelectModel=${this.handleSelectModel} .onSelectThinking=${this.handleSelectThinking}></prompt-editor>
+              <prompt-editor .chatNavigation=${this.chatNavigation} ?inert=${activityNoticeVisible || this.isRevertingMessage(state)} .promptChips=${this.selectedPromptChips()} .onRemoveChip=${this.handleRemovePromptChip} .shortcuts=${this.shortcutConfig} .defaultStreamingBehavior=${this.defaultStreamingBehavior} .sessionId=${state.selectedSession.id} .cwd=${state.selectedWorkspace?.path} .machineId=${selectedMachineId(state)} .projectId=${state.selectedWorkspace?.projectId} .workspaceId=${state.selectedWorkspace?.id} .attachmentsFolder=${workspaceEffectiveAttachmentsFolder(state.selectedWorkspace?.effectiveConfig, this.workspaceAttachmentsDefaultFolder)} .disabled=${isReadOnlySession(state.selectedSession) || activityNoticeVisible || this.isRevertingMessage(state)} .canSteer=${state.status?.isStreaming === true} .isCompacting=${state.status?.isCompacting === true} .canStop=${state.status?.isStreaming === true || state.status?.isBashRunning === true || state.status?.isCompacting === true || (state.status?.pendingMessageCount ?? 0) > 0} .status=${state.status} .availableThinkingLevels=${state.availableThinkingLevels} .sending=${state.sendingPrompts[state.selectedSession.id] === true} .onSend=${this.handleSendPrompt} .onStop=${this.handleStopActiveWork} .onSelectModel=${this.handleSelectModel} .onSelectThinking=${this.handleSelectThinking}></prompt-editor>
               ${this.renderSessionActivityNotice()}
             </div>
             ${this.renderStatusBar(state)}
@@ -4599,6 +5080,7 @@ export class PiWebApp extends LitElement {
           .activity=${state.machineStatusSnapshots["local"] === undefined ? "unknown" : state.machineStatusSnapshots["local"].machine["core:working"] === true || state.machineStatusSnapshots["local"].machine["core:terminal"] === true ? "active" : "idle"}
           .onRun=${(command: string, title: string) => this.runRestartCommand(command, title)}></restart-dialog>
         ${this.sessionCleanupDialog !== undefined ? html`<session-cleanup-dialog .preview=${this.sessionCleanupDialog.preview} .previewRequest=${this.sessionCleanupDialog.previewRequest} .result=${this.sessionCleanupDialog.result} .loading=${this.sessionCleanupDialog.loading === true} .running=${this.sessionCleanupDialog.running === true} .error=${typeof this.sessionCleanupDialog.error === "string" ? this.sessionCleanupDialog.error : ""} .errorMessage=${typeof this.sessionCleanupDialog.error === "function" ? this.sessionCleanupDialog.error : undefined} .onPreview=${(request: SessionCleanupRequest) => { void this.previewSessionCleanup(request); }} .onRun=${(request: SessionCleanupRequest) => { void this.runSessionCleanup(request); }} .onClose=${() => { this.closeSessionCleanupDialog(); }}></session-cleanup-dialog>` : null}
+        ${this.workspaceCreateDialog !== undefined ? html`<workspace-create-dialog .defaultBaseRef=${this.workspaceCreateDialog.defaultBaseRef} .loading=${this.workspaceCreateDialog.loading} .error=${this.workspaceCreateDialog.error} .onSubmit=${(draft: WorkspaceCreateDraft) => { void this.createWorkspace(draft); }} .onClose=${() => { this.closeWorkspaceCreateDialog(); }}></workspace-create-dialog>` : null}
         ${this.settingsSection !== undefined ? html`<settings-dialog .section=${this.settingsSection} .target=${this.settingsTarget} .mcpContext=${state.selectedSession !== undefined && state.selectedSession.archived !== true ? { session: { id: state.selectedSession.id, cwd: state.selectedSession.cwd }, machineId: selectedMachineId(state) } : undefined} .onMcpAuth=${(mode: "login" | "logout", serverName: string, context: { session: { id: string; cwd: string }; machineId: string }) => { this.closeSettings(); void this.auth.openMcpAuth(mode, serverName, context); }} .machine=${state.selectedMachine} .machineRuntime=${this.selectedMachineRuntime()} .machines=${state.machines} .machineStatuses=${state.machineStatuses} .machineRuntimes=${state.machineRuntimes} .actions=${this.getDefaultActions()} .themes=${this.plugins.getThemes()} .onThemeCatalogLoaded=${(catalog: BrowserThemeCatalog) => { this.registerThemeCatalog(catalog); }} .fileIconThemes=${this.plugins.getFileIconThemes()} .fileIconPreference=${this.fileIconPreference} .onSelectFileIconTheme=${(id: string) => { this.selectFileIconTheme(id); }} .onResetFileIconTheme=${() => { this.selectFileIconTheme(undefined); }} .themePreference=${this.themePreference} .activeThemeId=${this.activeThemeId} .hasLocalThemeOverride=${this.localThemePreference !== undefined} .onUseLocalTheme=${(preference: ThemePreference) => { this.pickTheme(preference); }} .onUseDefaultTheme=${() => { this.useDefaultTheme(); }} .onNavigate=${(section: SettingsSection) => { this.navigateSettings(section); }} .onClose=${() => { this.closeSettings(); }} .onMachineConfigSaved=${(machineId: string) => { void this.machines.refreshMachineIdentity(machineId); }} .onGatewayConfigLoaded=${(response: PiWebConfigResponse) => { this.acceptSettingsGatewayConfig(response); }} .onGatewayConfigInvalidated=${() => { this.refreshGatewayConfig(); }} .onConfigSaved=${(config: PiWebConfigValues) => { this.applyClientConfig(config); }} .onRefreshMachineRuntime=${async (machineId: string) => { await this.machines.refreshMachineRuntime(machineId); }}></settings-dialog>` : null}
       </div>
     `;
@@ -4674,6 +5156,14 @@ function machineUnreadInputsChanged(previous: AppState, next: AppState): boolean
   return previous.machines !== next.machines;
 }
 
+/** True when a change can orphan keep-unread pins: topology, or the selected workspace's session list. */
+function keepUnreadReconcileInputsChanged(previous: AppState, next: AppState): boolean {
+  return previous.workspacesByProjectId !== next.workspacesByProjectId
+    || previous.projects !== next.projects
+    || previous.sessions !== next.sessions
+    || previous.selectedWorkspace !== next.selectedWorkspace;
+}
+
 function machineActivitySubscriptionInputsChanged(previous: AppState, next: AppState): boolean {
   return previous.machines !== next.machines
     || previous.machineStatuses !== next.machineStatuses
@@ -4706,6 +5196,20 @@ function sameContributionQueryRecord(
   const rightKeys = Object.keys(right);
   return leftKeys.length === rightKeys.length
     && leftKeys.every((key) => Object.hasOwn(right, key) && sameContributionQueryValue(left[key], right[key]));
+}
+
+function sameKeepUnreadEntries(left: readonly KeepUnreadEntry[], right: readonly KeepUnreadEntry[]): boolean {
+  if (left.length !== right.length) return false;
+  const key = (entry: KeepUnreadEntry): string => `${entry.id}|${entry.workspaceId}|${entry.projectId}|${entry.cwd}`;
+  const leftKeys = left.map(key).sort();
+  const rightKeys = right.map(key).sort();
+  return leftKeys.every((value, index) => value === rightKeys[index]);
+}
+
+function unionStringSets(left: ReadonlySet<string>, right: ReadonlySet<string>): ReadonlySet<string> {
+  if (right.size === 0) return left;
+  if (left.size === 0) return right;
+  return new Set([...left, ...right]);
 }
 
 function sameContributionQueryValue(left: string | readonly string[] | undefined, right: string | readonly string[] | undefined): boolean {

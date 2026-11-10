@@ -24,6 +24,7 @@ import { registerSessionProxyRoutes, type SessionProxyDaemon } from "./sessiond/
 import { registerWorkspaceExplorerRoutes } from "./workspaceExplorerRoutes.js";
 import { registerProjectTrustRoutes } from "./projectTrustRoutes.js";
 import { registerWorkspaceDeletionRoutes } from "./workspaces/workspaceDeletionRoutes.js";
+import { registerWorkspaceCreationRoutes } from "./workspaceCreationRoutes.js";
 import { createFilePiWebConfigService, registerConfigRoutes, registerLocalMachineConfigRoutes, type PiWebConfigService } from "./configRoutes.js";
 import { PiWebPluginManifestRuntimeError, PiWebPluginService } from "./piWebPluginService.js";
 import { PiWebPluginCatalog } from "./piWebPluginCatalog.js";
@@ -97,6 +98,11 @@ function registerLocalProjectRoutes(app: FastifyInstance, projects: ProjectServi
       return sendWorkspaceRequestError(reply, error, 404);
     }
   });
+}
+
+function isApiRequestPath(url: string): boolean {
+  const path = url.split("?", 1)[0] ?? "";
+  return path === "/api" || path.startsWith("/api/");
 }
 
 async function resolveWorkspacesWithEffectiveConfig(
@@ -288,6 +294,8 @@ export async function buildApp(deps: AppDependencies = {}): Promise<FastifyInsta
   registerProjectTrustRoutes(app, projects, workspaces, projectTrustDeps, "/api/machines/local");
   registerWorkspaceDeletionRoutes(app, sessionDaemon);
   registerWorkspaceDeletionRoutes(app, sessionDaemon, "/api/machines/local");
+  registerWorkspaceCreationRoutes(app, sessionDaemon, { projects, config: configService });
+  registerWorkspaceCreationRoutes(app, sessionDaemon, { projects, config: configService }, "/api/machines/local");
 
   registerMachineProxyRoutes(app, machines);
 
@@ -321,7 +329,19 @@ export async function buildApp(deps: AppDependencies = {}): Promise<FastifyInsta
       },
     });
     registerDeploymentIdentityAssetRoutes(app, { clientDist, flavor: deploymentFlavor, installationName: readInstallationName });
-    app.setNotFoundHandler(renderHtml);
+    // Browser routes fall back to the app shell; API routes must never do so.
+    // A 2xx text/html shell answering an unmatched `/api/...` request makes the
+    // client fail with an opaque `SyntaxError: Unexpected token '<'` instead of
+    // a usable 404, so API misses are answered with JSON.
+    app.setNotFoundHandler((request, reply) => {
+      if (isApiRequestPath(request.url)) {
+        // Mirror Fastify's default JSON 404 shape so clients that distinguish an
+        // unavailable route from a domain error keep working.
+        return reply.code(404).send({ message: `Route ${request.method}:${request.url} not found`, error: "Not Found", statusCode: 404 });
+      }
+      return reply.sendFile("index.html");
+    });
+
   }
 
   return app;

@@ -18,6 +18,7 @@ import { isShellInput } from "../inputModes";
 import { fileCompletionInsertText } from "../promptCompletions";
 import { SessionSocket, type GlobalSessionEvent, type SessionConnectionState, type SessionUiEvent } from "../sessionSocket";
 import { isArchivableSessionInfo, isTransientNewSessionInfo } from "../sessionPersistence";
+import { isReadOnlySession } from "../readOnlySession";
 import { isSessionActive } from "../../../shared/activity";
 import type { PromptAttachmentDelivery, SessionNotificationInboxEvent, SessionStartupProgressEvent } from "../../../shared/apiTypes";
 import { InMemorySessionSelectionMemory, markSessionArchived, markSessionsArchived, selectPreferredSession, selectionAfterArchivingSession, selectionAfterArchivingSessions, shouldDeselectAfterArchivedCollapse, type SessionSelectionMemory } from "./sessionSelection";
@@ -388,14 +389,14 @@ export class SessionController {
       : this.transcripts.cachedView(transcriptKey);
     this.setState({
       selectedSession: session,
-      conversationSync: session.archived === true ? undefined : "catching-up",
+      conversationSync: isReadOnlySession(session) ? undefined : "catching-up",
       conversationRefreshedAt: undefined,
       ...cached,
       isLoadingEarlierMessages: false,
       ...(options?.preserveTreeDialog === true ? {} : { treeDialog: undefined }),
-      status: session.archived === true ? undefined : this.getState().sessionStatuses[session.id],
-      activity: session.archived === true ? undefined : this.getState().sessionActivities[session.id],
-      pendingDialogs: session.archived === true ? [] : (this.getState().sessionStatuses[session.id]?.pendingDialogs ?? []),
+      status: isReadOnlySession(session) ? undefined : this.getState().sessionStatuses[session.id],
+      activity: isReadOnlySession(session) ? undefined : this.getState().sessionActivities[session.id],
+      pendingDialogs: isReadOnlySession(session) ? [] : (this.getState().sessionStatuses[session.id]?.pendingDialogs ?? []),
       closedDialogs: [],
       availableThinkingLevels: [],
     });
@@ -407,7 +408,7 @@ export class SessionController {
       return;
     }
     try {
-      if (session.archived === true) {
+      if (isReadOnlySession(session)) {
         const recoveryError = this.browserErrors.captureRecovery(sessionBrowserErrorScope(machineId, session.id, errorOwner), "session-refresh");
         const page = await this.api.messages(session, { limit: MESSAGE_PAGE_SIZE }, machineId);
         if (seq !== this.selectionSeq || this.getState().selectedSession?.id !== session.id || !navigationIsCurrent(options?.navigation)) return;
@@ -506,7 +507,7 @@ export class SessionController {
   async send(text: string, streamingBehavior?: "steer" | "followUp", attachments?: PromptAttachment[], delivery: PromptAttachmentDelivery = "inline", folder?: string, promptTarget?: PromptChipTarget): Promise<boolean> {
     const state = this.getState();
     const session = state.selectedSession;
-    if (!session || session.archived === true) return false;
+    if (!session || isReadOnlySession(session)) return false;
     // Chip-bearing sends are ordinary prompts addressed to their captured
     // conversation. A local pending queue is not server acceptance.
     if (promptTarget !== undefined && (!samePromptChipTarget(promptTarget, { machineId: selectedMachineId(state), sessionId: session.id }) || isClientPendingStartSessionInfo(session))) return false;
@@ -548,7 +549,7 @@ export class SessionController {
 
   async runShell(text: string) {
     const session = this.getState().selectedSession;
-    if (!session || session.archived === true) return;
+    if (!session || isReadOnlySession(session)) return;
     if (isClientPendingStartSessionInfo(session)) {
       this.enqueuePendingSessionSend(session, { type: "shell", text });
       return;
@@ -560,7 +561,7 @@ export class SessionController {
 
   async runCommand(text: string) {
     const session = this.getState().selectedSession;
-    if (!session || session.archived === true) return;
+    if (!session || isReadOnlySession(session)) return;
     if (isClientPendingStartSessionInfo(session)) {
       this.enqueuePendingSessionSend(session, { type: "command", text });
       return;
@@ -700,7 +701,7 @@ export class SessionController {
   async actOnMessage(entryId: string, action: "fork" | "back"): Promise<void> {
     const state = this.getState();
     const session = state.selectedSession;
-    if (session === undefined || session.archived === true || isClientPendingStartSessionInfo(session)) return;
+    if (session === undefined || isReadOnlySession(session) || isClientPendingStartSessionInfo(session)) return;
     const machineId = selectedMachineId(state);
     const errorOwner = this.captureSessionErrorOwner(session);
     let result: CommandResult;
@@ -726,7 +727,7 @@ export class SessionController {
   private async navigateSessionTree(targetId: string, summary: SessionTreeSummaryChoice, tree: SessionTreeSnapshot | undefined, retainCheckpoint?: boolean): Promise<SessionTreeNavigateResult> {
     const state = this.getState();
     const session = state.selectedSession;
-    if (session === undefined || tree === undefined || session.archived === true || isClientPendingStartSessionInfo(session)) {
+    if (session === undefined || tree === undefined || isReadOnlySession(session) || isClientPendingStartSessionInfo(session)) {
       throw new HistoryActionError("treeUnavailable");
     }
 
@@ -788,7 +789,7 @@ export class SessionController {
   private async forkSessionTree(entryId: string, tree: SessionTreeSnapshot | undefined, retainCheckpoint?: boolean): Promise<SessionTreeForkResult> {
     const state = this.getState();
     const session = state.selectedSession;
-    if (session === undefined || tree === undefined || session.archived === true || isClientPendingStartSessionInfo(session)) {
+    if (session === undefined || tree === undefined || isReadOnlySession(session) || isClientPendingStartSessionInfo(session)) {
       throw new HistoryActionError("treeUnavailable");
     }
 
@@ -1185,7 +1186,7 @@ export class SessionController {
 
   async listModels() {
     const session = this.getState().selectedSession;
-    if (!session || session.archived === true) return [];
+    if (!session || isReadOnlySession(session)) return [];
     const machineId = selectedMachineId(this.getState());
     const errorOwner = this.captureSessionErrorOwner(session);
     try {
@@ -1216,7 +1217,7 @@ export class SessionController {
    */
   async setModelEnabled(provider: string, modelId: string, enabled: boolean): Promise<SessionModelCatalogResponse | undefined> {
     const session = this.getState().selectedSession;
-    if (!session || session.archived === true) return undefined;
+    if (!session || isReadOnlySession(session)) return undefined;
     const machineId = selectedMachineId(this.getState());
     const errorOwner = this.captureSessionErrorOwner(session);
     try {
@@ -1231,7 +1232,7 @@ export class SessionController {
   async setModelScope(mode: SessionModelScopeMode): Promise<SessionModelCatalogResponse | undefined> {
     const state = this.getState();
     const session = state.selectedSession;
-    if (!session || session.archived === true) return undefined;
+    if (!session || isReadOnlySession(session)) return undefined;
     const machineId = selectedMachineId(state);
     const errorOwner = this.captureSessionErrorOwner(session);
     try {
@@ -1244,7 +1245,7 @@ export class SessionController {
 
   async getSessionDefaults() {
     const session = this.getState().selectedSession;
-    if (!session || session.archived === true) return undefined;
+    if (!session || isReadOnlySession(session)) return undefined;
     const machineId = selectedMachineId(this.getState());
     const errorOwner = this.captureSessionErrorOwner(session);
     try {
@@ -1257,7 +1258,7 @@ export class SessionController {
 
   async setSessionDefaults(defaults: Parameters<typeof defaultApi.setSessionDefaults>[1]) {
     const session = this.getState().selectedSession;
-    if (!session || session.archived === true) return undefined;
+    if (!session || isReadOnlySession(session)) return undefined;
     const machineId = selectedMachineId(this.getState());
     const errorOwner = this.captureSessionErrorOwner(session);
     try {
@@ -1270,7 +1271,7 @@ export class SessionController {
 
   async setModel(provider: string, modelId: string) {
     const session = this.getState().selectedSession;
-    if (!session || session.archived === true) return;
+    if (!session || isReadOnlySession(session)) return;
     const machineId = selectedMachineId(this.getState());
     const errorOwner = this.captureSessionErrorOwner(session);
     try {
@@ -1283,7 +1284,7 @@ export class SessionController {
 
   async cycleModel(direction: "forward" | "backward") {
     const session = this.getState().selectedSession;
-    if (!session || session.archived === true) return;
+    if (!session || isReadOnlySession(session)) return;
     const machineId = selectedMachineId(this.getState());
     const errorOwner = this.captureSessionErrorOwner(session);
     try {
@@ -1296,7 +1297,7 @@ export class SessionController {
 
   async listThinkingLevels() {
     const session = this.getState().selectedSession;
-    if (!session || session.archived === true) return [];
+    if (!session || isReadOnlySession(session)) return [];
     const machineId = selectedMachineId(this.getState());
     const errorOwner = this.captureSessionErrorOwner(session);
     try {
@@ -1310,7 +1311,7 @@ export class SessionController {
   /** Refresh the available thinking levels for the selected session's model. */
   async refreshAvailableThinkingLevels() {
     const session = this.getState().selectedSession;
-    if (!session || session.archived === true) {
+    if (!session || isReadOnlySession(session)) {
       if (this.getState().availableThinkingLevels.length > 0) this.setState({ availableThinkingLevels: [] });
       return;
     }
@@ -1321,7 +1322,7 @@ export class SessionController {
 
   async setThinkingLevel(level: string) {
     const session = this.getState().selectedSession;
-    if (!session || session.archived === true) return;
+    if (!session || isReadOnlySession(session)) return;
     const machineId = selectedMachineId(this.getState());
     const errorOwner = this.captureSessionErrorOwner(session);
     try {
@@ -1333,7 +1334,7 @@ export class SessionController {
 
   async cycleThinkingLevel() {
     const session = this.getState().selectedSession;
-    if (!session || session.archived === true) return;
+    if (!session || isReadOnlySession(session)) return;
     const machineId = selectedMachineId(this.getState());
     const errorOwner = this.captureSessionErrorOwner(session);
     try {
@@ -1346,7 +1347,7 @@ export class SessionController {
   async mutateQueuedMessage(action: "remove" | "edit" | "toggle", index: number, expectedQueue: QueuedSessionMessage[]): Promise<void> {
     const state = this.getState();
     const session = state.selectedSession;
-    if (session === undefined || session.archived === true || isClientPendingStartSessionInfo(session)) return;
+    if (session === undefined || isReadOnlySession(session) || isClientPendingStartSessionInfo(session)) return;
     const machineId = selectedMachineId(state);
     const errorOwner = this.captureSessionErrorOwner(session);
     const selectionSeq = this.selectionSeq;
@@ -1368,7 +1369,7 @@ export class SessionController {
   async clearServerQueue() {
     const state = this.getState();
     const session = state.selectedSession;
-    if (session === undefined || session.archived === true || isClientPendingStartSessionInfo(session)) return;
+    if (session === undefined || isReadOnlySession(session) || isClientPendingStartSessionInfo(session)) return;
     const machineId = selectedMachineId(state);
     const errorOwner = this.captureSessionErrorOwner(session);
     const selectionSeq = this.selectionSeq;
@@ -1418,7 +1419,7 @@ export class SessionController {
   private async closeOpenDialog(dialogId: string, close: (session: SessionInfo, machineId: string) => Promise<ExtensionDialogCloseResponse>): Promise<void> {
     const state = this.getState();
     const session = state.selectedSession;
-    if (session === undefined || session.archived === true) return;
+    if (session === undefined || isReadOnlySession(session)) return;
     if (isClientPendingStartSessionInfo(session)) {
       await this.closePendingStartDialog(session, dialogId, close);
       return;
@@ -1479,7 +1480,7 @@ export class SessionController {
   private async sendAskResponse(askId: string, send: (session: SessionInfo, machineId: string) => Promise<SessionStatus>): Promise<void> {
     const state = this.getState();
     const session = state.selectedSession;
-    if (session === undefined || session.archived === true || isClientPendingStartSessionInfo(session)) return;
+    if (session === undefined || isReadOnlySession(session) || isClientPendingStartSessionInfo(session)) return;
     const machineId = selectedMachineId(state);
     const errorOwner = this.captureSessionErrorOwner(session);
     const selectionSeq = this.selectionSeq;
@@ -1548,7 +1549,7 @@ export class SessionController {
     if (sessionId === undefined || session?.id !== sessionId) return Promise.resolve();
     // Polls/resume must not bypass the shell's first-paint boundary.
     if (this.selectedSessionLoadDeferred) return Promise.resolve();
-    if (session.archived === true || isClientPendingStartSessionInfo(session)) return Promise.resolve();
+    if (isReadOnlySession(session) || isClientPendingStartSessionInfo(session)) return Promise.resolve();
     const machineId = selectedMachineId(this.getState());
     const target: SelectedSessionRefreshTarget = {
       session,
@@ -2243,9 +2244,14 @@ export class SessionController {
 
   private applyCreatedSession(session: SessionInfo) {
     const state = this.getState();
-    // Session trees are worktree-scoped, so a session created elsewhere has no
-    // bearing on this listing.
-    if (state.selectedWorkspace?.path !== session.cwd) return;
+    // Session trees are worktree-scoped, so a session created in another
+    // workspace with no parent in this listing has no bearing on it. A tracked
+    // subsession spawned into another workspace of the project still belongs
+    // under its parent here, so include it when its parent is in this listing.
+    const isForThisWorkspace = state.selectedWorkspace?.path === session.cwd;
+    const isChildOfThisWorkspaceSession = session.parentSessionPath !== undefined
+      && state.sessions.some((candidate) => candidate.path === session.parentSessionPath);
+    if (!isForThisWorkspace && !isChildOfThisWorkspaceSession) return;
     if (state.sessions.some((candidate) => candidate.id === session.id)) return;
     const machineId = selectedMachineId(state);
     if (this.hasPendingStartFor(session.cwd, machineId)) {

@@ -1,13 +1,13 @@
 import { LocalizationController } from "../../localization/browser";
 import { appShellMessages as m } from "../../appShellMessages";
 import { stylesheetIntegrationCapability } from "../../plugins/styles";
-import { LitElement, css, html } from "lit";
+import { LitElement, css, html, type PropertyValues } from "lit";
 import { styleMap } from "lit/directives/style-map.js";
 import { NavigationSectionResizeController, type ResizableNavigationSection } from "../../appShell/navigationSectionResizeController";
 import type { NavigationSectionMeasurement } from "./NavigationSectionResizeHandle";
 import "./NavigationSectionResizeHandle";
 import { customElement, property, query, state } from "lit/decorators.js";
-import type { Machine, MachineHealth, Project, SessionActivity, SessionInfo, SessionStatus, Workspace } from "../../api";
+import type { Machine, MachineHealth, Project, SessionActivity, SessionInfo, SessionStatus, UnmappedSessionGroup, Workspace } from "../../api";
 import type { MachineStatusSnapshot } from "../../../../shared/machineStatus";
 import type { SessionLabelItem, WorkspaceLabelItem } from "../../plugins/types";
 import { selectedMachineId } from "../../controllers/types";
@@ -42,6 +42,10 @@ export class AppNavigationPanel extends LitElement {
   @property({ type: Boolean }) workspaceSelectionVisible = true;
   @property({ attribute: false }) workspaces: Workspace[] = [];
   @property({ attribute: false }) selectedWorkspace?: Workspace;
+  /** Read-only history groups, split by kind into the Projects and Workspaces lists. */
+  @property({ attribute: false }) unmappedGroups: UnmappedSessionGroup[] = [];
+  @property({ attribute: false }) selectedUnmappedSessionId?: string;
+  @property({ attribute: false }) onSelectUnmappedSession?: (session: SessionInfo) => void | Promise<void>;
   @property({ attribute: false }) sessions: SessionInfo[] = [];
   @property({ type: Boolean }) projectSelectionLoading = false;
   @property({ type: Boolean }) sessionsLoading = false;
@@ -51,6 +55,9 @@ export class AppNavigationPanel extends LitElement {
   @property({ attribute: false }) sessionStatuses: Record<string, SessionStatus> = {};
   @property({ attribute: false }) sendingPrompts: Record<string, true> = {};
   @property({ attribute: false }) unreadSessionIds: ReadonlySet<string> = new Set();
+  @property({ attribute: false }) keepUnreadSessionIds: ReadonlySet<string> = new Set();
+  /** Workspace/project node ids that carry a keep-unread pin, so their unread badge uses the keep-unread color. */
+  @property({ attribute: false }) keepUnreadNodeIds: ReadonlySet<string> = new Set();
   @property({ attribute: false }) deletingWorkspaceIds: string[] = [];
   // Unlike event callbacks, this provider affects rendered content; replacements
   // must remain reactive inputs to WorkspaceList.
@@ -80,6 +87,8 @@ export class AppNavigationPanel extends LitElement {
   @property({ attribute: false }) onMoveSessionPin?: (session: SessionInfo, direction: -1 | 1) => void;
   @property({ attribute: false }) onSelectWorkspace?: (workspace: Workspace) => void | Promise<void>;
   @property({ attribute: false }) onDeleteWorkspace?: (workspace: Workspace) => void | Promise<void>;
+  @property({ type: Boolean }) canCreateWorkspace = false;
+  @property({ attribute: false }) onCreateWorkspace?: () => void | Promise<void>;
   @property({ attribute: false }) onStartSession?: () => void | Promise<void>;
   @property({ attribute: false }) onSelectSession?: (session: SessionInfo) => void | Promise<void>;
   @property({ attribute: false }) onArchiveSession?: (session: SessionInfo) => void | Promise<void>;
@@ -93,6 +102,7 @@ export class AppNavigationPanel extends LitElement {
   @property({ attribute: false }) onMarkSessionRead?: (session: SessionInfo) => void | Promise<void>;
   @property({ attribute: false }) onMarkSessionUnread?: (session: SessionInfo) => void | Promise<void>;
   @property({ attribute: false }) onMarkSessionsRead?: (sessions: SessionInfo[]) => void | Promise<void>;
+  @property({ attribute: false }) onToggleKeepUnread?: (session: SessionInfo) => void | Promise<void>;
   @property({ attribute: false }) onReloadSession?: (session: SessionInfo) => void | Promise<void>;
   @property({ attribute: false }) onCleanupSessions?: () => void | Promise<void>;
   @property({ attribute: false }) onArchivedCollapsed?: () => void | Promise<void>;
@@ -176,10 +186,12 @@ export class AppNavigationPanel extends LitElement {
     toggleWorkspaces: () => { this.onToggleWorkspaces?.(); },
     selectWorkspace: (workspace: Workspace) => this.onSelectWorkspace?.(workspace),
     deleteWorkspace: (workspace: Workspace) => this.onDeleteWorkspace?.(workspace),
+    createWorkspace: () => this.onCreateWorkspace?.(),
     toggleSessions: () => { this.onToggleSessions?.(); },
     archivedCollapsed: () => this.onArchivedCollapsed?.(),
     startSession: () => this.onStartSession?.(),
     selectSession: (session: SessionInfo) => this.onSelectSession?.(session),
+    selectUnmappedSession: (session: SessionInfo) => this.onSelectUnmappedSession?.(session),
     archiveSession: (session: SessionInfo) => this.onArchiveSession?.(session),
     archiveSessionWithDescendants: (session: SessionInfo) => this.onArchiveSessionWithDescendants?.(session),
     archiveSessions: (sessions: SessionInfo[]) => this.onArchiveSessions?.(sessions),
@@ -191,6 +203,7 @@ export class AppNavigationPanel extends LitElement {
     markSessionRead: (session: SessionInfo) => this.onMarkSessionRead?.(session),
     markSessionUnread: (session: SessionInfo) => this.onMarkSessionUnread?.(session),
     markSessionsRead: (sessions: SessionInfo[]) => this.onMarkSessionsRead?.(sessions),
+    toggleKeepUnread: (session: SessionInfo) => this.onToggleKeepUnread?.(session),
     reloadSession: (session: SessionInfo) => this.onReloadSession?.(session),
     cleanupSessions: () => this.onCleanupSessions?.(),
     previousFromProjects: () => { this.focusPreviousFrom("projects"); },
@@ -253,12 +266,16 @@ export class AppNavigationPanel extends LitElement {
         .selected=${this.selectedProject}
         .selectionLoading=${this.projectSelectionLoading}
         .statusSnapshot=${this.selectedMachineStatusSnapshot()}
+        .keepUnreadNodeIds=${this.keepUnreadNodeIds}
         .collapsible=${this.collapsible}
         .collapsed=${this.projectsCollapsed}
         .onToggleCollapsed=${this.childCallbacks.toggleProjects}
         .onSelect=${this.childCallbacks.selectProject}
         .onClose=${this.childCallbacks.closeProject}
         .onMove=${this.childCallbacks.moveProject}
+        .unmappedGroups=${this.projectUnmappedGroups}
+        .selectedUnmappedSessionId=${this.selectedUnmappedSessionId}
+        .onSelectUnmappedSession=${this.childCallbacks.selectUnmappedSession}
         .onFocusPreviousSection=${this.childCallbacks.previousFromProjects}
         .onFocusNextSection=${this.childCallbacks.nextFromProjects}
         .onCancelKeyboardNavigation=${this.childCallbacks.cancelKeyboardNavigation}
@@ -272,14 +289,20 @@ export class AppNavigationPanel extends LitElement {
         .selected=${this.selectedWorkspace}
         .machineId=${this.selectedMachine?.id ?? "local"}
         .statusSnapshot=${this.selectedMachineStatusSnapshot()}
+        .keepUnreadNodeIds=${this.keepUnreadNodeIds}
         .deletingWorkspaceIds=${this.deletingWorkspaceIds}
         .collapsible=${this.collapsible}
         .collapsed=${this.workspacesCollapsed}
         .workspaceLabelItems=${this.workspaceLabelItems}
+        .canCreateWorkspace=${this.canCreateWorkspace}
         .onToggleCollapsed=${this.childCallbacks.toggleWorkspaces}
         .onSelect=${this.childCallbacks.selectWorkspace}
         .onDelete=${this.childCallbacks.deleteWorkspace}
         .onMove=${this.childCallbacks.moveWorkspace}
+        .onCreateWorkspace=${this.childCallbacks.createWorkspace}
+        .unmappedGroups=${this.workspaceUnmappedGroups}
+        .selectedUnmappedSessionId=${this.selectedUnmappedSessionId}
+        .onSelectUnmappedSession=${this.childCallbacks.selectUnmappedSession}
         .onFocusPreviousSection=${this.childCallbacks.previousFromWorkspaces}
         .onFocusNextSection=${this.childCallbacks.nextFromWorkspaces}
         .onCancelKeyboardNavigation=${this.childCallbacks.cancelKeyboardNavigation}
@@ -297,6 +320,7 @@ export class AppNavigationPanel extends LitElement {
         .sessionFlags=${this.selectedMachineStatusSnapshot()?.sessions}
         .sending=${this.sendingPrompts}
         .unreadSessionIds=${this.unreadSessionIds}
+        .keepUnreadSessionIds=${this.keepUnreadSessionIds}
         .selected=${this.selectedSession}
         .sessionLabelItems=${this.sessionLabelItems}
         .startingCount=${this.startingSessionCount}
@@ -318,6 +342,7 @@ export class AppNavigationPanel extends LitElement {
         .onMarkRead=${this.childCallbacks.markSessionRead}
         .onMarkUnread=${this.childCallbacks.markSessionUnread}
         .onMarkReadMany=${this.childCallbacks.markSessionsRead}
+        .onToggleKeepUnread=${this.childCallbacks.toggleKeepUnread}
         .onReload=${this.childCallbacks.reloadSession}
         .onCleanup=${this.childCallbacks.cleanupSessions}
         .onFocusPreviousSection=${this.childCallbacks.previousFromSessions}
@@ -359,8 +384,29 @@ export class AppNavigationPanel extends LitElement {
    * selected. Diverging here would blank every row's indicator while a snapshot
    * is in fact loaded.
    */
+  /**
+   * The selected machine's status snapshot. PiWebApp already rolls the client's
+   * unread set (daemon completions unioned with keep-unread pins) up into the
+   * status tree, so the unread flag here tracks the session rows without a
+   * second unread model living in this panel.
+   */
   private selectedMachineStatusSnapshot(): MachineStatusSnapshot | undefined {
     return this.machineStatusSnapshots[selectedMachineId({ selectedMachine: this.selectedMachine })];
+  }
+
+  // Split once per input change so unrelated panel updates keep passing the
+  // same array identities to the two lists (their render skips depend on stable
+  // inputs). Project groups track the whole machine; workspace groups are
+  // scoped to the open project, matching the live workspace rows beside them.
+  private projectUnmappedGroups: UnmappedSessionGroup[] = [];
+  private workspaceUnmappedGroups: UnmappedSessionGroup[] = [];
+
+  protected override willUpdate(changed: PropertyValues<this>): void {
+    if (changed.has("unmappedGroups") || changed.has("selectedProject")) {
+      this.projectUnmappedGroups = this.unmappedGroups.filter((group) => group.kind === "project");
+      const projectId = this.selectedProject?.id;
+      this.workspaceUnmappedGroups = this.unmappedGroups.filter((group) => group.kind === "workspace" && group.projectId === projectId);
+    }
   }
 
   private async focusNavigableSection(section: KeyboardNavigableSection | undefined): Promise<boolean> {

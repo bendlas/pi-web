@@ -1,5 +1,5 @@
 import type { StylesheetIntegrationCapabilityV1, WorkspacePanelContext } from "@jmfederico/pi-web/plugin-api";
-import { TASKS_CONFIG_PATH, type WorkspaceTask } from "./config.js";
+import { SCRIPTS_CONFIG_PATH, type WorkspaceTask } from "./config.js";
 import { runWorkspaceTaskInTerminal } from "./taskRunner.js";
 import { loadWorkspaceTasksConfig, type WorkspaceTasksConfigLoadResult } from "./workspaceTasksClient.js";
 import type { TasksLocalization } from "./tasksLocalization.js";
@@ -122,7 +122,7 @@ export class PiWebTasksPanel extends HTMLElement {
     const state = getOrLoadWorkspaceConfig(context);
     this.setContent(`
       <section class="ui-toolbar toolbar">
-        <strong class="ui-toolbar-title toolbar-title">${escapeHtml(this.messages.t("workspaceTasks"))}</strong>
+        <strong class="ui-toolbar-title toolbar-title">${escapeHtml(this.messages.t("workspaceScripts"))}</strong>
         <span class="ui-toolbar-group">
           <button type="button" class="ui-button" data-refresh-config ${state.kind === "loading" ? "disabled" : ""}>${escapeHtml(this.messages.t("refresh"))}</button>
           <button type="button" class="ui-button" data-open-terminal>${escapeHtml(this.messages.t("openTerminal"))}</button>
@@ -165,9 +165,9 @@ export class PiWebTasksPanel extends HTMLElement {
   }
 
   private renderConfigState(state: ConfigState): string {
-    if (state.kind === "loading") return `<p class="muted">${escapeHtml(this.messages.t("loading", { path: TASKS_CONFIG_PATH }))}</p>`;
-    if (state.kind === "missing") return `<div class="empty-state"><strong>${escapeHtml(this.messages.t("missing"))}</strong><p>${escapeHtml(this.messages.t("missingHint", { path: TASKS_CONFIG_PATH }))}</p></div>`;
-    if (state.kind === "unavailable") return `<div class="status error"><strong>${escapeHtml(this.messages.t("unavailable"))}</strong><p>${escapeHtml(this.messages.t("refreshHint", { path: TASKS_CONFIG_PATH }))}</p><pre>${escapeHtml(this.translationsValue?.loadIssue(state.detail))}</pre></div>`;
+    if (state.kind === "loading") return `<p class="muted">${escapeHtml(this.messages.t("loading", { path: SCRIPTS_CONFIG_PATH }))}</p>`;
+    if (state.kind === "missing") return `<div class="empty-state"><strong>${escapeHtml(this.messages.t("missing"))}</strong><p>${escapeHtml(this.messages.t("missingHint", { path: SCRIPTS_CONFIG_PATH }))}</p></div>`;
+    if (state.kind === "unavailable") return `<div class="status error"><strong>${escapeHtml(this.messages.t("unavailable"))}</strong><p>${escapeHtml(this.messages.t("refreshHint", { path: SCRIPTS_CONFIG_PATH }))}</p><pre>${escapeHtml(this.translationsValue?.loadIssue(state.detail))}</pre></div>`;
 
     if (state.config.tasks.length === 0) return `<p class="muted">${escapeHtml(this.messages.t("empty", { path: state.path }))}</p>`;
     return `
@@ -183,7 +183,7 @@ export class PiWebTasksPanel extends HTMLElement {
   }
 
   private async refreshConfig(context: WorkspacePanelContext): Promise<void> {
-    this.status = { kind: "info", message: () => this.messages.t("refreshing", { path: TASKS_CONFIG_PATH }) };
+    this.status = { kind: "info", message: () => this.messages.t("refreshing", { path: SCRIPTS_CONFIG_PATH }) };
     configCache.set(cacheKeyForContext(context), { kind: "loading" });
     this.render();
 

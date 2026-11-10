@@ -136,8 +136,8 @@ describe("API parsers", () => {
     });
   });
 
-  it("preserves archive destinations for config round-trips without a UI control", () => {
-    const sessionArchive = { directory: "/external/archives" };
+  it("preserves archive locations for config round-trips without a UI control", () => {
+    const sessionArchive = { directory: "/external/archives", parentDir: "/external" };
     const response = { path: "/tmp/config.json", exists: true, config: { sessionArchive }, effectiveConfig: { sessionArchive }, envOverrides: { host: false, port: false, allowedHosts: false, spawnSessions: false, subsessions: false, sessionMessages: false, askUser: false } };
     expect(parsePiWebConfigResponse(response)).toMatchObject({ config: { sessionArchive }, effectiveConfig: { sessionArchive } });
   });
@@ -1158,6 +1158,34 @@ describe("API parsers", () => {
       removal: { actionLabel: "Remove workspace", confirmation: "Remove secondary?" },
       effectiveConfig: {},
     })).toThrow("Expected string field: precondition");
+  });
+
+  it("parses the create capability when the owner advertises it", () => {
+    const workspace = parseWorkspace({
+      id: "w1",
+      projectId: "p1",
+      path: "/repo/worktrees/feature-x",
+      label: "feature-x",
+      isMain: false,
+      provider: { pluginId: "git", capabilities: { remove: true, create: true } },
+      effectiveConfig: {},
+    });
+
+    expect(workspace.provider?.capabilities).toEqual({ remove: true, create: true });
+  });
+
+  it("omits the create capability when the owner does not advertise it", () => {
+    const workspace = parseWorkspace({
+      id: "w1",
+      projectId: "p1",
+      path: "/repo",
+      label: "main",
+      isMain: true,
+      provider: { pluginId: "folder", capabilities: { remove: false } },
+      effectiveConfig: {},
+    });
+
+    expect(workspace.provider?.capabilities.create).toBeUndefined();
   });
 
   it("rejects empty workspace removal wording", () => {

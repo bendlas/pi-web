@@ -202,6 +202,8 @@ export interface PiWebConfigValues {
   plugins?: PiWebPluginConfigMap;
   /** Deployment base roots; combined with independently configurable path additions. */
   basePaths?: string[];
+  /** Git-specific PI WEB behavior. */
+  git?: PiWebGitConfig;
   /** Additional external filesystem roots PI WEB may expose outside a workspace. */
   pathAccess?: PiWebPathAccessConfig;
   /** Workspace-relative defaults for manual file uploads. */
@@ -210,17 +212,26 @@ export interface PiWebConfigValues {
   attachments?: PiWebAttachmentsConfig;
   /** Maximum accepted HTTP request body size in bytes (uploads/attachments). */
   maxUploadBytes?: number;
-  /** Destination for newly archived transcripts; the index remains in the PI WEB data directory. */
-  sessionArchive?: { directory?: string };
+  /**
+   * Session archive locations. `directory` is the destination for newly archived
+   * transcripts; `parentDir` holds both the `archived-sessions.json` index and the
+   * default `directory`. Both default into the PI WEB data directory.
+   */
+  sessionArchive?: {
+    directory?: string;
+    /** Parent directory for the archive index and the default archive directory. The `PI_WEB_ARCHIVE_PARENT` env var takes precedence over this config key. */
+    parentDir?: string;
+  };
   /** When true, LLMs can start new sessions via the spawn_session tool. */
   spawnSessions?: boolean;
   /** When true, LLMs can send messages to other sessions. On by default; independent of spawning. */
   sessionMessages?: boolean;
   /**
    * When true, LLMs can start, inspect, stop, resume, and archive tracked
-   * child sessions through the subsession tools.
-   * On by default; set to `false` to disable. Requires spawnSessions
-   * to be enabled.
+   * child sessions through the subsession tools, including
+   * spawn_subsession / list_subsessions / check_subsession / read_subsession /
+   * steer_subsession. On by default; set to `false` to disable. Requires
+   * spawnSessions to be enabled.
    */
   subsessions?: boolean;
   /**
@@ -246,6 +257,26 @@ export interface PiWebConfigValues {
 }
 
 export type PiWebPluginScope = "bundled" | "local" | "user" | "project";
+
+/** Git-specific PI WEB behavior, honored both globally and per project. */
+export interface PiWebGitConfig {
+  /**
+   * Absolute path, or a path relative to the project root, where PI WEB creates
+   * new git worktrees from the Add-workspace action. When unset, PI WEB uses a
+   * sibling directory named `<repo>-worktrees` next to the main checkout.
+   */
+  worktreeParentDir?: string;
+}
+
+/** Request to create a new git worktree for a project (Add-workspace action). */
+export interface CreateWorkspaceRequest {
+  /** Directory name of the new worktree under the configured worktree parent. */
+  name: string;
+  /** Optional base ref (branch/commit/tag) to branch from; defaults to HEAD. */
+  baseRef?: string;
+  /** Optional new branch name; defaults to `name`. */
+  branchName?: string;
+}
 
 export const PI_WEB_PLUGIN_LIFECYCLE_VERSION = 2;
 
@@ -691,6 +722,14 @@ export interface SessionInfo extends SessionRef {
   parentSessionPath?: string;
   archived?: boolean;
   archivedAt?: string;
+  /**
+   * Browser-enforced view-only marker for sessions reached outside a live
+   * workspace (the unmapped-history index). It reuses the archived read path:
+   * messages are fetched, but the prompt composer and message actions are
+   * disabled. The server remains the authority for archived sessions' own
+   * write guard.
+   */
+  readOnly?: boolean;
 }
 
 export interface ArchiveSessionsResponse {
@@ -767,6 +806,49 @@ export interface SessionCleanupPreviewResponse {
 export interface SessionCleanupExecuteResponse extends SessionCleanupPreviewResponse {
   archivedSessionIds: string[];
   deletedSessionIds: string[];
+}
+
+/**
+ * Why a cwd with persisted session history is not reachable through a live
+ * project or workspace. `project` covers a session whose project folder is no
+ * longer registered (or never was); `workspace` covers a session whose cwd sits
+ * under a registered project but is not a live workspace of it (e.g. a removed
+ * git worktree).
+ */
+export type UnmappedSessionGroupKind = "project" | "workspace";
+
+/** One cwd with session history that no live project/workspace currently exposes. */
+export interface UnmappedSessionGroup {
+  /** The stored working directory; empty string for legacy sessions that never recorded one. */
+  cwd: string;
+  kind: UnmappedSessionGroupKind;
+  /**
+   * Registered project this cwd belongs to. Set only for `workspace` groups, so
+   * the Workspaces section can scope its unmapped history to the open project.
+   * Project groups have no matching project and leave this unset.
+   */
+  projectId?: string;
+  /**
+   * Prefix-stripped display path for `workspace` groups: the cwd relative to the
+   * containment root it matched (the project path or its worktree parent), so
+   * the project's absolute location is not repeated in the row. Unset for
+   * `project` groups, which have no owning project and render the full cwd.
+   */
+  relativePath?: string;
+  /** True when the directory still exists on disk; false when it was deleted. */
+  exists: boolean;
+  /** Sessions recorded for this cwd, newest first. Always read-only to the browser. */
+  sessions: SessionInfo[];
+}
+
+/**
+ * Session-history index of everything not reachable through registered projects
+ * and workspaces. Derived from Pi's session listing plus PI WEB's archive store;
+ * it is a session-level index, not a full-text message search.
+ */
+export interface UnmappedSessionsResponse {
+  generatedAt: string;
+  groups: UnmappedSessionGroup[];
 }
 
 export interface SessionActivity {

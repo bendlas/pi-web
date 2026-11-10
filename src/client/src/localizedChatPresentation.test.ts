@@ -10,13 +10,17 @@ afterEach(async () => { await localization.setPreferences({ language: "en", form
 
 it("localizes every generated argument shape but never rewrites keys, primitive values, paths or commands", async () => {
   await localization.setPreferences({ language: "ar-XB", formatLocale: "ar-EG" });
-  const args = { questions: Array.from({ length: 12 }, () => "raw"), config: { value: 1 }, raw: "<tag> العربية" };
-  expect(localizedArgumentSummary({ kind: "arguments", args })).toBe(`questions: ${messages.t("argsItems", { count: 12 })} · config: ${messages.t("argsObject")} · raw: <tag> العربية`);
+  const cycle: Record<string, unknown> = {};
+  cycle["self"] = cycle;
+  const args = { questions: ["raw"], config: { value: 1 }, raw: "<tag> العربية" };
+  expect(localizedArgumentSummary({ kind: "arguments", args })).toBe(`questions: ["raw"] · config: {"value":1} · raw: <tag> العربية`);
   expect(localizedArgumentSummary({ kind: "arguments", args: { edits: [1, 2] } })).toBe(messages.t("argsEdits", { count: 2 }));
   expect(localizedArgumentSummary({ kind: "arguments", args: { oldText: "a", newText: "b" } })).toBe(messages.t("argsReplacement"));
+  // Nested values keep their content; only what JSON cannot express falls back to a localized shape.
+  expect(localizedArgumentSummary({ kind: "arguments", args: { cycle } })).toBe(`cycle: ${messages.t("argsObject")}`);
   for (const args of [{ path: "raw/path" }, { command: "echo edits" }]) expect(argumentSummaryPresentation(args)).toEqual({});
   expect(summarizeArgs({ edits: [1, 2] })).toBe("2 edits");
-  expect(summarizeArgs(args)).toBe("questions: 12 items · config: object · raw: <tag> العربية");
+  expect(summarizeArgs(args)).toBe(`questions: ["raw"] · config: {"value":1} · raw: <tag> العربية`);
 });
 
 it("retains provenance through history coalescing, live starts, result updates and finalization", () => {
@@ -51,7 +55,7 @@ it("retains source-compatible English while resolving shell metadata and failure
     expect(displayed[1]).toBe(messages.t("modelFailure", { detail: "<img src=x> raw failure", detailed: "yes" }));
     expect(displayed[2]).toBe(messages.t("modelFailure", { detail: "", detailed: "no" }));
     expect(displayed[3]).toBe(messages.t("imagePlaceholder"));
-    expect(displayed[4]).toBe(`questions: ${messages.t("argsItems", { count: 2 })}`);
+    expect(displayed[4]).toBe("questions: [1,2]");
     if (language === "en") for (const [index, line] of lines.entries()) expect(line.parts[0]).toHaveProperty("text", displayed[index]);
   }
 });

@@ -268,6 +268,7 @@ export interface PluginRuntimeContext {
   openThemePicker: () => void;
   openModelPicker: () => void | Promise<void>;
   openThinkingLevelPicker: () => void | Promise<void>;
+  steerPrompt: () => void;
   selectMainView: (view: AppState["mainView"]) => void;
   selectWorkspaceTool: (tool: QualifiedContributionId) => void;
   openTerminal: (options?: { terminalId?: string | undefined }) => void;
@@ -279,6 +280,7 @@ export interface PluginRuntimeContext {
   checkForPiWebUpdates?: () => void | Promise<void>;
   reloadPage: () => void;
   deleteWorkspace: (workspace?: Workspace) => void | Promise<void>;
+  createWorkspace: () => void | Promise<void>;
   startSession: () => void | Promise<void>;
   archiveSession: () => void | Promise<void>;
   reloadSession: () => void | Promise<void>;

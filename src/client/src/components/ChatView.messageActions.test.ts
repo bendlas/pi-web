@@ -10,6 +10,7 @@ import { PluginRegistry } from "../plugins/registry";
 import type { ChatLine } from "./shared";
 import type { FormattedText } from "./FormattedText";
 import { ChatView } from "./ChatView";
+import { ChatDisclosureBody } from "./ChatDisclosureBody";
 import { settleDeferredContent, useDeferredContent } from "../formatting/deferredContent.testSupport";
 
 useDeferredContent();
@@ -255,6 +256,15 @@ describe("plugin-defined transcript message actions", () => {
     group.open = true;
     group.dispatchEvent(new Event("toggle"));
     await settle(view);
+
+    // A thinking body exists only while its block is open, so open it to inspect it.
+    const reasoning = group.querySelector<HTMLDetailsElement>("details.part.thinking");
+    if (reasoning !== null) {
+      reasoning.open = true;
+      reasoning.dispatchEvent(new Event("toggle"));
+      const body = reasoning.querySelector("chat-disclosure-body");
+      if (body instanceof ChatDisclosureBody) await body.updateComplete;
+    }
 
     const thinking = group.querySelector<HTMLElement>("section.group-msg.assistant");
     const reply = view.renderRoot.querySelector<HTMLElement>("article.msg.assistant");

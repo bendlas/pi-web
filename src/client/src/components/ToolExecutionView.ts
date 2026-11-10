@@ -5,11 +5,14 @@ import { stylesheetIntegrationCapability } from "../plugins/styles";
 import { LitElement, css, html, type PropertyValues } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import { writeClipboardText } from "../clipboard";
+import type { ChatDisclosureController } from "../chatDisclosure";
 import type { ToolExecutionPart } from "../chatTypes";
 import { uiButtonStyles } from "./ui/controlStyles";
 import { uiTranscriptStyles } from "./ui/transcriptStyles";
 
 const MAX_COLLAPSED_DIFF_LINES = 180;
+/** Pretty-printed arguments longer than this start collapsed behind a "show all" button. */
+const MAX_COLLAPSED_ARG_LINES = 120;
 
 interface ToolTarget {
   kind: "command" | "file" | "input";
@@ -26,12 +29,26 @@ export class ToolExecutionView extends LitElement {
   }
 
   @property({ attribute: false }) execution: ToolExecutionPart | undefined;
+  // Disclosure ownership lives in the parent so a user-opened diff/details
+  // survives the tool re-rendering (and the surrounding group finishing).
+  @property({ attribute: false }) disclosures: ChatDisclosureController | undefined;
+  @property({ attribute: false }) disclosureKey: string | undefined;
+  @property({ attribute: false }) groupDisclosureKey: string | undefined;
   @state() private showFullDiff = false;
   @state() private copied = false;
   @state() private diffOpen = true;
   @state() private textOpen: boolean | undefined;
   private countedDiff: string | undefined;
   private diffStats: { added: number; removed: number; lines: number } | undefined;
+  @state() private argsOpen: boolean | undefined = undefined;
+  @state() private showFullArgs = false;
+  /**
+   * The open state this view last knows each disclosure to have: what a render
+   * wrote, or what the user left behind. A programmatic open fires the same
+   * toggle event a click does, so a toggle only means a user choice when it
+   * differs from the state recorded here.
+   */
+  private readonly knownOpen = new Map<string, boolean>();
 
   protected override willUpdate(changed: PropertyValues<ToolExecutionView>): void {
     const previous = changed.get("execution");
@@ -39,6 +56,7 @@ export class ToolExecutionView extends LitElement {
   }
 
   override render() {
+    this.knownOpen.clear();
     const execution = this.execution;
     if (execution === undefined) return null;
 
@@ -56,6 +74,7 @@ export class ToolExecutionView extends LitElement {
     const bodyText = visibleDiff === undefined ? localizedResultText(execution) : undefined;
     const target = toolTarget(execution, path);
     const edits = editCount(execution);
+    const argsJson = formatArgs(execution.args);
 
     return html`
       <section class=${`tool-card ui-transcript-surface ui-transcript-activity ui-transcript-tool ${execution.status}`}>
@@ -74,9 +93,44 @@ export class ToolExecutionView extends LitElement {
 
         ${previewMismatch ? html`<p class="notice">${messages.t("mismatch")}</p>` : null}
         ${errorText === undefined || errorText === "" ? null : html`<pre class="error-text">${errorText}</pre>`}
+        ${argsJson === undefined ? null : this.renderArguments(argsJson)}
         ${visibleDiff === undefined ? this.renderTextBody(bodyText, execution.status === "error", target) : this.renderDiffBody(visibleDiff, messages.t(actualDiff === undefined ? "previewDiff" : "appliedDiff"), target)}
       </section>
     `;
+  }
+
+  /**
+   * Render the complete tool arguments on demand so nested values (e.g. a tmux
+   * match pattern) are never dropped. The body is built only while the block is
+   * open: a session renders one of these per tool call, and an expanded JSON
+   * block per call is what makes a long transcript expensive to lay out.
+   */
+  private renderArguments(json: string) {
+    const lines = json.split("\n");
+    const open = this.argsOpen ?? false;
+    const truncated = !this.showFullArgs && lines.length > MAX_COLLAPSED_ARG_LINES;
+    const visibleLines = truncated ? lines.slice(0, MAX_COLLAPSED_ARG_LINES) : lines;
+    return html`
+      <details class="arguments" ?open=${open} @toggle=${(event: Event) => { this.onArgsToggle(event); }}>
+        <summary>
+          <span>${messages.t("arguments")}</span>
+          <small>${messages.t("argumentLines", { count: lines.length })}</small>
+        </summary>
+        ${open ? html`
+          <pre class="arguments-json" aria-label=${messages.t("argumentsDescription")}><code>${visibleLines.join("\n")}</code></pre>
+          ${truncated ? html`
+            <button class="show-more" type="button" @click=${() => { this.showFullArgs = true; }}>
+              ${messages.t("showAllArguments", { count: lines.length })}
+            </button>
+          ` : null}
+        ` : null}
+      </details>
+    `;
+  }
+
+  private onArgsToggle(event: Event): void {
+    const details = event.currentTarget;
+    if (details instanceof HTMLDetailsElement) this.argsOpen = details.open;
   }
 
   private renderHeaderTarget(target: ToolTarget | undefined) {
@@ -95,15 +149,13 @@ export class ToolExecutionView extends LitElement {
     `;
   }
 
-  private renderTextBody(text: string | undefined, open: boolean, target: ToolTarget | undefined) {
+  private renderTextBody(text: string | undefined, defaultOpen: boolean, target: ToolTarget | undefined) {
     if ((text === undefined || text === "") && target === undefined) return null;
-    const expanded = this.textOpen ?? open;
+    const open = this.ownedDisclosureOpen("text", defaultOpen);
     return html`
-      <details class="text-body" ?open=${expanded} @toggle=${(event: Event) => {
-        if (event.currentTarget instanceof HTMLDetailsElement) this.textOpen = event.currentTarget.open;
-      }}>
+      <details class="text-body" ?open=${open} @toggle=${(event: Event) => { this.onSubDisclosureToggle("text", defaultOpen, event); }}>
         <summary class="ui-transcript-disclosure">${messages.t("details")}</summary>
-        ${expanded ? html`${this.renderExpandedTarget(target)}
+        ${open ? html`${this.renderExpandedTarget(target)}
         ${text === undefined || text === "" ? null : html`
           <div class="detail-result">
             <span class="detail-label">${messages.t("result")}</span>
@@ -116,13 +168,14 @@ export class ToolExecutionView extends LitElement {
 
   private renderDiffBody(diff: string, label: string, target: ToolTarget | undefined) {
     const lineCount = this.diffStats?.lines ?? 0;
+    const open = this.ownedDisclosureOpen("diff", true);
     return html`
-      <details class="diff-details" ?open=${this.diffOpen} @toggle=${(event: Event) => { this.onDiffToggle(event); }}>
+      <details class="diff-details" ?open=${open} @toggle=${(event: Event) => { this.onSubDisclosureToggle("diff", true, event); }}>
         <summary class="ui-transcript-disclosure">
           <span>${label}</span>
           <small>${messages.t("lines", { count: lineCount })}</small>
         </summary>
-        ${this.diffOpen ? this.renderDiffContent(diff, label, target) : null}
+        ${open ? this.renderDiffContent(diff, label, target) : null}
       </details>
     `;
   }
@@ -146,9 +199,37 @@ export class ToolExecutionView extends LitElement {
     `;
   }
 
-  private onDiffToggle(event: Event): void {
+  private ownedDisclosureOpen(suffix: "text" | "diff", defaultOpen: boolean): boolean {
+    const key = this.disclosureKey;
+    const disclosures = this.disclosures;
+    if (disclosures === undefined || key === undefined) return (suffix === "text" ? this.textOpen : this.diffOpen) ?? defaultOpen;
+    const open = disclosures.isOpen(`${key}:${suffix}`, defaultOpen);
+    this.knownOpen.set(suffix, open);
+    return open;
+  }
+
+  private onSubDisclosureToggle(suffix: "text" | "diff", defaultOpen: boolean, event: Event): void {
     const details = event.currentTarget;
-    if (details instanceof HTMLDetailsElement) this.diffOpen = details.open;
+    if (!(details instanceof HTMLDetailsElement)) return;
+    const key = this.disclosureKey;
+    const disclosures = this.disclosures;
+    if (disclosures === undefined || key === undefined) {
+      if (suffix === "text") this.textOpen = details.open;
+      else this.diffOpen = details.open;
+      return;
+    }
+    // A programmatic open or close fires the same toggle event a click does; only
+    // a state this view does not already expect is the user choosing something.
+    if (details.open === this.knownOpen.get(suffix)) return;
+    this.knownOpen.set(suffix, details.open);
+    let changed = disclosures.applyToggle(`${key}:${suffix}`, details.open, defaultOpen);
+    // An opened block stays open when the group's default flips after the
+    // response finishes, and it also keeps the group that holds it open.
+    if (details.open) {
+      changed = disclosures.markOpen(`${key}:${suffix}`) || changed;
+      if (this.groupDisclosureKey !== undefined) changed = disclosures.markOpen(this.groupDisclosureKey) || changed;
+    }
+    if (changed) this.requestUpdate();
   }
 
   private async copyDiff(diff: string): Promise<void> {
@@ -192,6 +273,11 @@ export class ToolExecutionView extends LitElement {
     .text-body pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px var(--pi-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace); color: var(--pi-text); }
     .detail-result pre { box-sizing: border-box; max-width: 100%; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; scrollbar-width: thin; border: 1px solid var(--pi-border-muted); border-radius: 0; background: var(--pi-bg); padding: 8px; white-space: pre; overflow-wrap: normal; direction: ltr; text-align: left; unicode-bidi: isolate; }
     .detail-target-value { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--pi-text-secondary); font: 12px var(--pi-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace); direction: ltr; text-align: left; unicode-bidi: isolate; }
+    .arguments { min-width: 0; max-width: 100%; border-top: 1px solid var(--pi-border-muted); padding-top: 6px; }
+    .arguments > summary { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; min-width: 0; color: var(--pi-muted); cursor: pointer; }
+    .arguments > summary span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .arguments > summary small { flex: 0 0 auto; color: var(--pi-dim); }
+    .arguments-json { box-sizing: border-box; width: 100%; max-width: 100%; min-width: 0; margin: 8px 0 0; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; scrollbar-width: thin; border: 1px solid var(--pi-border-muted); border-radius: 0; background: var(--pi-bg); padding: 8px; color: var(--pi-text); white-space: pre; font: 12px var(--pi-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace); direction: ltr; text-align: left; unicode-bidi: isolate; }
     .diff-details { min-width: 0; max-width: 100%; }
     .diff-details > summary { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; color: var(--pi-muted); }
     .diff-details > summary span { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -239,6 +325,20 @@ function editCount(execution: ToolExecutionPart): number | undefined {
   if (Array.isArray(edits)) return edits.length;
   if (typeof getProperty(execution.args, "oldText") === "string" && typeof getProperty(execution.args, "newText") === "string") return 1;
   return undefined;
+}
+
+function formatArgs(args: unknown): string | undefined {
+  if (args === undefined || args === null) return undefined;
+  if (Array.isArray(args)) {
+    if (args.length === 0) return undefined;
+  } else if (isRecord(args) && Object.keys(args).length === 0) {
+    return undefined;
+  }
+  try {
+    return JSON.stringify(args, null, 2);
+  } catch {
+    return undefined;
+  }
 }
 
 function diffFromDetails(details: unknown): string | undefined {

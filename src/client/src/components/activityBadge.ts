@@ -24,17 +24,19 @@ export type ActivityIndicatorKind = "session" | "terminal" | "sending" | "interv
  * row is idle. Intervention is a static hollow ring, not an unread mark. The label
  * is the flag — pass undefined when the row has nothing unread.
  */
-export function renderActivityIndicator(kind: ActivityIndicatorKind | undefined, label = "Active", unreadLabel?: string): TemplateResult | undefined {
+export function renderActivityIndicator(kind: ActivityIndicatorKind | undefined, label = "Active", unreadLabel?: string, keepUnread = false): TemplateResult | undefined {
   if (kind === "intervention-required") label = interventionRequiredLabel();
   if (kind === undefined) {
     if (unreadLabel === undefined) return undefined;
-    return html`<span class="activity-indicator unread" role="img" aria-label=${unreadLabel} title=${unreadLabel}></span>`;
+    const className = keepUnread ? "activity-indicator unread keep-unread" : "activity-indicator unread";
+    return html`<span class=${className} role="img" aria-label=${unreadLabel} title=${unreadLabel}></span>`;
   }
   if (unreadLabel === undefined) {
     return html`<span class=${`activity-indicator ${kind}`} role="img" aria-label=${label} title=${label}></span>`;
   }
   const combinedLabel = `${unreadLabel} · ${label}`;
-  return html`<span class="unread-ring" role="img" aria-label=${combinedLabel} title=${combinedLabel}><span class=${`activity-indicator ${kind}`} aria-hidden="true"></span></span>`;
+  const ringClassName = keepUnread ? "unread-ring keep-unread" : "unread-ring";
+  return html`<span class=${ringClassName} role="img" aria-label=${combinedLabel} title=${combinedLabel}><span class=${`activity-indicator ${kind}`} aria-hidden="true"></span></span>`;
 }
 
 /**
@@ -59,8 +61,8 @@ export function hasStatusUnread(flags: StatusFlags | undefined): boolean {
   return flags?.[CORE_STATUS_FLAGS.unread] === true;
 }
 
-export function renderActionActivityIndicator(kind: ActivityIndicatorKind | undefined, label = "Active", unreadLabel?: string): TemplateResult | undefined {
-  const indicator = renderActivityIndicator(kind, label, unreadLabel);
+export function renderActionActivityIndicator(kind: ActivityIndicatorKind | undefined, label = "Active", unreadLabel?: string, keepUnread = false): TemplateResult | undefined {
+  const indicator = renderActivityIndicator(kind, label, unreadLabel, keepUnread);
   if (indicator === undefined) return undefined;
   return html`<span class="action-activity ui-nav-row-leading">${indicator}</span>`;
 }
