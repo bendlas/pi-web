@@ -318,11 +318,13 @@ describe("renderSubsessionCompletions", () => {
 
   it("identifies errors separately from output and names children still working without polling", () => {
     const failed = completion({ completionId: "child-2:run-1", sessionId: "child-2", status: "error", finalText: "partial answer", errorDetail: "provider failed" });
-    const rendered = renderSubsessionCompletions([completion({ finalText: "" }), failed], ["child-3", "child-4"]);
-    expect(rendered).toContain("Subsession child-2 stopped with error.");
-    expect(rendered).toContain("Still working: child-3, child-4");
-    expect(rendered).not.toContain("partial answer");
-    expect(rendered).not.toContain("provider failed");
+    expect(renderSubsessionCompletions([completion({ finalText: "" }), failed], ["child-3", "child-4"])).toBe([
+      "Subsession child-1 is now idle.",
+      "",
+      "Subsession child-2 stopped with error.",
+      "",
+      "Still working: child-3, child-4. Continue working, or call wait_subsessions to block until a result arrives, or yield_to_subsessions alone and last to end the run. Further lifecycle notices arrive automatically; do not poll.",
+    ].join("\n"));
   });
 
   it("withholds every child's output regardless of size", () => {

@@ -1294,6 +1294,7 @@ describe("PiSessionService", () => {
       });
 
       expect(parent.calls.sendCustomMessage[0]?.message.content).toContain("Still working: child-2.");
+      expect(parent.calls.sendCustomMessage[0]?.message.content).toContain("call wait_subsessions to block until a result arrives");
 
       second.session.isStreaming = false;
       second.emit({ type: "agent_end" });
