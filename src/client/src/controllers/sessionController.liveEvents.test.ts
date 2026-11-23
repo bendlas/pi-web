@@ -172,4 +172,97 @@ describe("SessionController live events", () => {
 
     expect(state.sessions.map((session) => session.id)).toEqual(["old-session"]);
   });
+
+  it("live-updates the listed session name on a global session.name event", () => {
+    let state: AppState = { ...initialAppState(), selectedSession: oldSession, sessions: [oldSession] };
+    const controller = new SessionController(
+      () => state,
+      (patch) => { state = { ...state, ...patch }; },
+      () => undefined,
+      undefined,
+      { socket: new FakeSocket() },
+    );
+
+    controller.applyGlobalEvent({ type: "session.name", sessionId: oldSession.id, name: "Renamed live" });
+
+    expect(state.sessions[0]?.name).toBe("Renamed live");
+    expect(state.selectedSession?.name).toBe("Renamed live");
+  });
+
+  it("live-updates the listed name from a per-session session.name stream event", async () => {
+    const socket = new EmitSocket();
+    let state: AppState = { ...initialAppState(), selectedWorkspace: workspace, selectedSession: oldSession, sessions: [oldSession] };
+    const api: typeof defaultApi = {
+      ...defaultApi,
+      messages: () => Promise.resolve(emptyPage),
+      status: () => Promise.resolve(status(oldSession.id)),
+      streamSnapshot: () => Promise.resolve({ seq: 0, partial: null }),
+    };
+    const controller = new SessionController(
+      () => state,
+      (patch) => { state = { ...state, ...patch }; },
+      () => undefined,
+      undefined,
+      { api, socket },
+    );
+    await controller.selectSession(oldSession, { updateUrl: false });
+
+    socket.emit({ type: "session.name", sessionId: oldSession.id, name: "Streamed rename" });
+
+    expect(state.sessions[0]?.name).toBe("Streamed rename");
+    expect(state.selectedSession?.name).toBe("Streamed rename");
+  });
+
+  it("clears the listed name when session.name carries no name (falls back to default label)", () => {
+    let state: AppState = { ...initialAppState(), selectedSession: { ...oldSession, name: "Has name" }, sessions: [{ ...oldSession, name: "Has name" }] };
+    const controller = new SessionController(
+      () => state,
+      (patch) => { state = { ...state, ...patch }; },
+      () => undefined,
+      undefined,
+      { socket: new FakeSocket() },
+    );
+
+    controller.applyGlobalEvent({ type: "session.name", sessionId: oldSession.id });
+
+    expect(state.sessions[0]?.name).toBeUndefined();
+    expect(state.selectedSession?.name).toBeUndefined();
+  });
+
+  it("clears the listed name when session.name carries an empty name", () => {
+    let state: AppState = { ...initialAppState(), selectedSession: { ...oldSession, name: "Has name" }, sessions: [{ ...oldSession, name: "Has name" }] };
+    const controller = new SessionController(
+      () => state,
+      (patch) => { state = { ...state, ...patch }; },
+      () => undefined,
+      undefined,
+      { socket: new FakeSocket() },
+    );
+
+    controller.applyGlobalEvent({ type: "session.name", sessionId: oldSession.id, name: "" });
+
+    expect(state.sessions[0]?.name).toBeUndefined();
+    expect(state.selectedSession?.name).toBeUndefined();
+  });
+
+  it("does not touch other sessions when renaming one", () => {
+    const other: SessionInfo = { ...oldSession, id: "other-session", name: "Other name" };
+    // The selected session is old-session; we rename the *other* one.
+    let state: AppState = { ...initialAppState(), selectedSession: oldSession, sessions: [oldSession, other] };
+    const controller = new SessionController(
+      () => state,
+      (patch) => { state = { ...state, ...patch }; },
+      () => undefined,
+      undefined,
+      { socket: new FakeSocket() },
+    );
+
+    controller.applyGlobalEvent({ type: "session.name", sessionId: other.id, name: "Renamed live" });
+
+    expect(state.sessions.map((session) => session.id)).toEqual(["old-session", "other-session"]);
+    expect(state.sessions[0]?.name).toBeUndefined();
+    expect(state.sessions[1]?.name).toBe("Renamed live");
+    // The selected session was not the renamed one, so its name is unchanged.
+    expect(state.selectedSession?.name).toBeUndefined();
+  });
 });
