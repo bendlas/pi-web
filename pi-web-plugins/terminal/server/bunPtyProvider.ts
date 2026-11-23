@@ -19,7 +19,7 @@ export interface BunPtyRuntime {
       exit(terminal: BunTerminalHandle): void;
     };
     onExit(child: unknown, exitCode: number | null): void;
-  }): { terminal: BunTerminalHandle; kill(signal?: string): void };
+  }): { pid: number; terminal: BunTerminalHandle; kill(signal?: string): void };
 }
 
 function isBunPtyRuntime(value: unknown): value is BunPtyRuntime {
@@ -106,7 +106,16 @@ export function createBunPtyProvider(api: unknown = Reflect.get(globalThis, "Bun
       }
       terminal = child.terminal;
       return {
+        pid: child.pid,
         write(data) { if (!disposed && !completed && !processExited) child.terminal.write(data); },
+        kill(signal) {
+          if (disposed || completed || processExited) return;
+          try {
+            child.kill(signal);
+          } catch {
+            // A shell that already exited has nothing left to signal.
+          }
+        },
         resize(cols, rows) { if (!disposed && !completed && !processExited) child.terminal.resize(cols, rows); },
         dispose() {
           if (disposed) return;

@@ -5,7 +5,7 @@ import { LitElement, html, nothing, type PropertyValues, type TemplateResult } f
 import { customElement, property, state } from "lit/decorators.js";
 import { repeat } from "lit/directives/repeat.js";
 import { trustApi } from "../api";
-import type { Workspace } from "../api";
+import type { SessionInfo, UnmappedSessionGroup, Workspace } from "../api";
 import { CORE_STATUS_FLAGS, type MachineStatusSnapshot } from "../../../shared/machineStatus";
 import { renderCopyIdAction } from "./copyIdAction";
 import { DetailCopyController } from "./detailCopy";
@@ -19,6 +19,7 @@ import { listStyles } from "./shared";
 import { sidebarListStyles } from "./sidebarListStyles";
 import { ListReorderController } from "./listReorderController";
 import type { DropPosition } from "./listReorder";
+import "./UnmappedSection";
 import { renderWorkspaceLabelInlineItems } from "./workspaceLabel";
 
 import { renderTrustMenuControl, type TrustMenuState } from "./trustMenuControl";
@@ -41,11 +42,16 @@ export class WorkspaceList extends LitElement implements KeyboardNavigableSectio
   @property({ attribute: false }) workspaceLabelItems: (workspace: Workspace) => WorkspaceLabelItem[] = () => [];
   /** Status tree of the machine these workspaces belong to; absent means no indicators. */
   @property({ attribute: false }) statusSnapshot: MachineStatusSnapshot | undefined;
+  /** Workspace node ids that carry a keep-unread pin, so their unread badge uses the keep-unread color. */
+  @property({ attribute: false }) keepUnreadNodeIds: ReadonlySet<string> = new Set();
   @property({ attribute: false }) deletingWorkspaceIds: string[] = [];
   @property({ attribute: false }) onSelect?: (workspace: Workspace) => void;
   @property({ attribute: false }) onDelete?: (workspace: Workspace) => void;
   @property({ attribute: false }) onMove?: (workspace: Workspace, direction: -1 | 1) => void;
   @property({ attribute: false }) onReorder?: ((workspace: Workspace, neighbor: Workspace, position: DropPosition) => void) | undefined;
+  @property({ attribute: false }) unmappedGroups: UnmappedSessionGroup[] = [];
+  @property({ attribute: false }) selectedUnmappedSessionId?: string;
+  @property({ attribute: false }) onSelectUnmappedSession?: (session: SessionInfo) => void | Promise<void>;
   @property({ attribute: false }) onToggleCollapsed?: () => void;
   @property({ attribute: false }) onFocusPreviousSection?: () => void | Promise<void>;
   @property({ attribute: false }) onFocusNextSection?: () => void | Promise<void>;
@@ -153,6 +159,12 @@ export class WorkspaceList extends LitElement implements KeyboardNavigableSectio
                 </div>
               `;
             })}
+            <unmapped-section
+              scope="workspaces"
+              .groups=${this.unmappedGroups}
+              .selectedSessionId=${this.selectedUnmappedSessionId}
+              .onSelectSession=${this.onSelectUnmappedSession}
+            ></unmapped-section>
           </div>
         `}
         <div class="list-reorder-status" role="status">${this.reorder.announcement}</div>
@@ -167,9 +179,10 @@ export class WorkspaceList extends LitElement implements KeyboardNavigableSectio
     return html`<button class="ui-button ui-toolbar-title section-toggle ui-nav-section-toggle" aria-expanded=${String(!this.collapsed)} @click=${() => { this.onToggleCollapsed?.(); }}><span class="section-title"><span class="section-name">${this.collapsed ? "▸" : "▾"} ${messages.t("workspaces")}</span>${this.collapsed ? html`<small class="section-selected" title=${selectedTitle}>${selectedSummary}</small>` : null}</span><small class="section-count">${localization.number(this.workspaces.length)}</small></button>`;
   }
 
-  private renderActivity(kind: ReturnType<typeof statusActivityKind>, unread: boolean, workKind: ReturnType<typeof statusWorkKind>): TemplateResult | undefined {
+  private renderActivity(workspace: Workspace, kind: ReturnType<typeof statusActivityKind>, unread: boolean, workKind: ReturnType<typeof statusWorkKind>): TemplateResult | undefined {
     const unreadLabel = unread ? messages.t("workspaceUnread") : undefined;
-    return renderActionActivityIndicator(kind, workKind === "terminal" ? messages.t("workspaceTerminal") : messages.t("workspaceActive"), unreadLabel, workKind);
+    const keepUnread = unreadLabel !== undefined && this.keepUnreadNodeIds.has(workspace.id);
+    return renderActionActivityIndicator(kind, workKind === "terminal" ? messages.t("workspaceTerminal") : messages.t("workspaceActive"), unreadLabel, workKind, keepUnread);
   }
 
   private renderWorkspaceMain(label: string, items: WorkspaceLabelItem[], workspace: Workspace, kind: ReturnType<typeof statusActivityKind>, unread: boolean, workKind: ReturnType<typeof statusWorkKind>): TemplateResult {
@@ -183,7 +196,7 @@ export class WorkspaceList extends LitElement implements KeyboardNavigableSectio
           <span class="workspace-label">${renderWorkspaceLabelInlineItems(items)}</span>
         </small>
       `}
-      ${this.renderActivity(kind, unread, workKind)}
+      ${this.renderActivity(workspace, kind, unread, workKind)}
     `;
   }
 

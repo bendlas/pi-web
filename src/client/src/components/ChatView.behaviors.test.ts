@@ -7,7 +7,8 @@ import { MANUAL_CHAT_BEHAVIORS } from "../chatBehaviors.testSupport";
 import { groupStorageKey } from "../chatDisclosure";
 import { chatScrollScopeKey, chatScrollStorageKey } from "../chatScrollPosition";
 import { transcriptViewFromHistory } from "../chatTranscriptStore";
-import { ChatView } from "./ChatView";
+import { ChatView, CHAT_CHROME_VISIBILITY_EVENT, type ChatChromeVisibilityDetail } from "./ChatView";
+import { ChatDisclosureBody } from "./ChatDisclosureBody";
 import { controlledChatViewport } from "./chatScroll.testSupport";
 import type { ChatLine } from "./shared";
 import type { TranscriptImage } from "./TranscriptImage";
@@ -42,6 +43,9 @@ async function mount(behaviors: ChatBehaviors = DEFAULT_CHAT_BEHAVIORS) {
   view.messageTotal = messages.length; view.messages = messages;
   document.body.append(view); await view.updateComplete;
   return view;
+}
+function isChromeVisibilityEvent(event: Event): event is CustomEvent<ChatChromeVisibilityDetail> {
+  return "detail" in event;
 }
 function required(root: ParentNode, selector: string): HTMLElement {
   const node = root.querySelector<HTMLElement>(selector);
@@ -249,7 +253,36 @@ describe("composable normal chat", () => {
     await view.updateComplete;
     expect(required(view.renderRoot, ".event-group").hasAttribute("open")).toBe(live);
     await openGroup(view);
-    expect(required(view.renderRoot, ".thinking").hasAttribute("open")).toBe(true);
+    const thinking = required(view.renderRoot, ".thinking");
+    expect(thinking.hasAttribute("open")).toBe(true);
+    // The body is built only while the block is open.
+    const body = required(thinking, "chat-disclosure-body");
+    if (!(body instanceof ChatDisclosureBody)) throw new Error("Expected disclosure body");
+    await body.updateComplete;
+    expect(body.renderRoot.querySelector("formatted-text")).not.toBeNull();
+  });
+
+  it("builds a thinking body only while the block is open", async () => {
+    const view = await mount();
+    await openGroup(view);
+    const thinking = required(view.renderRoot, ".thinking");
+    if (!(thinking instanceof HTMLDetailsElement)) throw new Error("Expected thinking disclosure");
+    const body = required(thinking, "chat-disclosure-body");
+    if (!(body instanceof ChatDisclosureBody)) throw new Error("Expected disclosure body");
+    await body.updateComplete;
+    expect(thinking.open).toBe(true);
+    expect(body.renderRoot.querySelector("formatted-text")).not.toBeNull();
+    // A native toggle builds and drops the body without rerendering the transcript.
+    const render = vi.spyOn(view, "render");
+    thinking.open = false;
+    thinking.dispatchEvent(new Event("toggle"));
+    await body.updateComplete;
+    expect(body.renderRoot.querySelector("formatted-text")).toBeNull();
+    expect(render).not.toHaveBeenCalled();
+    thinking.open = true;
+    thinking.dispatchEvent(new Event("toggle"));
+    await body.updateComplete;
+    expect(body.renderRoot.querySelector("formatted-text")).not.toBeNull();
   });
 
   it.each([true, false])("keeps thinking individually collapsible and remembers its choice only when enabled (%s)", async (rememberDisclosures) => {
@@ -261,7 +294,6 @@ describe("composable normal chat", () => {
     thinking.open = false;
     thinking.dispatchEvent(new Event("toggle"));
     await view.updateComplete;
-    expect(thinking.querySelector("formatted-text")).toBeNull();
     view.messages = [...view.messages];
     await view.updateComplete;
     expect(required(view.renderRoot, ".thinking").hasAttribute("open")).toBe(false);
@@ -273,6 +305,7 @@ describe("composable normal chat", () => {
     restored.sessionId = "another-session";
     await restored.updateComplete;
     await openGroup(restored);
+    // Another session starts from the default instead of inheriting the choice.
     expect(required(restored.renderRoot, ".thinking").hasAttribute("open")).toBe(true);
   });
 
@@ -283,12 +316,33 @@ describe("composable normal chat", () => {
     if (!(thinking instanceof HTMLDetailsElement)) throw new Error("Expected thinking disclosure");
     thinking.open = false;
     thinking.dispatchEvent(new Event("toggle"));
+    await view.updateComplete;
     view.messages = [{ role: "assistant", entryId: "earlier-thinking", parts: [{ type: "thinking", text: "Earlier plan." }] }, ...view.messages];
     await view.updateComplete;
     const entries = view.renderRoot.querySelectorAll<HTMLDetailsElement>(".thinking");
     expect(entries).toHaveLength(2);
     expect(entries[0]?.open).toBe(true);
     expect(entries[1]?.open).toBe(false);
+  });
+
+  it("reveals a hidden chrome when the host pins it for a view a scroll cannot restore", async () => {
+    const view = await mount();
+    const viewport = scrollingViewport(view, 900);
+    const events: ChatChromeVisibilityDetail[] = [];
+    view.addEventListener(CHAT_CHROME_VISIBILITY_EVENT, (event) => { if (isChromeVisibilityEvent(event)) events.push(event.detail); });
+    // The first scroll sample restores the session baseline instead of toggling.
+    viewport.move(900);
+    viewport.move(1500);
+    expect(events.at(-1)).toEqual({ hidden: true });
+
+    view.chromePinned = true;
+    await view.updateComplete;
+    expect(events.at(-1)).toEqual({ hidden: false });
+
+    // The pinned chrome is the only route back to the view that pinned it, so
+    // further scrolling must not slide it away again.
+    viewport.move(2000);
+    expect(events.at(-1)).toEqual({ hidden: false });
   });
 
   it.each([true, false])("follows native group and nested lazy toggles (remember choices: %s)", async (rememberDisclosures) => {
@@ -323,6 +377,36 @@ describe("composable normal chat", () => {
     expect(required(view.renderRoot, '[aria-label="Jump to end"]').classList.contains("following")).toBe(true);
     expect(render).toHaveBeenCalled();
     expect(group.querySelector(".group-body")).toBeNull();
+  });
+
+  it("follows a height change from a block expanded inside a nested shadow root", async () => {
+    // Tool cards and rendered markdown expand a disclosure inside their own
+    // shadow root, so the native toggle never reaches the transcript. The
+    // ResizeObserver over the transcript's blocks is what keeps follow-scroll
+    // aware of that height change.
+    const triggers: (() => void)[] = [];
+    class FakeResizeObserver {
+      readonly observed = new Set<Element>();
+      constructor(private readonly callback: ResizeObserverCallback) {
+        triggers.push(() => { this.callback([], this); });
+      }
+      observe(target: Element): void { this.observed.add(target); }
+      unobserve(target: Element): void { this.observed.delete(target); }
+      disconnect(): void { this.observed.clear(); }
+    }
+    vi.stubGlobal("ResizeObserver", FakeResizeObserver);
+    const view = await mount();
+    const { metrics, write } = controlledChatViewport(view);
+    flushFrames(); await view.updateComplete;
+    write.mockClear();
+    const trigger = triggers.at(-1);
+    if (trigger === undefined) throw new Error("Expected a transcript ResizeObserver");
+
+    metrics.height = 2600;
+    trigger();
+    flushFrames();
+
+    expect(write).toHaveBeenCalledWith(2600);
   });
 
   it.each(["paused", "disabled"])("leaves disclosure layout alone when following is %s", async (mode) => {
@@ -547,6 +631,10 @@ describe("composable normal chat", () => {
     ] }];
     await view.updateComplete;
     await openGroup(view);
+    const thinking = required(view.renderRoot, ".thinking");
+    const body = required(thinking, "chat-disclosure-body");
+    if (!(thinking instanceof HTMLDetailsElement) || !(body instanceof ChatDisclosureBody)) throw new Error("Expected thinking disclosure");
+    await body.updateComplete;
     for (const disclosure of view.renderRoot.querySelectorAll<HTMLDetailsElement>(".skill-invocation, .tool-result")) {
       disclosure.open = true; disclosure.dispatchEvent(new Event("toggle"));
     }
