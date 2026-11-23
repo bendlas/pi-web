@@ -67,6 +67,7 @@ describe("subsession completion delivery through native Pi", () => {
         join: (...args) => hosted.joinSubsessions(...args),
         check: (...args) => hosted.checkSubsession(...args),
         read: (...args) => hosted.readSubsession(...args),
+        steer: (...args) => hosted.steerSubsession(...args),
       }), defineTool({
         name: "independent_work", label: "Independent work", description: "Continue work without inspecting the child.", parameters: Type.Object({}),
         execute: () => Promise.resolve({ content: [{ type: "text" as const, text: "Independent step finished" }], details: {} }),

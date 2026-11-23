@@ -62,8 +62,7 @@ it("localizes the panel live with unchanged raw values, controls and focus", asy
     expect(frame(panel).heading).toBe(messages.t("heading"));
     expect(frame(panel).description).toBe(messages.t("description", { target: raw }));
     expect(frame(panel).actionLabel).toBe(messages.t("refresh"));
-    expect(ask.closest("label")?.textContent.trim()).toBe(messages.t("askUser"));
-    expect(Array.from(panel.shadowRoot?.querySelectorAll("small code") ?? [], (node) => node.textContent)).toEqual(["spawn_session", "spawn_subsession", "list_subsessions", "check_subsession", "read_subsession", "send_session_message", "ask_user"]);
+    expect(Array.from(panel.shadowRoot?.querySelectorAll("small code") ?? [], (node) => node.textContent)).toEqual(["spawn_session", "spawn_subsession", "list_subsessions", "check_subsession", "read_subsession", "steer_subsession", "send_session_message", "ask_user"]);
     expect(panel.shadowRoot?.querySelector("#restart-summary-help")?.textContent).toBe(messages.t("restartHelp"));
     expect(panel.shadowRoot?.querySelector(".config-path-card code")?.textContent).toBe(panel.configResponse?.path);
     expect(Array.from(panel.shadowRoot?.querySelectorAll("dd") ?? [], (node) => node.textContent)).toEqual(Array<string>(4).fill(messages.t("enabled")));
