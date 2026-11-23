@@ -1,6 +1,6 @@
 import type { StylesheetIntegrationCapabilityV1, PiWebPlugin, PluginCapability } from "@jmfederico/pi-web/plugin-api";
 import { createTasksLocalization } from "./tasksLocalization.js";
-import { TASKS_CONFIG_PATH } from "./config.js";
+import { SCRIPTS_CONFIG_PATH } from "./config.js";
 import { defineTasksPanelElement, tasksPanelBadge } from "./tasksPanelElement.js";
 
 const stylesheetIntegrationCapability: PluginCapability<StylesheetIntegrationCapabilityV1, 1> = {
@@ -22,10 +22,10 @@ function isStylesheetIntegration(value: unknown): value is StylesheetIntegration
 
 const plugin = {
   apiVersion: 4,
-  name: "Workspace Tasks",
+  name: "Workspace Scripts",
   requires: [stylesheetIntegrationCapability],
   activate: ({ runtimePluginId, html, svg, localization }) => {
-    if (localization === undefined) throw new Error("The Workspace Tasks plugin requires a localization-capable PI WEB host");
+    if (localization === undefined) throw new Error("The Workspace Scripts plugin requires a localization-capable PI WEB host");
     const translations = createTasksLocalization(localization);
     const { messages } = translations;
     defineTasksPanelElement();
@@ -38,21 +38,21 @@ const plugin = {
       contributions: {
         actions: [
           {
-            id: "workspace.open-tasks",
-            get title() { return messages.t("openTasks"); },
-            get description() { return messages.t("openDescription", { path: TASKS_CONFIG_PATH }); },
+            id: "workspace.open-scripts",
+            get title() { return messages.t("openScripts"); },
+            get description() { return messages.t("openDescription", { path: SCRIPTS_CONFIG_PATH }); },
             get group() { return messages.t("workspace"); },
             enabled: (context) => context.state.selectedWorkspace !== undefined,
             run: (context) => {
               if (context.state.selectedWorkspace === undefined) return;
-              context.selectWorkspaceTool(`${runtimePluginId}:workspace.tasks`);
+              context.selectWorkspaceTool(`${runtimePluginId}:workspace.scripts`);
             },
           },
         ],
         workspacePanels: [
           {
-            id: "workspace.tasks",
-            get title() { return messages.t("tasks"); },
+            id: "workspace.scripts",
+            get title() { return messages.t("scripts"); },
             icon: svg`
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M9 6h11"></path>

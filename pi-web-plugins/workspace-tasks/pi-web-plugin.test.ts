@@ -57,7 +57,7 @@ function workspaceContext() {
     host: { requestRender: vi.fn() },
     prompt: { insertText: vi.fn(), getText: vi.fn(() => ""), getSelection: vi.fn(() => null) },
     terminal: { open: vi.fn(), runCommand: vi.fn<WorkspacePanelContext["terminal"]["runCommand"]>() },
-    navigation: { version: 1, contributionId: "remote.workspace-tasks:workspace.tasks", query: {}, set: vi.fn() },
+    navigation: { version: 1, contributionId: "remote.workspace-tasks:workspace.scripts", query: {}, set: vi.fn() },
   } satisfies WorkspacePanelContext;
 }
 
@@ -77,7 +77,7 @@ function button(panel: Element, selector: string): HTMLButtonElement {
   return required(root(panel).querySelector<HTMLButtonElement>(selector));
 }
 
-describe("Workspace Tasks localization", () => {
+describe("Workspace Scripts localization", () => {
   it("keeps metadata, confirmation, status, and child controls live without translating user content", async () => {
     const { service, localization } = localizationFixture(true);
     const instance = activate(localization);
@@ -90,7 +90,7 @@ describe("Workspace Tasks localization", () => {
     const panel = required(container.querySelector(tasksPanelTagName));
     await vi.waitFor(() => { expect(button(panel, "[data-task-id]").textContent).toBe("Run"); });
     service.registerCatalog({ id: "tasks-fr", namespace: "plugin:workspace-tasks:tasks", locale: "fr", load: () => Promise.resolve({
-      tasks: "Tâches", openTasks: "Ouvrir les tâches", workspace: "Espace", openDescription: "Configurer {path}.",
+      scripts: "Tâches", openScripts: "Ouvrir les tâches", workspace: "Espace", openDescription: "Configurer {path}.",
       refresh: "Actualiser", run: "Exécuter", cancelled: "Annulé : {title}.",
       confirm: "Exécuter {title} ?\n\n{command}", loaded: "{count, plural, one {# tâche chargée} other {# tâches chargées}}.",
     }) });
@@ -98,7 +98,7 @@ describe("Workspace Tasks localization", () => {
     expect(contribution.title).toBe("Tâches");
     expect(action.title).toBe("Ouvrir les tâches");
     expect(action.group).toBe("Espace");
-    expect(action.description).toBe("Configurer .pi-web/tasks.json.");
+    expect(action.description).toBe("Configurer .pi-web/scripts.json.");
     expect(button(panel, "[data-refresh-config]").textContent).toBe("Actualiser");
     expect(button(panel, "[data-task-id]").textContent).toBe("Exécuter");
     const confirm = vi.fn(() => false);
@@ -117,7 +117,7 @@ describe("Workspace Tasks localization", () => {
       expect(button(panel, "[data-task-id]").textContent).not.toBe("Run");
       expect(root(panel).textContent).toContain("Build <app>");
       expect(root(panel).textContent).toContain("npm run build");
-      expect(root(panel).textContent).toContain(".pi-web/tasks.json");
+      expect(root(panel).textContent).toContain(".pi-web/scripts.json");
       expect(root(panel).querySelector("app")).toBeNull();
     }
     expect(service.direction).toBe("rtl");
@@ -142,7 +142,7 @@ describe("Workspace Tasks localization", () => {
     expect(context.files.readFile).toHaveBeenCalledOnce();
     context.files.readFile.mockRejectedValue(new Error("<img src=x> backend failure"));
     button(panel, "[data-refresh-config]").click();
-    await vi.waitFor(() => { expect(root(panel).textContent).toContain("Lecture de .pi-web/tasks.json impossible : <img src=x> backend failure"); });
+    await vi.waitFor(() => { expect(root(panel).textContent).toContain("Lecture de .pi-web/scripts.json impossible : <img src=x> backend failure"); });
     expect(root(panel).querySelector("img")).toBeNull();
   });
 
@@ -171,7 +171,7 @@ describe("Workspace Tasks localization", () => {
   });
 });
 
-describe("Workspace Tasks stylesheet integration", () => {
+describe("Workspace Scripts stylesheet integration", () => {
   it("requires v1 and registers the rendered panel for shared UI with activation-local ownership", () => {
     const requirement = required(plugin.requires.find(({ id }) => id === "stylesheet-integration"));
     expect(plugin.requires).toEqual([requirement]);

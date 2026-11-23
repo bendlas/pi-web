@@ -295,7 +295,7 @@ Project-local `plugins.<id>.settings` supplies overrides for server plugins that
 
 The MCP manager package uses its own `.pi/mcp-manager.json`, not the project PI WEB config; see [managed MCP servers](#managed-mcp).
 
-Plugins may also own separate project files, such as `.pi-web/tasks.json` for the built-in Workspace Tasks plugin.
+Plugins may also own separate project files, such as `.pi-web/scripts.json` for the built-in Workspace Scripts plugin (an earlier `.pi-web/tasks.json` is still read).
 
 PI WEB also honors one optional project hook; see [Worktree pre-remove hook](#worktree-pre-remove-hook).
 
@@ -594,9 +594,9 @@ This mirrors the Pi CLI: with `defaultProjectTrust: "never"`, an opened workspac
 
 `spawnSessions` controls whether agents receive the `spawn_session` tool. It defaults to `true`; set it to `false` if you do not want an agent to start independent PI WEB sessions.
 
-`subsessions` controls whether agents receive the tracked-subsession tools: `spawn_subsession`, `list_subsessions`, `check_subsession`, `read_subsession`, `yield_to_subsessions`, and `manage_subsession`. It defaults to `true` and also requires `spawnSessions` to be enabled.
+`subsessions` controls whether agents receive the tracked-subsession tools: `spawn_subsession`, `list_subsessions`, `check_subsession`, `read_subsession`, `steer_subsession`, `wait_subsessions`, `yield_to_subsessions`, and `manage_subsession`. It defaults to `true` and also requires `spawnSessions` to be enabled.
 
-Independent sessions run in a workspace of the same project without granting management rights or sending automatic lifecycle notices to the initiating session. Tracked subsessions run in the parent's working directory and give the parent inspection and lifecycle controls. When a tracked child's run ends, the parent receives an idle or error notice—not the child's final answer or a claim that its task is complete. A working parent receives notices at the next safe turn boundary, without waiting for its run to finish. The parent can keep working or use `yield_to_subsessions` to suspend until a new notice arrives. Received notices are not automatically repeated; explicit inspection remains available through `check_subsession` and `read_subsession`.
+Independent sessions run in a workspace of the same project without granting management rights or sending automatic lifecycle notices to the initiating session. Tracked subsessions run in the parent's working directory by default, or in any workspace of the project when `cwd` is passed to `spawn_subsession`, and give the parent inspection and lifecycle controls. The child stays nested under its parent in the web UI while appearing in its own workspace's session tree. When a tracked child's run ends, the parent receives an idle or error notice—not the child's final answer or a claim that its task is complete. A working parent receives notices at the next safe turn boundary, without waiting for its run to finish. The parent can keep working, use `wait_subsessions` to block until a notice arrives, or use `yield_to_subsessions` to suspend until a new notice arrives. Received notices are not automatically repeated; explicit inspection remains available through `check_subsession` and `read_subsession`.
 
 Both kinds of session use the same `send_session_message` tool for communication when messaging is enabled. What to communicate, when to reply, and whether a task is finished are decisions for the agents and their instructions, skills, or workflows.
 
@@ -607,6 +607,10 @@ Parents use `manage_subsession` with a direct child's `sessionId` and an `action
 To allow messaging across all projects on a machine, add `"crossProjectSessionMessages": true` to that machine's [writable global config](#config-files) (selected by `PI_WEB_CONFIG` when set), or set `PI_WEB_CROSS_PROJECT_SESSION_MESSAGES=1`. This setting defaults to `false` and has no project-local override or per-project allowlist. It lets agents wake idle sessions and steer busy sessions in other projects, including reopening inactive conversations. `sessionMessages: false` still blocks all messaging. Spawning, transcript-inspection tools, and subsession controls keep their existing scope; archived sessions remain read-only. Restart the session daemon to apply the change; restarting interrupts active sessions and terminals.
 
 Agent-created tracked subsessions are collapsed under their parent. Use **Agent subsessions** to expand them. User-created forks and clones, unknown-origin sessions, children without an available parent, and independent sessions remain visible.
+
+A tracked subsession can run in any workspace of the project: pass `cwd` to `spawn_subsession` to target another worktree, and the child still stays nested under this session in the web UI while appearing in that workspace's session tree. This is the preferred way to delegate work across the project's workspaces while staying attached. `spawn_session` is the escape hatch for work that should be a fully independent, untracked session.
+
+A parent can redirect a running child with `steer_subsession` instead of waiting for it to finish: the message is delivered after the child's current turn finishes its tool calls and before its next model call, so it lands mid-run. Steering an idle child starts a new turn. The tool accepts only the caller's own tracked children.
 
 New sessions inherit the parent's model and thinking level unless another model is requested, for example with a `#provider/model-id` prompt reference. Thinking levels are limited to what the chosen model supports.
 

@@ -146,6 +146,15 @@ export function createCoreActions(): PluginAction[] {
       run: (context) => context.startSession(),
     },
     {
+      id: "prompt.steer",
+      get title() { return m.t("prompt_steer_title"); },
+      get description() { return m.t("prompt_steer_description"); },
+      shortcut: "mod+shift+enter",
+      get group() { return m.t("groupSession"); },
+      enabled: hasStreamingSession,
+      run: (context) => { context.steerPrompt(); },
+    },
+    {
       id: "model.select",
       get title() { return m.t("model_select_title"); },
       get description() { return m.t("model_select_description"); },
@@ -158,6 +167,7 @@ export function createCoreActions(): PluginAction[] {
       get title() { return m.t("thinking_select_title"); },
       get description() { return m.t("thinking_select_description"); },
       get group() { return m.t("groupSession"); },
+      shortcut: "mod+shift+t",
       enabled: hasSelectableSession,
       run: (context) => context.openThinkingLevelPicker(),
     },
@@ -208,6 +218,12 @@ function hasDeletableWorkspace(context: { state: AppState }): boolean {
 function hasSelectableSession(context: { state: AppState }): boolean {
   const session = context.state.selectedSession;
   return session !== undefined && session.archived !== true;
+}
+
+function hasStreamingSession(context: { state: AppState }): boolean {
+  const session = context.state.selectedSession;
+  const { status } = context.state;
+  return session !== undefined && session.archived !== true && status?.isStreaming === true && !status.isCompacting;
 }
 
 function hasArchivableSession(context: { state: AppState }): boolean {
