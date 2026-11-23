@@ -1,0 +1,13 @@
+{
+  "name": "@pi-web/jj-plugin",
+  "private": true,
+  "type": "module",
+  "piWeb": {
+    "plugins": [
+      {
+        "id": "jj",
+        "serverModule": "server-plugin.js"
+      }
+    ]
+  }
+}
