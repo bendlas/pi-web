@@ -27,7 +27,7 @@ Built for [Pi Coding Agent](https://github.com/earendil-works/pi/tree/main/packa
 
 ## Quick start
 
-The recommended setup uses Node.js 22.19.0+, npm, Pi Coding Agent installed and configured for your user, git, and the development tools your agents need. [Best-effort Bun support](https://pi-web.dev/install#bun) is also available.
+The recommended setup uses Node.js 22.19.0+, npm, Pi Coding Agent installed and configured for your user, git, and the development tools your agents need. [Best-effort Bun support](https://pi-web.dev/install#bun) is also available. Jujutsu is optional and used when `jj` is installed.
 
 ```bash
 npm install -g @jmfederico/pi-web --allow-scripts=node-pty
